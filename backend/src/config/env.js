@@ -40,6 +40,12 @@ const env = {
     from: process.env.MAIL_FROM || "Point of Sale <no-reply@devinception.com>",
   },
 
+  company: {
+    name: process.env.COMPANY_NAME || "DevInception",
+    address: process.env.COMPANY_ADDRESS || "",
+    phone: process.env.COMPANY_PHONE || "",
+  },
+
   superAdmin: {
     name: process.env.SUPER_ADMIN_NAME || "Super Admin",
     email: process.env.SUPER_ADMIN_EMAIL,

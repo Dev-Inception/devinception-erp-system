@@ -22,6 +22,41 @@ const PERMISSIONS = {
   ROLES_CREATE: "roles:create",
   ROLES_UPDATE: "roles:update",
   ROLES_DELETE: "roles:delete",
+
+  // Vendor management
+  VENDORS_READ: "vendors:read",
+  VENDORS_CREATE: "vendors:create",
+  VENDORS_UPDATE: "vendors:update",
+  VENDORS_DELETE: "vendors:delete",
+
+  // Customer management
+  CUSTOMERS_READ: "customers:read",
+  CUSTOMERS_CREATE: "customers:create",
+  CUSTOMERS_UPDATE: "customers:update",
+  CUSTOMERS_DELETE: "customers:delete",
+
+  // Inventory (warehouses + products + stock)
+  INVENTORY_READ: "inventory:read",
+  INVENTORY_MANAGE: "inventory:manage",
+
+  // Goods purchases
+  PURCHASES_READ: "purchases:read",
+  PURCHASES_CREATE: "purchases:create",
+
+  // POS sales
+  SALES_READ: "sales:read",
+  SALES_CREATE: "sales:create",
+
+  // Invoices (customer billing documents)
+  INVOICES_READ: "invoices:read",
+  INVOICES_CREATE: "invoices:create",
+
+  // Finance: ledgers, cash & bank, payments
+  FINANCE_READ: "finance:read",
+  FINANCE_MANAGE: "finance:manage",
+
+  // Reports
+  REPORTS_READ: "reports:read",
 };
 
 const PERMISSION_VALUES = Object.values(PERMISSIONS);

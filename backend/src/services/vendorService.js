@@ -1,0 +1,82 @@
+const Vendor = require("../models/vendorModel");
+const ApiError = require("../utils/ApiError");
+const journalService = require("./journalService");
+const { ACCOUNT } = require("../utils/finance");
+const { toRupees } = require("../utils/money");
+
+/**
+ * Vendor (supplier) management. Authorization is enforced by route
+ * middleware; here we enforce the data rules. `outstanding` is intentionally
+ * never accepted from the client — it is maintained by purchase/payment flows.
+ */
+
+// Whitelist the fields a client may set, so `outstanding` (and anything else)
+// can't be injected through the request body.
+function pickWritable({ name, phone, email, ntn, address }) {
+  const fields = { name, phone, email, ntn, address };
+  // Drop undefined so a partial update only touches provided fields.
+  Object.keys(fields).forEach((k) => fields[k] === undefined && delete fields[k]);
+  return fields;
+}
+
+async function listVendors({ page = 1, limit = 20, search }) {
+  const filter = {};
+  if (search) {
+    filter.$or = [
+      { name: { $regex: search, $options: "i" } },
+      { phone: { $regex: search, $options: "i" } },
+      { email: { $regex: search, $options: "i" } },
+    ];
+  }
+
+  const skip = (Math.max(page, 1) - 1) * limit;
+  const [docs, total, balances] = await Promise.all([
+    Vendor.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
+    Vendor.countDocuments(filter),
+    journalService.balancesByRef(ACCOUNT.AP),
+  ]);
+
+  // Replace the (legacy) stored outstanding with the live payable from the
+  // ledger, in rupees, so the list matches the partner's statement.
+  const vendors = docs.map((v) => ({
+    ...v,
+    outstanding: toRupees(balances.get(String(v._id)) || 0),
+  }));
+
+  return { vendors, total, page: Number(page), limit: Number(limit) };
+}
+
+async function getVendorById(id) {
+  const vendor = await Vendor.findById(id);
+  if (!vendor) throw ApiError.notFound("Vendor not found");
+  return vendor;
+}
+
+async function createVendor(data) {
+  return Vendor.create(pickWritable(data));
+}
+
+async function updateVendor(id, data) {
+  const vendor = await getVendorById(id);
+  Object.assign(vendor, pickWritable(data));
+  await vendor.save();
+  return vendor;
+}
+
+async function deleteVendor(id) {
+  const vendor = await getVendorById(id);
+  if (vendor.outstanding > 0) {
+    throw ApiError.badRequest(
+      "Vendor has an outstanding balance and cannot be deleted"
+    );
+  }
+  await vendor.deleteOne();
+}
+
+module.exports = {
+  listVendors,
+  getVendorById,
+  createVendor,
+  updateVendor,
+  deleteVendor,
+};
