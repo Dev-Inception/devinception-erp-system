@@ -101,8 +101,7 @@ export const usePermissionsStore = create<PermissionsState>()(
           return { access: { ...s.access, [role]: next } };
         }),
 
-      setRoleModules: (role, keys) =>
-        set((s) => ({ access: { ...s.access, [role]: keys } })),
+      setRoleModules: (role, keys) => set((s) => ({ access: { ...s.access, [role]: keys } })),
 
       resetAccess: () => set({ access: defaultAccess() }),
 
