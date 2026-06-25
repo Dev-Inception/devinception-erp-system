@@ -37,20 +37,54 @@ function CreateWarehouseDialog() {
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button><Plus className="h-4 w-4" /> Add Warehouse</Button>
+        <Button>
+          <Plus className="h-4 w-4" /> Add Warehouse
+        </Button>
       </DialogTrigger>
       <DialogContent className="max-w-md">
-        <DialogHeader><DialogTitle>New Warehouse</DialogTitle></DialogHeader>
-        <form className="space-y-3" onSubmit={(e) => { e.preventDefault(); create.mutate(); }}>
-          <div className="space-y-1.5"><Label>Name *</Label><Input required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="e.g. Warehouse B / Downtown Branch" /></div>
-          <div className="space-y-1.5"><Label>Location</Label><Input value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })} /></div>
+        <DialogHeader>
+          <DialogTitle>New Warehouse</DialogTitle>
+        </DialogHeader>
+        <form
+          className="space-y-3"
+          onSubmit={(e) => {
+            e.preventDefault();
+            create.mutate();
+          }}
+        >
+          <div className="space-y-1.5">
+            <Label>Name *</Label>
+            <Input
+              required
+              value={form.name}
+              onChange={(e) => setForm({ ...form, name: e.target.value })}
+              placeholder="e.g. Warehouse B / Downtown Branch"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Location</Label>
+            <Input
+              value={form.location}
+              onChange={(e) => setForm({ ...form, location: e.target.value })}
+            />
+          </div>
           <label className="flex items-center gap-2 text-sm">
-            <input type="checkbox" checked={form.isDefault} onChange={(e) => setForm({ ...form, isDefault: e.target.checked })} />
+            <input
+              type="checkbox"
+              checked={form.isDefault}
+              onChange={(e) => setForm({ ...form, isDefault: e.target.checked })}
+            />
             Make this the default warehouse
           </label>
           <div className="flex justify-end gap-2 pt-1">
-            <DialogClose asChild><Button type="button" variant="outline">Cancel</Button></DialogClose>
-            <Button type="submit" disabled={create.isPending}>{create.isPending && <Loader2 className="h-4 w-4 animate-spin" />}Save</Button>
+            <DialogClose asChild>
+              <Button type="button" variant="outline">
+                Cancel
+              </Button>
+            </DialogClose>
+            <Button type="submit" disabled={create.isPending}>
+              {create.isPending && <Loader2 className="h-4 w-4 animate-spin" />}Save
+            </Button>
           </div>
         </form>
       </DialogContent>
@@ -76,7 +110,9 @@ export function WarehousesPage() {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <p className="text-sm text-muted-foreground">{warehouses.length} warehouse(s) — each keeps its own inventory.</p>
+        <p className="text-sm text-muted-foreground">
+          {warehouses.length} warehouse(s) — each keeps its own inventory.
+        </p>
         <CreateWarehouseDialog />
       </div>
 
@@ -94,7 +130,9 @@ export function WarehousesPage() {
                     </div>
                     <div>
                       <p className="font-semibold">{w.name}</p>
-                      <p className="text-xs text-muted-foreground">{w.location || 'No location set'}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {w.location || 'No location set'}
+                      </p>
                     </div>
                   </div>
                   {w.isDefault && (
@@ -116,7 +154,13 @@ export function WarehousesPage() {
                 </div>
 
                 {!w.isDefault && (
-                  <Button variant="outline" size="sm" className="w-full" disabled={setDefault.isPending} onClick={() => setDefault.mutate(w.id)}>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="w-full"
+                    disabled={setDefault.isPending}
+                    onClick={() => setDefault.mutate(w.id)}
+                  >
                     <Check className="h-4 w-4" /> Set as default
                   </Button>
                 )}

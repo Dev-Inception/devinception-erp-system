@@ -35,15 +35,15 @@
 
 ## 2. Layers & responsibilities
 
-| Layer | Tech | Responsibility |
-|-------|------|----------------|
-| Presentation | React 18, Tailwind, shadcn/UI, Recharts | UI, routing, optimistic updates |
-| Client state | Zustand (auth/session), React Query (server cache) | Token storage, data fetching/caching |
-| Transport | Axios (REST), socket.io-client | API calls + live events |
-| API | NestJS controllers + DTOs (class-validator) | HTTP surface, validation, RBAC |
-| Domain | NestJS services | Business rules, transactions |
-| Data | Prisma + PostgreSQL | Persistence, migrations |
-| Desktop | Electron main/preload | Local printing, file storage, auto-update, offline |
+| Layer        | Tech                                               | Responsibility                                     |
+| ------------ | -------------------------------------------------- | -------------------------------------------------- |
+| Presentation | React 18, Tailwind, shadcn/UI, Recharts            | UI, routing, optimistic updates                    |
+| Client state | Zustand (auth/session), React Query (server cache) | Token storage, data fetching/caching               |
+| Transport    | Axios (REST), socket.io-client                     | API calls + live events                            |
+| API          | NestJS controllers + DTOs (class-validator)        | HTTP surface, validation, RBAC                     |
+| Domain       | NestJS services                                    | Business rules, transactions                       |
+| Data         | Prisma + PostgreSQL                                | Persistence, migrations                            |
+| Desktop      | Electron main/preload                              | Local printing, file storage, auto-update, offline |
 
 ## 3. Key design decisions
 
@@ -58,6 +58,7 @@
 ## 4. Transaction integrity (POS checkout example)
 
 A single Prisma `$transaction` performs, atomically:
+
 1. Allocate `SALE-####` number.
 2. Create `Sale` + `SaleItem[]`.
 3. For each item: decrement `StockLevel`, append `StockMovement(STOCK_OUT)`.

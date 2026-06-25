@@ -35,7 +35,10 @@ const fail = (status: number, message: string) =>
   Promise.reject({ response: { status, data: { statusCode: status, message } } });
 
 const matches = (a: string, b?: unknown) =>
-  !b || String(a ?? '').toLowerCase().includes(String(b).toLowerCase());
+  !b ||
+  String(a ?? '')
+    .toLowerCase()
+    .includes(String(b).toLowerCase());
 
 const startOfDay = () => {
   const d = new Date();
@@ -52,7 +55,9 @@ const dayKey = (iso: string) => iso.slice(0, 10);
 function listProducts(search?: unknown, warehouseId?: unknown) {
   return db.products
     .filter((p) => p.isActive)
-    .filter((p) => matches(p.name, search) || matches(p.sku, search) || matches(p.barcode ?? '', search))
+    .filter(
+      (p) => matches(p.name, search) || matches(p.sku, search) || matches(p.barcode ?? '', search),
+    )
     .sort((a, b) => a.name.localeCompare(b.name))
     .map((p) => {
       const currentStock = productStock(p.id, warehouseId ? String(warehouseId) : undefined);
@@ -74,7 +79,10 @@ function listWarehouses() {
     .sort((a, b) => Number(b.isDefault) - Number(a.isDefault) || a.name.localeCompare(b.name))
     .map((w) => {
       const items = db.products.filter((p) => productStock(p.id, w.id) !== 0);
-      const stockValue = db.products.reduce((s, p) => s + productStock(p.id, w.id) * p.purchasePrice, 0);
+      const stockValue = db.products.reduce(
+        (s, p) => s + productStock(p.id, w.id) * p.purchasePrice,
+        0,
+      );
       return { ...w, itemCount: items.length, stockValue };
     });
 }
@@ -101,7 +109,10 @@ function listSales() {
   return db.sales
     .slice()
     .sort((a, b) => +new Date(b.date) - +new Date(a.date))
-    .map((s) => ({ ...s, customer: s.customerId ? { name: customerName(s.customerId) } : undefined }));
+    .map((s) => ({
+      ...s,
+      customer: s.customerId ? { name: customerName(s.customerId) } : undefined,
+    }));
 }
 
 function listInvoices() {
@@ -130,7 +141,13 @@ function partyLedger(kind: 'customers' | 'vendors', id: string) {
   let balance = 0;
   const rows = entries.map((e) => {
     balance += kind === 'customers' ? e.debit - e.credit : e.credit - e.debit;
-    return { date: e.date, description: e.description, debit: e.debit, credit: e.credit, balanceAfter: balance };
+    return {
+      date: e.date,
+      description: e.description,
+      debit: e.debit,
+      credit: e.credit,
+      balanceAfter: balance,
+    };
   });
   return { balance, entries: rows };
 }
@@ -144,10 +161,18 @@ function dashboardKpis() {
     todaySales: sum(completed.filter((s) => +new Date(s.date) >= sod)),
     monthSales: sum(completed.filter((s) => +new Date(s.date) >= som)),
     totalRevenue: sum(completed),
-    totalExpenses: db.cashTxns.filter((t) => t.type === 'CASH_OUT').reduce((s, t) => s + t.amount, 0),
+    totalExpenses: db.cashTxns
+      .filter((t) => t.type === 'CASH_OUT')
+      .reduce((s, t) => s + t.amount, 0),
     stockValue: db.products.reduce((s, p) => s + productStock(p.id) * p.purchasePrice, 0),
-    outstandingReceivables: db.customers.reduce((s, c) => s + Math.max(0, partyOutstanding('customers', c.id)), 0),
-    outstandingPayables: db.vendors.reduce((s, v) => s + Math.max(0, partyOutstanding('vendors', v.id)), 0),
+    outstandingReceivables: db.customers.reduce(
+      (s, c) => s + Math.max(0, partyOutstanding('customers', c.id)),
+      0,
+    ),
+    outstandingPayables: db.vendors.reduce(
+      (s, v) => s + Math.max(0, partyOutstanding('vendors', v.id)),
+      0,
+    ),
   };
 }
 
@@ -225,7 +250,13 @@ function buildReport(type: string, from?: unknown, to?: unknown) {
     const rows = db.purchases
       .filter((p) => inRange(p.date, from, to))
       .sort((a, b) => +new Date(b.date) - +new Date(a.date))
-      .map((p) => ({ gpNumber: p.gpNumber, date: dayKey(p.date), vendor: vendorName(p.vendorId) ?? '—', paid: p.paidAmount, total: p.grandTotal }));
+      .map((p) => ({
+        gpNumber: p.gpNumber,
+        date: dayKey(p.date),
+        vendor: vendorName(p.vendorId) ?? '—',
+        paid: p.paidAmount,
+        total: p.grandTotal,
+      }));
     return {
       title: 'Purchase Report',
       columns: [
@@ -236,7 +267,11 @@ function buildReport(type: string, from?: unknown, to?: unknown) {
         { key: 'total', label: 'Total', numeric: true },
       ],
       rows,
-      summary: { count: rows.length, paid: rows.reduce((s, r) => s + r.paid, 0), total: rows.reduce((s, r) => s + r.total, 0) },
+      summary: {
+        count: rows.length,
+        paid: rows.reduce((s, r) => s + r.paid, 0),
+        total: rows.reduce((s, r) => s + r.total, 0),
+      },
     };
   }
   if (type === 'stock') {
@@ -268,14 +303,25 @@ function buildReport(type: string, from?: unknown, to?: unknown) {
         { key: 'lowStock', label: 'Low?' },
       ],
       rows,
-      summary: { products: rows.length, totalQty: rows.reduce((s, r) => s + r.qty, 0), totalValue: rows.reduce((s, r) => s + r.value, 0) },
+      summary: {
+        products: rows.length,
+        totalQty: rows.reduce((s, r) => s + r.qty, 0),
+        totalValue: rows.reduce((s, r) => s + r.value, 0),
+      },
     };
   }
   // pnl
   const sales = db.sales.filter((s) => s.status === 'COMPLETED' && inRange(s.date, from, to));
   const revenue = sales.reduce((s, x) => s + x.grandTotal, 0);
-  const cogs = sales.reduce((s, x) => s + x.items.reduce((t, i) => t + i.quantity * (findProduct(i.productId)?.purchasePrice ?? 0), 0), 0);
-  const expenses = db.cashTxns.filter((t) => t.type === 'CASH_OUT' && inRange(t.date, from, to)).reduce((s, t) => s + t.amount, 0);
+  const cogs = sales.reduce(
+    (s, x) =>
+      s +
+      x.items.reduce((t, i) => t + i.quantity * (findProduct(i.productId)?.purchasePrice ?? 0), 0),
+    0,
+  );
+  const expenses = db.cashTxns
+    .filter((t) => t.type === 'CASH_OUT' && inRange(t.date, from, to))
+    .reduce((s, t) => s + t.amount, 0);
   const grossProfit = revenue - cogs;
   const netProfit = grossProfit - expenses;
   return {
@@ -298,12 +344,21 @@ function buildReport(type: string, from?: unknown, to?: unknown) {
 function invoicePdfBlob(id: string): Blob {
   const inv = db.invoices.find((i) => i.id === id);
   const sale = inv ? db.sales.find((s) => s.id === inv.saleId) : undefined;
-  const items = (sale?.items ?? []).map((i) => ({ name: i.name, qty: i.quantity, price: i.unitPrice, amount: i.amount }));
+  const items = (sale?.items ?? []).map((i) => ({
+    name: i.name,
+    qty: i.quantity,
+    price: i.unitPrice,
+    amount: i.amount,
+  }));
   const html = renderTemplate('INVOICE_A4', {
-    company: { name: db.settings.companyName, address: db.settings.address, phone: db.settings.phone },
+    company: {
+      name: db.settings.companyName,
+      address: db.settings.address,
+      phone: db.settings.phone,
+    },
     number: inv?.invoiceNumber ?? 'INV',
     date: inv ? new Date(inv.issueDate).toLocaleDateString() : '',
-    partyName: inv ? customerName(inv.customerId) ?? 'Walk-in Customer' : '',
+    partyName: inv ? (customerName(inv.customerId) ?? 'Walk-in Customer') : '',
     items,
     subtotal: inv?.subtotal ?? 0,
     tax: inv?.taxTotal ?? 0,
@@ -316,7 +371,8 @@ function invoicePdfBlob(id: string): Blob {
 
 /* ─────────────────── mutations ─────────────────── */
 function createSale(body: any) {
-  const warehouseId = body.warehouseId || db.warehouses.find((w) => w.isDefault)?.id || db.warehouses[0].id;
+  const warehouseId =
+    body.warehouseId || db.warehouses.find((w) => w.isDefault)?.id || db.warehouses[0].id;
   let subtotal = 0;
   let taxTotal = 0;
   const items: SaleItem[] = (body.items ?? []).map((it: any) => {
@@ -328,7 +384,15 @@ function createSale(body: any) {
     const tax = (taxable * taxRate) / 100;
     subtotal += gross;
     taxTotal += tax;
-    return { productId: it.productId, name: product?.name ?? 'Item', quantity: it.quantity, unitPrice: it.unitPrice, discount, taxRate, amount: taxable + tax };
+    return {
+      productId: it.productId,
+      name: product?.name ?? 'Item',
+      quantity: it.quantity,
+      unitPrice: it.unitPrice,
+      discount,
+      taxRate,
+      amount: taxable + tax,
+    };
   });
   const discountTotal = body.discountTotal ?? 0;
   const grandTotal = subtotal - discountTotal + taxTotal;
@@ -357,16 +421,34 @@ function createSale(body: any) {
     db.stock[it.productId] = db.stock[it.productId] || {};
     db.stock[it.productId][warehouseId] = (db.stock[it.productId][warehouseId] ?? 0) - it.quantity;
   }
-  if (paidCash > 0) db.cashTxns.push({ id: uid('cash'), type: 'CASH_IN', amount: paidCash, description: `POS sale ${sale.saleNumber}`, date: sale.date });
+  if (paidCash > 0)
+    db.cashTxns.push({
+      id: uid('cash'),
+      type: 'CASH_IN',
+      amount: paidCash,
+      description: `POS sale ${sale.saleNumber}`,
+      date: sale.date,
+    });
   const onCredit = grandTotal - paidCash - paidBank;
   if (onCredit > 0.01 && body.customerId) {
-    db.ledger.push({ accountKind: 'customers', accountId: body.customerId, date: sale.date, description: `Credit sale ${sale.saleNumber}`, debit: onCredit, credit: 0 });
+    db.ledger.push({
+      accountKind: 'customers',
+      accountId: body.customerId,
+      date: sale.date,
+      description: `Credit sale ${sale.saleNumber}`,
+      debit: onCredit,
+      credit: 0,
+    });
   }
-  return { ...sale, customer: body.customerId ? { name: customerName(body.customerId) } : undefined };
+  return {
+    ...sale,
+    customer: body.customerId ? { name: customerName(body.customerId) } : undefined,
+  };
 }
 
 function createPurchase(body: any) {
-  const warehouseId = body.warehouseId || db.warehouses.find((w) => w.isDefault)?.id || db.warehouses[0].id;
+  const warehouseId =
+    body.warehouseId || db.warehouses.find((w) => w.isDefault)?.id || db.warehouses[0].id;
   let subtotal = 0;
   let taxTotal = 0;
   const items: PurchaseItem[] = (body.items ?? []).map((it: any) => {
@@ -379,7 +461,15 @@ function createPurchase(body: any) {
     subtotal += gross;
     taxTotal += tax;
     if (product) product.purchasePrice = it.rate;
-    return { productId: it.productId, name: product?.name ?? 'Item', quantity: it.quantity, rate: it.rate, taxRate, discount, amount: taxable + tax };
+    return {
+      productId: it.productId,
+      name: product?.name ?? 'Item',
+      quantity: it.quantity,
+      rate: it.rate,
+      taxRate,
+      discount,
+      amount: taxable + tax,
+    };
   });
   const discountTotal = body.discountTotal ?? 0;
   const grandTotal = subtotal - discountTotal + taxTotal;
@@ -405,9 +495,28 @@ function createPurchase(body: any) {
     db.stock[it.productId][warehouseId] = (db.stock[it.productId][warehouseId] ?? 0) + it.quantity;
   }
   const owed = grandTotal - paidAmount;
-  if (owed > 0.01) db.ledger.push({ accountKind: 'vendors', accountId: body.vendorId, date: gp.date, description: `Goods purchase ${gp.gpNumber}`, debit: 0, credit: owed });
-  if (paidAmount > 0) db.cashTxns.push({ id: uid('cash'), type: 'CASH_OUT', amount: paidAmount, description: `Payment for ${gp.gpNumber}`, date: gp.date });
-  return { ...gp, vendor: { name: vendorName(body.vendorId) }, items: items.map((i) => ({ ...i, product: { name: i.name } })) };
+  if (owed > 0.01)
+    db.ledger.push({
+      accountKind: 'vendors',
+      accountId: body.vendorId,
+      date: gp.date,
+      description: `Goods purchase ${gp.gpNumber}`,
+      debit: 0,
+      credit: owed,
+    });
+  if (paidAmount > 0)
+    db.cashTxns.push({
+      id: uid('cash'),
+      type: 'CASH_OUT',
+      amount: paidAmount,
+      description: `Payment for ${gp.gpNumber}`,
+      date: gp.date,
+    });
+  return {
+    ...gp,
+    vendor: { name: vendorName(body.vendorId) },
+    items: items.map((i) => ({ ...i, product: { name: i.name } })),
+  };
 }
 
 function adjustStock(body: any) {
@@ -448,7 +557,12 @@ function createInvoice(body: any) {
 }
 
 /* ─────────────────── router ─────────────────── */
-async function handle(method: string, url: string, body?: any, config?: ReqConfig): Promise<{ data: any }> {
+async function handle(
+  method: string,
+  url: string,
+  body?: any,
+  config?: ReqConfig,
+): Promise<{ data: any }> {
   const params = config?.params ?? {};
   const seg = url.split('/').filter(Boolean); // e.g. ['invoices','abc','pdf']
 
@@ -456,7 +570,8 @@ async function handle(method: string, url: string, body?: any, config?: ReqConfi
   if (method === 'get') {
     if (url === '/warehouses') return ok(listWarehouses());
     if (url === '/products') return ok(listProducts(params.search, params.warehouseId));
-    if (url === '/catalog') return ok({ categories: db.categories, brands: db.brands, units: db.units });
+    if (url === '/catalog')
+      return ok({ categories: db.categories, brands: db.brands, units: db.units });
     if (url === '/customers') return ok(listCustomers(params.search));
     if (url === '/vendors') return ok(listVendors(params.search));
     if (url === '/sales') return ok(listSales());
@@ -481,7 +596,11 @@ async function handle(method: string, url: string, body?: any, config?: ReqConfi
     if (url === '/invoices') return ok(await createInvoice(body));
     if (url === '/uploads') {
       const file = body instanceof FormData ? (body.get('file') as File | null) : null;
-      return ok({ url: `/uploads/mock-${uid('file')}`, name: file?.name ?? 'receipt', size: file?.size ?? 0 });
+      return ok({
+        url: `/uploads/mock-${uid('file')}`,
+        name: file?.name ?? 'receipt',
+        size: file?.size ?? 0,
+      });
     }
     if (url === '/customers') {
       const c = { id: uid('cust'), creditLimit: 0, openingBalance: 0, ...body };
@@ -501,7 +620,13 @@ async function handle(method: string, url: string, body?: any, config?: ReqConfi
       return ok(w);
     }
     if (url === '/cash') {
-      const t = { id: uid('cash'), type: body.type, amount: body.amount, description: body.description, date: new Date().toISOString() };
+      const t = {
+        id: uid('cash'),
+        type: body.type,
+        amount: body.amount,
+        description: body.description,
+        date: new Date().toISOString(),
+      };
       db.cashTxns.push(t);
       return ok(t);
     }
@@ -522,17 +647,32 @@ async function handle(method: string, url: string, body?: any, config?: ReqConfi
     if (seg[0] === 'invoices' && seg[2] === 'send-email') {
       const inv = db.invoices.find((i) => i.id === seg[1]);
       const email = inv && db.customers.find((c) => c.id === inv.customerId)?.email;
-      return ok({ sent: false, message: email ? `Demo mode: email to ${email} is simulated (no SMTP configured).` : 'Customer has no email address.' });
+      return ok({
+        sent: false,
+        message: email
+          ? `Demo mode: email to ${email} is simulated (no SMTP configured).`
+          : 'Customer has no email address.',
+      });
     }
     if (seg[0] === 'invoices' && seg[2] === 'send-whatsapp') {
       const inv = db.invoices.find((i) => i.id === seg[1]);
       const phone = (inv && db.customers.find((c) => c.id === inv.customerId)?.phone) || '';
       const digits = phone.replace(/[^0-9]/g, '');
-      const text = encodeURIComponent(`Hello, here is your invoice ${inv?.invoiceNumber ?? ''} from ${db.settings.companyName}.`);
+      const text = encodeURIComponent(
+        `Hello, here is your invoice ${inv?.invoiceNumber ?? ''} from ${db.settings.companyName}.`,
+      );
       return ok({ url: `https://wa.me/${digits}?text=${text}`, hasPhone: digits.length > 0 });
     }
     if (url === '/products') {
-      const p: Product = { id: uid('prod'), isActive: true, taxRate: 0, minStock: 0, purchasePrice: 0, salePrice: 0, ...body };
+      const p: Product = {
+        id: uid('prod'),
+        isActive: true,
+        taxRate: 0,
+        minStock: 0,
+        purchasePrice: 0,
+        salePrice: 0,
+        ...body,
+      };
       db.products.push(p);
       db.stock[p.id] = {};
       return ok(p);

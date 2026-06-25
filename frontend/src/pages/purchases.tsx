@@ -11,9 +11,25 @@ import { formatCurrency } from '@/lib/utils';
 import { printDocument, type TemplateType } from '@/lib/printing';
 import { useWarehouses } from '@/components/layout/warehouse-switcher';
 
-interface Vendor { id: string; name: string }
-interface Product { id: string; name: string; sku: string; purchasePrice: string; currentStock: number }
-interface Line { productId: string; name: string; quantity: number; rate: number; taxRate: number; discount: number }
+interface Vendor {
+  id: string;
+  name: string;
+}
+interface Product {
+  id: string;
+  name: string;
+  sku: string;
+  purchasePrice: string;
+  currentStock: number;
+}
+interface Line {
+  productId: string;
+  name: string;
+  quantity: number;
+  rate: number;
+  taxRate: number;
+  discount: number;
+}
 
 const GP_FORMATS: { label: string; type: TemplateType }[] = [
   { label: 'Divider Paper', type: 'GP_DIVIDER' },
@@ -59,7 +75,14 @@ export function PurchasesPage() {
       if (ls.some((l) => l.productId === p.id)) return ls;
       return [
         ...ls,
-        { productId: p.id, name: p.name, quantity: 1, rate: Number(p.purchasePrice), taxRate: 0, discount: 0 },
+        {
+          productId: p.id,
+          name: p.name,
+          quantity: 1,
+          rate: Number(p.purchasePrice),
+          taxRate: 0,
+          discount: 0,
+        },
       ];
     });
   };
@@ -107,8 +130,7 @@ export function PurchasesPage() {
       setInvoiceNumber(genVendorInvoiceNo()); // fresh number for the next GP
       qc.invalidateQueries({ queryKey: ['purchases'] });
     },
-    onError: (e: any) =>
-      toast.error(e?.response?.data?.message ?? 'Could not save purchase'),
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Could not save purchase'),
   });
 
   const handlePrint = (type: TemplateType) => {
@@ -142,7 +164,8 @@ export function PurchasesPage() {
           <CardHeader>
             <CardTitle>New Goods Purchase</CardTitle>
             <p className="text-sm text-muted-foreground">
-              Receiving into <span className="font-medium text-foreground">{warehouseName}</span> (switch in the top bar)
+              Receiving into <span className="font-medium text-foreground">{warehouseName}</span>{' '}
+              (switch in the top bar)
             </p>
           </CardHeader>
           <CardContent className="grid gap-3 sm:grid-cols-3">
@@ -217,7 +240,9 @@ export function PurchasesPage() {
                       >
                         <span className="flex items-center gap-2">
                           {p.name}
-                          <span className="text-xs text-muted-foreground">· {p.currentStock} in stock</span>
+                          <span className="text-xs text-muted-foreground">
+                            · {p.currentStock} in stock
+                          </span>
                         </span>
                         <span className="text-xs text-muted-foreground">{p.sku}</span>
                       </button>
@@ -257,7 +282,9 @@ export function PurchasesPage() {
                           type="number"
                           className="h-8 w-20"
                           value={l.quantity}
-                          onChange={(e) => patchLine(l.productId, { quantity: Number(e.target.value) })}
+                          onChange={(e) =>
+                            patchLine(l.productId, { quantity: Number(e.target.value) })
+                          }
                         />
                       </td>
                       <td className="px-3 py-2">
@@ -273,7 +300,9 @@ export function PurchasesPage() {
                           type="number"
                           className="h-8 w-16"
                           value={l.taxRate}
-                          onChange={(e) => patchLine(l.productId, { taxRate: Number(e.target.value) })}
+                          onChange={(e) =>
+                            patchLine(l.productId, { taxRate: Number(e.target.value) })
+                          }
                         />
                       </td>
                       <td className="px-3 py-2 text-right">
@@ -344,11 +373,17 @@ export function PurchasesPage() {
           {lastGp && (
             <div className="space-y-2 rounded-lg border border-dashed p-3">
               <p className="text-xs text-muted-foreground">
-                Saved <span className="font-medium text-foreground">{lastGp.gpNumber}</span> — print:
+                Saved <span className="font-medium text-foreground">{lastGp.gpNumber}</span> —
+                print:
               </p>
               <div className="grid grid-cols-1 gap-2">
                 {GP_FORMATS.map((f) => (
-                  <Button key={f.type} variant="outline" size="sm" onClick={() => handlePrint(f.type)}>
+                  <Button
+                    key={f.type}
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handlePrint(f.type)}
+                  >
                     <Printer className="h-4 w-4" /> {f.label}
                   </Button>
                 ))}

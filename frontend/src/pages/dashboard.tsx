@@ -47,11 +47,15 @@ function KpiCard({
   return (
     <Card>
       <CardContent className="flex items-center gap-4 p-5">
-        <div className={`flex h-11 w-11 items-center justify-center rounded-lg ${accent ?? 'bg-primary/10 text-primary'}`}>
+        <div
+          className={`flex h-11 w-11 items-center justify-center rounded-lg ${accent ?? 'bg-primary/10 text-primary'}`}
+        >
           <Icon className="h-5 w-5" />
         </div>
         <div className="min-w-0">
-          <p className="truncate text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</p>
+          <p className="truncate text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            {label}
+          </p>
           <p className="truncate text-xl font-bold">{value}</p>
         </div>
       </CardContent>
@@ -78,13 +82,42 @@ export function DashboardPage() {
   return (
     <div className="space-y-6">
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <KpiCard label="Today's Sales" value={formatCurrency(k.todaySales ?? 0)} icon={TrendingUp} />
-        <KpiCard label="Monthly Sales" value={formatCurrency(k.monthSales ?? 0)} icon={DollarSign} accent="bg-success/10 text-success" />
+        <KpiCard
+          label="Today's Sales"
+          value={formatCurrency(k.todaySales ?? 0)}
+          icon={TrendingUp}
+        />
+        <KpiCard
+          label="Monthly Sales"
+          value={formatCurrency(k.monthSales ?? 0)}
+          icon={DollarSign}
+          accent="bg-success/10 text-success"
+        />
         <KpiCard label="Total Revenue" value={formatCurrency(k.totalRevenue ?? 0)} icon={Receipt} />
-        <KpiCard label="Stock Value" value={formatCurrency(k.stockValue ?? 0)} icon={Boxes} accent="bg-blue-500/10 text-blue-500" />
-        <KpiCard label="Expenses" value={formatCurrency(k.totalExpenses ?? 0)} icon={Wallet} accent="bg-amber-500/10 text-amber-500" />
-        <KpiCard label="Receivables" value={formatCurrency(k.outstandingReceivables ?? 0)} icon={ArrowDownLeft} accent="bg-emerald-500/10 text-emerald-500" />
-        <KpiCard label="Payables" value={formatCurrency(k.outstandingPayables ?? 0)} icon={ArrowUpRight} accent="bg-rose-500/10 text-rose-500" />
+        <KpiCard
+          label="Stock Value"
+          value={formatCurrency(k.stockValue ?? 0)}
+          icon={Boxes}
+          accent="bg-blue-500/10 text-blue-500"
+        />
+        <KpiCard
+          label="Expenses"
+          value={formatCurrency(k.totalExpenses ?? 0)}
+          icon={Wallet}
+          accent="bg-amber-500/10 text-amber-500"
+        />
+        <KpiCard
+          label="Receivables"
+          value={formatCurrency(k.outstandingReceivables ?? 0)}
+          icon={ArrowDownLeft}
+          accent="bg-emerald-500/10 text-emerald-500"
+        />
+        <KpiCard
+          label="Payables"
+          value={formatCurrency(k.outstandingPayables ?? 0)}
+          icon={ArrowUpRight}
+          accent="bg-rose-500/10 text-rose-500"
+        />
       </div>
 
       <div className="grid gap-4 lg:grid-cols-3">
@@ -105,7 +138,13 @@ export function DashboardPage() {
                 <XAxis dataKey="date" tick={{ fontSize: 11 }} tickFormatter={(d) => d.slice(5)} />
                 <YAxis tick={{ fontSize: 11 }} width={48} />
                 <Tooltip />
-                <Area type="monotone" dataKey="total" stroke="hsl(var(--primary))" fill="url(#g)" strokeWidth={2} />
+                <Area
+                  type="monotone"
+                  dataKey="total"
+                  stroke="hsl(var(--primary))"
+                  fill="url(#g)"
+                  strokeWidth={2}
+                />
               </AreaChart>
             </ResponsiveContainer>
           </CardContent>

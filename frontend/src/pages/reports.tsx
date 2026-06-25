@@ -36,7 +36,8 @@ export function ReportsPage() {
 
   const downloadCsv = async () => {
     // Build the CSV client-side from the mock report data (no backend).
-    const report = (await api.get(`/reports/${type}`, { params: { from, to } })).data as ReportResult;
+    const report = (await api.get(`/reports/${type}`, { params: { from, to } }))
+      .data as ReportResult;
     const escape = (v: any) => {
       const s = String(v ?? '').replace(/"/g, '""');
       return /[",\n]/.test(s) ? `"${s}"` : s;
@@ -81,11 +82,21 @@ export function ReportsPage() {
             <>
               <div className="space-y-1.5">
                 <Label>From</Label>
-                <Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="w-40" />
+                <Input
+                  type="date"
+                  value={from}
+                  onChange={(e) => setFrom(e.target.value)}
+                  className="w-40"
+                />
               </div>
               <div className="space-y-1.5">
                 <Label>To</Label>
-                <Input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="w-40" />
+                <Input
+                  type="date"
+                  value={to}
+                  onChange={(e) => setTo(e.target.value)}
+                  className="w-40"
+                />
               </div>
             </>
           )}
@@ -110,7 +121,10 @@ export function ReportsPage() {
               <thead>
                 <tr className="border-y bg-muted/50 text-left text-xs uppercase text-muted-foreground">
                   {data?.columns.map((c) => (
-                    <th key={c.key} className={cn('px-4 py-2 font-medium', c.numeric && 'text-right')}>
+                    <th
+                      key={c.key}
+                      className={cn('px-4 py-2 font-medium', c.numeric && 'text-right')}
+                    >
                       {c.label}
                     </th>
                   ))}
@@ -118,19 +132,31 @@ export function ReportsPage() {
               </thead>
               <tbody>
                 {isLoading && (
-                  <tr><td className="px-4 py-10 text-center text-muted-foreground" colSpan={99}>Loading…</td></tr>
-                )}
-                {!isLoading && data?.rows.map((r, i) => (
-                  <tr key={i} className="border-b last:border-0 hover:bg-muted/30">
-                    {data.columns.map((c) => (
-                      <td key={c.key} className={cn('px-4 py-2', c.numeric && 'text-right tabular-nums')}>
-                        {fmt(c, r[c.key])}
-                      </td>
-                    ))}
+                  <tr>
+                    <td className="px-4 py-10 text-center text-muted-foreground" colSpan={99}>
+                      Loading…
+                    </td>
                   </tr>
-                ))}
+                )}
+                {!isLoading &&
+                  data?.rows.map((r, i) => (
+                    <tr key={i} className="border-b last:border-0 hover:bg-muted/30">
+                      {data.columns.map((c) => (
+                        <td
+                          key={c.key}
+                          className={cn('px-4 py-2', c.numeric && 'text-right tabular-nums')}
+                        >
+                          {fmt(c, r[c.key])}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
                 {!isLoading && data && data.rows.length === 0 && (
-                  <tr><td className="px-4 py-10 text-center text-muted-foreground" colSpan={99}>No data for this range.</td></tr>
+                  <tr>
+                    <td className="px-4 py-10 text-center text-muted-foreground" colSpan={99}>
+                      No data for this range.
+                    </td>
+                  </tr>
                 )}
               </tbody>
             </table>
