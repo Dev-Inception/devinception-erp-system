@@ -1,0 +1,28 @@
+{
+  "name": "@devinception/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "DevInception ERP desktop shell (Electron)",
+  "main": "main.js",
+  "scripts": {
+    "dev": "cross-env ELECTRON_START_URL=http://localhost:5173 electron .",
+    "build": "electron-builder",
+    "build:win": "electron-builder --win",
+    "build:mac": "electron-builder --mac"
+  },
+  "build": {
+    "appId": "com.devinception.erp",
+    "productName": "DevInception ERP",
+    "directories": { "output": "release" },
+    "files": ["main.js", "preload.js", "../frontend/dist/**/*"],
+    "mac": { "target": ["dmg"], "category": "public.app-category.business" },
+    "win": { "target": ["nsis"] },
+    "publish": [{ "provider": "generic", "url": "https://updates.devinception.com/erp" }]
+  },
+  "devDependencies": {
+    "cross-env": "^7.0.3",
+    "electron": "^31.3.0",
+    "electron-builder": "^24.13.3",
+    "electron-updater": "^6.2.1"
+  }
+}
