@@ -9,7 +9,9 @@ const productRoutes = require("./productRoutes");
 const purchaseRoutes = require("./purchaseRoutes");
 const saleRoutes = require("./saleRoutes");
 const invoiceRoutes = require("./invoiceRoutes");
+const financeRoutes = require("./financeRoutes");
 const dashboardRoutes = require("./dashboardRoutes");
+const reportRoutes = require("./reportRoutes");
 
 const router = express.Router();
 
@@ -27,6 +29,8 @@ router.use("/products", productRoutes);
 router.use("/purchases", purchaseRoutes);
 router.use("/sales", saleRoutes);
 router.use("/invoices", invoiceRoutes);
+router.use("/finance", financeRoutes);
 router.use("/dashboard", dashboardRoutes);
+router.use("/reports", reportRoutes);
 
 module.exports = router;

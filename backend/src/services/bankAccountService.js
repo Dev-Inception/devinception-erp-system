@@ -58,7 +58,7 @@ async function updateBankAccount(id, { name, bankName, accountNumber, isActive }
 
 async function deleteBankAccount(id) {
   const account = await getBankAccountById(id);
-  const balance = await journalService.accountBalance(ACCOUNT.BANK, id);
+  const balance = await journalService.accountBalance(ACCOUNT.BANK, account._id);
   if (balance !== 0) throw ApiError.badRequest("Bank account has a non-zero balance and cannot be deleted");
   await account.deleteOne();
 }

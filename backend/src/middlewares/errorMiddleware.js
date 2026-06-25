@@ -8,7 +8,6 @@ function notFound(req, _res, next) {
 
 // Central error handler. Must be the last middleware registered and keep
 // all four args so Express recognizes it as an error handler.
-// eslint-disable-next-line no-unused-vars
 function errorHandler(err, _req, res, _next) {
   let error = err;
 

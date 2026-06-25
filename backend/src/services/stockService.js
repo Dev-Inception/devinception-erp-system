@@ -66,14 +66,20 @@ async function receiveStock(product, warehouse, qty, unitCost, ref = {}) {
 async function issueStock(product, warehouse, qty, ref = {}) {
   if (qty <= 0) throw ApiError.badRequest("Issue quantity must be positive");
 
-  const level = await StockLevel.findOne({ product, warehouse });
-  if (!level || level.quantity < qty) {
+  // Decrement atomically, and only when enough stock exists, so concurrent
+  // issues can't oversell via a read-modify-write race (the conditional filter
+  // + $inc is applied as a single atomic operation by MongoDB). avgCost is
+  // unchanged by an issue, so the returned (post-update) doc still carries it.
+  const level = await StockLevel.findOneAndUpdate(
+    { product, warehouse, quantity: { $gte: qty } },
+    { $inc: { quantity: -qty } },
+    { new: true }
+  );
+  if (!level) {
     throw ApiError.badRequest("Insufficient stock for one or more items");
   }
 
   const cogs = Math.round(qty * level.avgCost);
-  level.quantity -= qty;
-  await level.save();
 
   await StockMovement.create({
     product,

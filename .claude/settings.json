@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node -e \"require\\('./src/app'\\); console.log\\('app loads OK'\\)\")",
+      "Bash(curl -s -m 5 http://localhost:5050/api/health)",
+      "Bash(curl -s -m 5 -X POST http://localhost:5050/api/auth/register -H \"Content-Type: application/json\" -d '{\"name\":\"Test User\",\"email\":\"test1@example.com\",\"password\":\"Test1234!\"}')",
+      "Bash(curl -s -m 5 -X POST http://localhost:5050/api/auth/login -H \"Content-Type: application/json\" -d '{\"email\":\"test1@example.com\",\"password\":\"Test1234!\"}')",
+      "Bash(node src/scripts/seedRoles.js)",
+      "Bash(node src/scripts/seedSuperAdmin.js)",
+      "Bash(curl -s -m 5 -c /tmp/pos-cookies.txt -X POST http://localhost:5050/api/auth/login -H \"Content-Type: application/json\" -d '{\"email\":\"test1@example.com\",\"password\":\"Test1234!\"}')",
+      "Read(//tmp/**)",
+      "Bash(awk '{print $6}')",
+      "Bash(curl -s -m 5 -b /tmp/pos-cookies.txt -X POST http://localhost:5050/api/auth/refresh)",
+      "Bash(curl -s -m 8 -X POST http://localhost:5050/api/auth/forgot-password -H \"Content-Type: application/json\" -d '{\"email\":\"test1@example.com\"}')",
+      "Bash(time curl -s -m 30 -w \"\\\\nHTTP %{http_code}\\\\n\" -X POST http://localhost:5050/api/auth/forgot-password -H \"Content-Type: application/json\" -d '{\"email\":\"test1@example.com\"}')",
+      "Bash(git check-ignore *)",
+      "Bash(git add *)",
+      "Bash(grep -c \"backend/.env$\")",
+      "Bash(grep -iE \"\\\\.env$|secret|\\\\.pem|\\\\.key\")"
+    ]
+  }
+}
