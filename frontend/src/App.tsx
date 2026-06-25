@@ -17,6 +17,7 @@ import { LedgersPage } from '@/pages/ledgers';
 import { InvoicesPage } from '@/pages/invoices';
 import { ReportsPage } from '@/pages/reports';
 import { WarehousesPage } from '@/pages/warehouses';
+import { PermissionsPage } from '@/pages/permissions';
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { refetchOnWindowFocus: false, retry: 1 } },
@@ -43,6 +44,7 @@ export default function App() {
               <Route path="reports" element={<ReportsPage />} />
               <Route path="cash" element={<CashPage />} />
               <Route path="settings" element={<SettingsPage />} />
+              <Route path="permissions" element={<PermissionsPage />} />
             </Route>
           </Routes>
         </BrowserRouter>
