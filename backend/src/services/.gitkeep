@@ -1,0 +1,2 @@
+# Business logic (services) goes here — one file per domain, e.g. sales.service.ts.
+# Services own DB access and domain rules; keep controllers thin.

@@ -1,15 +1,42 @@
-# OS
-.DS_Store
-
-# Dependencies
+# ─── Dependencies ───────────────────────────────────────────
 node_modules/
+.pnp
+.pnp.js
 
-# Environment / secrets
+# ─── Build output ───────────────────────────────────────────
+dist/
+build/
+out/
+release/
+*.tsbuildinfo
+
+# ─── Environment / secrets ──────────────────────────────────
 .env
-.env.*.local
+.env.*
+!.env.example
 
-# Logs
+# ─── Logs ───────────────────────────────────────────────────
+logs/
 *.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
 
-# Local tooling
-.claude/
+# ─── Caches ─────────────────────────────────────────────────
+.cache/
+.vite/
+.eslintcache
+*.tmp
+
+# ─── Backend runtime ────────────────────────────────────────
+backend/storage/*
+!backend/storage/.gitkeep
+
+# ─── OS / editor ────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/*
+!.vscode/extensions.json

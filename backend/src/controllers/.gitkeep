@@ -1,0 +1,2 @@
+# Route handlers (controllers) go here — one file per resource, e.g. products.controller.ts.
+# A controller reads the request, calls a service, and shapes the response.
