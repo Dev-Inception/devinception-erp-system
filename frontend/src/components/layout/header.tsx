@@ -20,6 +20,7 @@ const TITLES: Record<string, string> = {
   '/reports': 'Reports',
   '/cash': 'Cash & Bank',
   '/settings': 'Settings',
+  '/permissions': 'Permissions',
 };
 
 export function Header() {
