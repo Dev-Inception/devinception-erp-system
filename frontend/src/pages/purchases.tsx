@@ -259,6 +259,7 @@ export function PurchasesPage() {
                   <th className="px-3 py-2 font-medium">Product</th>
                   <th className="px-3 py-2 font-medium">Qty</th>
                   <th className="px-3 py-2 font-medium">Rate</th>
+                  <th className="px-3 py-2 font-medium">Disc</th>
                   <th className="px-3 py-2 font-medium">Tax%</th>
                   <th className="px-3 py-2 text-right font-medium">Amount</th>
                   <th className="w-8" />
@@ -267,7 +268,7 @@ export function PurchasesPage() {
               <tbody>
                 {lines.length === 0 && (
                   <tr>
-                    <td colSpan={6} className="px-3 py-8 text-center text-muted-foreground">
+                    <td colSpan={7} className="px-3 py-8 text-center text-muted-foreground">
                       Search and add products above.
                     </td>
                   </tr>
@@ -293,6 +294,16 @@ export function PurchasesPage() {
                           className="h-8 w-24"
                           value={l.rate}
                           onChange={(e) => patchLine(l.productId, { rate: Number(e.target.value) })}
+                        />
+                      </td>
+                      <td className="px-3 py-2">
+                        <Input
+                          type="number"
+                          className="h-8 w-20"
+                          value={l.discount}
+                          onChange={(e) =>
+                            patchLine(l.productId, { discount: Number(e.target.value) })
+                          }
                         />
                       </td>
                       <td className="px-3 py-2">
