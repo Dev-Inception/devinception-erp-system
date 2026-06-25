@@ -81,11 +81,15 @@ export function renderTemplate(type: TemplateType, d: DocData): string {
       <div class="line"></div>
       <table>${d.items.map((i) => `<tr><td>${i.name}</td><td class="r">${i.qty} x ${formatCurrency(i.price)}</td></tr>${isOT ? '' : `<tr><td></td><td class="r">${formatCurrency(i.amount)}</td></tr>`}`).join('')}</table>
       <div class="line"></div>
-      ${isOT ? `<p>${d.notes ?? ''}</p>` : `<table>
+      ${
+        isOT
+          ? `<p>${d.notes ?? ''}</p>`
+          : `<table>
         <tr><td>Subtotal</td><td class="r">${formatCurrency(d.subtotal)}</td></tr>
         <tr><td>Tax</td><td class="r">${formatCurrency(d.tax)}</td></tr>
         <tr class="total"><td>TOTAL</td><td class="r">${formatCurrency(d.total)}</td></tr>
-      </table>`}
+      </table>`
+      }
       <div class="line"></div>
       <p class="muted">Thank you!</p>
     </body></html>`;

@@ -67,7 +67,10 @@ function CreateInvoiceDialog() {
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Invoice from Sale</DialogTitle>
-          <DialogDescription>Pick a completed sale to generate an invoice. Walk-in sales are billed to “Walk-in Customer”.</DialogDescription>
+          <DialogDescription>
+            Pick a completed sale to generate an invoice. Walk-in sales are billed to “Walk-in
+            Customer”.
+          </DialogDescription>
         </DialogHeader>
         <div className="max-h-80 space-y-1 overflow-y-auto">
           {sales.map((s) => (
@@ -84,7 +87,9 @@ function CreateInvoiceDialog() {
               <span className="font-medium">{formatCurrency(Number(s.grandTotal))}</span>
             </button>
           ))}
-          {sales.length === 0 && <p className="py-6 text-center text-sm text-muted-foreground">No sales available.</p>}
+          {sales.length === 0 && (
+            <p className="py-6 text-center text-sm text-muted-foreground">No sales available.</p>
+          )}
         </div>
       </DialogContent>
     </Dialog>
@@ -118,7 +123,8 @@ export function InvoicesPage() {
     setBusy(id + 'mail');
     try {
       const { data } = await api.post(`/invoices/${id}/send-email`);
-      data.sent ? toast.success(data.message) : toast.warning(data.message);
+      if (data.sent) toast.success(data.message);
+      else toast.warning(data.message);
       qc.invalidateQueries({ queryKey: ['invoices'] });
     } catch (e: any) {
       toast.error(e?.response?.data?.message ?? 'Email failed');
@@ -131,7 +137,8 @@ export function InvoicesPage() {
     setBusy(id + 'wa');
     try {
       const { data } = await api.post(`/invoices/${id}/send-whatsapp`);
-      if (!data.hasPhone) toast.warning('Customer has no phone — opening WhatsApp without a recipient.');
+      if (!data.hasPhone)
+        toast.warning('Customer has no phone — opening WhatsApp without a recipient.');
       window.open(data.url, '_blank');
     } catch {
       toast.error('Could not open WhatsApp');
@@ -161,34 +168,77 @@ export function InvoicesPage() {
           </thead>
           <tbody>
             {isLoading && (
-              <tr><td colSpan={6} className="px-4 py-10 text-center text-muted-foreground">Loading…</td></tr>
-            )}
-            {!isLoading && invoices.map((inv) => (
-              <tr key={inv.id} className="border-b last:border-0 hover:bg-muted/30">
-                <td className="px-4 py-3 font-medium">{inv.invoiceNumber}</td>
-                <td className="px-4 py-3 text-muted-foreground">{new Date(inv.issueDate).toLocaleDateString()}</td>
-                <td className="px-4 py-3 text-muted-foreground">{inv.customer?.name ?? '—'}</td>
-                <td className="px-4 py-3">
-                  <span className={cn('rounded-full px-2 py-0.5 text-xs font-medium', statusStyle[inv.status] ?? 'bg-muted')}>
-                    {inv.status}
-                  </span>
-                </td>
-                <td className="px-4 py-3 text-right font-medium">{formatCurrency(Number(inv.grandTotal))}</td>
-                <td className="px-4 py-3">
-                  <div className="flex justify-end gap-1">
-                    <Button size="icon" variant="ghost" className="h-8 w-8" title="View PDF" disabled={busy === inv.id + 'pdf'} onClick={() => viewPdf(inv.id)}>
-                      {busy === inv.id + 'pdf' ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileDown className="h-4 w-4" />}
-                    </Button>
-                    <Button size="icon" variant="ghost" className="h-8 w-8" title="Send Email" disabled={busy === inv.id + 'mail'} onClick={() => sendEmail(inv.id)}>
-                      {busy === inv.id + 'mail' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Mail className="h-4 w-4" />}
-                    </Button>
-                    <Button size="icon" variant="ghost" className="h-8 w-8 text-success" title="Send on WhatsApp" disabled={busy === inv.id + 'wa'} onClick={() => sendWhatsapp(inv.id)}>
-                      <MessageCircle className="h-4 w-4" />
-                    </Button>
-                  </div>
+              <tr>
+                <td colSpan={6} className="px-4 py-10 text-center text-muted-foreground">
+                  Loading…
                 </td>
               </tr>
-            ))}
+            )}
+            {!isLoading &&
+              invoices.map((inv) => (
+                <tr key={inv.id} className="border-b last:border-0 hover:bg-muted/30">
+                  <td className="px-4 py-3 font-medium">{inv.invoiceNumber}</td>
+                  <td className="px-4 py-3 text-muted-foreground">
+                    {new Date(inv.issueDate).toLocaleDateString()}
+                  </td>
+                  <td className="px-4 py-3 text-muted-foreground">{inv.customer?.name ?? '—'}</td>
+                  <td className="px-4 py-3">
+                    <span
+                      className={cn(
+                        'rounded-full px-2 py-0.5 text-xs font-medium',
+                        statusStyle[inv.status] ?? 'bg-muted',
+                      )}
+                    >
+                      {inv.status}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-right font-medium">
+                    {formatCurrency(Number(inv.grandTotal))}
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="flex justify-end gap-1">
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="h-8 w-8"
+                        title="View PDF"
+                        disabled={busy === inv.id + 'pdf'}
+                        onClick={() => viewPdf(inv.id)}
+                      >
+                        {busy === inv.id + 'pdf' ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <FileDown className="h-4 w-4" />
+                        )}
+                      </Button>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="h-8 w-8"
+                        title="Send Email"
+                        disabled={busy === inv.id + 'mail'}
+                        onClick={() => sendEmail(inv.id)}
+                      >
+                        {busy === inv.id + 'mail' ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Mail className="h-4 w-4" />
+                        )}
+                      </Button>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="h-8 w-8 text-success"
+                        title="Send on WhatsApp"
+                        disabled={busy === inv.id + 'wa'}
+                        onClick={() => sendWhatsapp(inv.id)}
+                      >
+                        <MessageCircle className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
             {!isLoading && invoices.length === 0 && (
               <tr>
                 <td colSpan={6} className="px-4 py-12 text-center text-muted-foreground">

@@ -58,25 +58,42 @@ export function SalesPage() {
           </thead>
           <tbody>
             {isLoading && (
-              <tr><td colSpan={7} className="px-4 py-10 text-center text-muted-foreground">Loading…</td></tr>
-            )}
-            {!isLoading && sales.map((s) => (
-              <tr key={s.id} className="border-b last:border-0 hover:bg-muted/30">
-                <td className="px-4 py-3 font-medium">{s.saleNumber}</td>
-                <td className="px-4 py-3 text-muted-foreground">{new Date(s.date).toLocaleString()}</td>
-                <td className="px-4 py-3 text-muted-foreground">{s.customer?.name ?? 'Walk-in'}</td>
-                <td className="px-4 py-3 text-muted-foreground">{PAYMENT_LABEL[s.paymentMethod] ?? s.paymentMethod}</td>
-                <td className="px-4 py-3 text-right tabular-nums text-muted-foreground">
-                  {Number(s.paidCash) > 0 ? formatCurrency(Number(s.paidCash)) : '—'}
+              <tr>
+                <td colSpan={7} className="px-4 py-10 text-center text-muted-foreground">
+                  Loading…
                 </td>
-                <td className="px-4 py-3 text-right tabular-nums text-muted-foreground">
-                  {Number(s.paidBank) > 0 ? formatCurrency(Number(s.paidBank)) : '—'}
-                </td>
-                <td className="px-4 py-3 text-right font-medium">{formatCurrency(Number(s.grandTotal))}</td>
               </tr>
-            ))}
+            )}
+            {!isLoading &&
+              sales.map((s) => (
+                <tr key={s.id} className="border-b last:border-0 hover:bg-muted/30">
+                  <td className="px-4 py-3 font-medium">{s.saleNumber}</td>
+                  <td className="px-4 py-3 text-muted-foreground">
+                    {new Date(s.date).toLocaleString()}
+                  </td>
+                  <td className="px-4 py-3 text-muted-foreground">
+                    {s.customer?.name ?? 'Walk-in'}
+                  </td>
+                  <td className="px-4 py-3 text-muted-foreground">
+                    {PAYMENT_LABEL[s.paymentMethod] ?? s.paymentMethod}
+                  </td>
+                  <td className="px-4 py-3 text-right tabular-nums text-muted-foreground">
+                    {Number(s.paidCash) > 0 ? formatCurrency(Number(s.paidCash)) : '—'}
+                  </td>
+                  <td className="px-4 py-3 text-right tabular-nums text-muted-foreground">
+                    {Number(s.paidBank) > 0 ? formatCurrency(Number(s.paidBank)) : '—'}
+                  </td>
+                  <td className="px-4 py-3 text-right font-medium">
+                    {formatCurrency(Number(s.grandTotal))}
+                  </td>
+                </tr>
+              ))}
             {!isLoading && sales.length === 0 && (
-              <tr><td colSpan={7} className="px-4 py-10 text-center text-muted-foreground">No sales yet — ring one up in the POS.</td></tr>
+              <tr>
+                <td colSpan={7} className="px-4 py-10 text-center text-muted-foreground">
+                  No sales yet — ring one up in the POS.
+                </td>
+              </tr>
             )}
           </tbody>
         </table>

@@ -24,13 +24,17 @@ export default tseslint.config(
   js.configs.recommended,
   ...tseslint.configs.recommended,
 
-  // Underscore-prefixed names are intentionally unused; warn (don't block) on the rest.
+  // Project-wide rule tuning for the scaffold.
   {
     rules: {
+      // Underscore-prefixed names are intentionally unused; warn on the rest.
       '@typescript-eslint/no-unused-vars': [
         'warn',
         { argsIgnorePattern: '^_', varsIgnorePattern: '^_' },
       ],
+      // The scaffold uses `any` for axios errors and untyped API payloads.
+      // Keep it visible as a warning rather than a hard error; tighten over time.
+      '@typescript-eslint/no-explicit-any': 'warn',
     },
   },
 
@@ -52,6 +56,12 @@ export default tseslint.config(
   {
     files: ['backend/**/*.ts', 'electron/**/*.{ts,js}'],
     languageOptions: { globals: { ...globals.node } },
+  },
+
+  // Electron main/preload are CommonJS — require() is the correct pattern there.
+  {
+    files: ['electron/**/*.js'],
+    rules: { '@typescript-eslint/no-require-imports': 'off' },
   },
 
   prettier,

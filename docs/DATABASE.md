@@ -42,16 +42,16 @@ erDiagram
 
 ## Entity catalogue
 
-| Group | Tables |
-|-------|--------|
-| Identity & access | `users`, `refresh_tokens`, `password_reset_tokens`, `audit_logs` |
-| Catalog | `categories`, `brands`, `units`, `products` |
-| Warehousing | `warehouses`, `stock_levels`, `stock_movements` |
-| Partners | `vendors`, `customers` |
-| Purchasing (GP) | `purchases`, `purchase_items` |
-| Sales / POS | `sales`, `sale_items`, `order_tickets`, `invoices` |
-| Finance | `ledger_accounts`, `ledger_entries`, `cash_transactions`, `bank_accounts`, `bank_transactions` |
-| System | `company_settings`, `print_templates`, `notifications`, `number_sequences` |
+| Group             | Tables                                                                                         |
+| ----------------- | ---------------------------------------------------------------------------------------------- |
+| Identity & access | `users`, `refresh_tokens`, `password_reset_tokens`, `audit_logs`                               |
+| Catalog           | `categories`, `brands`, `units`, `products`                                                    |
+| Warehousing       | `warehouses`, `stock_levels`, `stock_movements`                                                |
+| Partners          | `vendors`, `customers`                                                                         |
+| Purchasing (GP)   | `purchases`, `purchase_items`                                                                  |
+| Sales / POS       | `sales`, `sale_items`, `order_tickets`, `invoices`                                             |
+| Finance           | `ledger_accounts`, `ledger_entries`, `cash_transactions`, `bank_accounts`, `bank_transactions` |
+| System            | `company_settings`, `print_templates`, `notifications`, `number_sequences`                     |
 
 ## Modelling notes
 

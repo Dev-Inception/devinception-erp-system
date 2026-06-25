@@ -62,29 +62,49 @@ function CreateCustomerDialog() {
         >
           <div className="space-y-1.5">
             <Label>Name *</Label>
-            <Input required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+            <Input
+              required
+              value={form.name}
+              onChange={(e) => setForm({ ...form, name: e.target.value })}
+            />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Label>Phone</Label>
-              <Input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
+              <Input
+                value={form.phone}
+                onChange={(e) => setForm({ ...form, phone: e.target.value })}
+              />
             </div>
             <div className="space-y-1.5">
               <Label>Credit Limit</Label>
-              <Input type="number" value={form.creditLimit} onChange={(e) => setForm({ ...form, creditLimit: Number(e.target.value) })} />
+              <Input
+                type="number"
+                value={form.creditLimit}
+                onChange={(e) => setForm({ ...form, creditLimit: Number(e.target.value) })}
+              />
             </div>
           </div>
           <div className="space-y-1.5">
             <Label>Email</Label>
-            <Input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
+            <Input
+              type="email"
+              value={form.email}
+              onChange={(e) => setForm({ ...form, email: e.target.value })}
+            />
           </div>
           <div className="space-y-1.5">
             <Label>Address</Label>
-            <Input value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} />
+            <Input
+              value={form.address}
+              onChange={(e) => setForm({ ...form, address: e.target.value })}
+            />
           </div>
           <div className="flex justify-end gap-2 pt-2">
             <DialogClose asChild>
-              <Button type="button" variant="outline">Cancel</Button>
+              <Button type="button" variant="outline">
+                Cancel
+              </Button>
             </DialogClose>
             <Button type="submit" disabled={create.isPending}>
               {create.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
@@ -109,7 +129,12 @@ export function CustomersPage() {
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="relative">
           <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search customers…" className="w-72 pl-8" />
+          <Input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search customers…"
+            className="w-72 pl-8"
+          />
         </div>
         <CreateCustomerDialog />
       </div>
@@ -127,19 +152,30 @@ export function CustomersPage() {
           </thead>
           <tbody>
             {isLoading && (
-              <tr><td colSpan={5} className="px-4 py-10 text-center text-muted-foreground">Loading…</td></tr>
-            )}
-            {!isLoading && customers.map((c) => (
-              <tr key={c.id} className="border-b last:border-0 hover:bg-muted/30">
-                <td className="px-4 py-3 font-medium">{c.name}</td>
-                <td className="px-4 py-3 text-muted-foreground">{c.phone ?? '—'}</td>
-                <td className="px-4 py-3 text-muted-foreground">{c.email ?? '—'}</td>
-                <td className="px-4 py-3 text-right">{formatCurrency(Number(c.creditLimit))}</td>
-                <td className="px-4 py-3 text-right font-medium">{formatCurrency(c.outstanding)}</td>
+              <tr>
+                <td colSpan={5} className="px-4 py-10 text-center text-muted-foreground">
+                  Loading…
+                </td>
               </tr>
-            ))}
+            )}
+            {!isLoading &&
+              customers.map((c) => (
+                <tr key={c.id} className="border-b last:border-0 hover:bg-muted/30">
+                  <td className="px-4 py-3 font-medium">{c.name}</td>
+                  <td className="px-4 py-3 text-muted-foreground">{c.phone ?? '—'}</td>
+                  <td className="px-4 py-3 text-muted-foreground">{c.email ?? '—'}</td>
+                  <td className="px-4 py-3 text-right">{formatCurrency(Number(c.creditLimit))}</td>
+                  <td className="px-4 py-3 text-right font-medium">
+                    {formatCurrency(c.outstanding)}
+                  </td>
+                </tr>
+              ))}
             {!isLoading && customers.length === 0 && (
-              <tr><td colSpan={5} className="px-4 py-10 text-center text-muted-foreground">No customers yet.</td></tr>
+              <tr>
+                <td colSpan={5} className="px-4 py-10 text-center text-muted-foreground">
+                  No customers yet.
+                </td>
+              </tr>
             )}
           </tbody>
         </table>
