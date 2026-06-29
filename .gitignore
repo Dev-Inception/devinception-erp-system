@@ -3,6 +3,10 @@ node_modules/
 .pnp
 .pnp.js
 package-lock.json
+**/package-lock.json
+
+# ─── Claude Code ────────────────────────────────────────────
+.claude/
 
 # ─── Build output ───────────────────────────────────────────
 dist/
