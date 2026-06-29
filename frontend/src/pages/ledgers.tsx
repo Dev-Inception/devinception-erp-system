@@ -5,8 +5,18 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { api } from '@/lib/api';
 
 type Kind = 'customers' | 'vendors';
-interface Party { id: string; name: string; outstanding: number }
-interface LedgerRow { date: string; description?: string; debit: number; credit: number; balanceAfter: number }
+interface Party {
+  id: string;
+  name: string;
+  outstanding: number;
+}
+interface LedgerRow {
+  date: string;
+  description?: string;
+  debit: number;
+  credit: number;
+  balanceAfter: number;
+}
 
 export function LedgersPage() {
   const [kind, setKind] = useState<Kind>('customers');
@@ -59,7 +69,9 @@ export function LedgersPage() {
               <span className="text-xs">{formatCurrency(p.outstanding)}</span>
             </button>
           ))}
-          {parties.length === 0 && <p className="p-3 text-sm text-muted-foreground">No {kind} yet.</p>}
+          {parties.length === 0 && (
+            <p className="p-3 text-sm text-muted-foreground">No {kind} yet.</p>
+          )}
         </CardContent>
       </Card>
 
@@ -68,7 +80,10 @@ export function LedgersPage() {
           <CardTitle>{selected ? `${selected.name} — Statement` : 'Select an account'}</CardTitle>
           {selected && (
             <p className="text-sm text-muted-foreground">
-              Current balance: <span className="font-semibold text-foreground">{formatCurrency(ledger?.balance ?? 0)}</span>
+              Current balance:{' '}
+              <span className="font-semibold text-foreground">
+                {formatCurrency(ledger?.balance ?? 0)}
+              </span>
             </p>
           )}
         </CardHeader>
@@ -91,15 +106,27 @@ export function LedgersPage() {
               <tbody>
                 {(ledger?.entries ?? []).map((e, i) => (
                   <tr key={i} className="border-b last:border-0">
-                    <td className="px-4 py-2 text-muted-foreground">{new Date(e.date).toLocaleDateString()}</td>
+                    <td className="px-4 py-2 text-muted-foreground">
+                      {new Date(e.date).toLocaleDateString()}
+                    </td>
                     <td className="px-4 py-2">{e.description ?? '—'}</td>
-                    <td className="px-4 py-2 text-right">{e.debit ? formatCurrency(e.debit) : ''}</td>
-                    <td className="px-4 py-2 text-right">{e.credit ? formatCurrency(e.credit) : ''}</td>
-                    <td className="px-4 py-2 text-right font-medium">{formatCurrency(e.balanceAfter)}</td>
+                    <td className="px-4 py-2 text-right">
+                      {e.debit ? formatCurrency(e.debit) : ''}
+                    </td>
+                    <td className="px-4 py-2 text-right">
+                      {e.credit ? formatCurrency(e.credit) : ''}
+                    </td>
+                    <td className="px-4 py-2 text-right font-medium">
+                      {formatCurrency(e.balanceAfter)}
+                    </td>
                   </tr>
                 ))}
                 {ledger && ledger.entries.length === 0 && (
-                  <tr><td colSpan={5} className="px-4 py-10 text-center text-muted-foreground">No transactions yet.</td></tr>
+                  <tr>
+                    <td colSpan={5} className="px-4 py-10 text-center text-muted-foreground">
+                      No transactions yet.
+                    </td>
+                  </tr>
                 )}
               </tbody>
             </table>

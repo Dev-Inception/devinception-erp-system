@@ -81,15 +81,26 @@ function AddCashDialog() {
           </div>
           <div className="space-y-1.5">
             <Label>Amount</Label>
-            <Input type="number" step="0.01" required value={form.amount || ''} onChange={(e) => setForm({ ...form, amount: Number(e.target.value) })} />
+            <Input
+              type="number"
+              step="0.01"
+              required
+              value={form.amount || ''}
+              onChange={(e) => setForm({ ...form, amount: Number(e.target.value) })}
+            />
           </div>
           <div className="space-y-1.5">
             <Label>Description</Label>
-            <Input value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
+            <Input
+              value={form.description}
+              onChange={(e) => setForm({ ...form, description: e.target.value })}
+            />
           </div>
           <div className="flex justify-end gap-2 pt-1">
             <DialogClose asChild>
-              <Button type="button" variant="outline">Cancel</Button>
+              <Button type="button" variant="outline">
+                Cancel
+              </Button>
             </DialogClose>
             <Button type="submit" disabled={create.isPending}>
               {create.isPending && <Loader2 className="h-4 w-4 animate-spin" />}Save
@@ -135,15 +146,24 @@ function AddBankDialog() {
         >
           <div className="space-y-1.5">
             <Label>Account name</Label>
-            <Input required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+            <Input
+              required
+              value={form.name}
+              onChange={(e) => setForm({ ...form, name: e.target.value })}
+            />
           </div>
           <div className="space-y-1.5">
             <Label>Bank</Label>
-            <Input value={form.bankName} onChange={(e) => setForm({ ...form, bankName: e.target.value })} />
+            <Input
+              value={form.bankName}
+              onChange={(e) => setForm({ ...form, bankName: e.target.value })}
+            />
           </div>
           <div className="flex justify-end gap-2 pt-1">
             <DialogClose asChild>
-              <Button type="button" variant="outline">Cancel</Button>
+              <Button type="button" variant="outline">
+                Cancel
+              </Button>
             </DialogClose>
             <Button type="submit" disabled={create.isPending}>
               {create.isPending && <Loader2 className="h-4 w-4 animate-spin" />}Save
@@ -170,7 +190,9 @@ export function CashPage() {
       <Card className="overflow-hidden">
         <CardHeader className="flex flex-row items-center justify-between space-y-0">
           <div>
-            <CardTitle className="flex items-center gap-2"><Wallet className="h-4 w-4" /> Cash Ledger</CardTitle>
+            <CardTitle className="flex items-center gap-2">
+              <Wallet className="h-4 w-4" /> Cash Ledger
+            </CardTitle>
             <p className="mt-1 text-2xl font-bold">{formatCurrency(cash?.balance ?? 0)}</p>
           </div>
           <AddCashDialog />
@@ -189,19 +211,41 @@ export function CashPage() {
             <tbody>
               {(cash?.rows ?? []).map((r) => (
                 <tr key={r.id} className="border-b last:border-0">
-                  <td className="px-4 py-2 text-muted-foreground">{new Date(r.date).toLocaleDateString()}</td>
+                  <td className="px-4 py-2 text-muted-foreground">
+                    {new Date(r.date).toLocaleDateString()}
+                  </td>
                   <td className="px-4 py-2">{r.description ?? '—'}</td>
                   <td className="px-4 py-2 text-right text-success">
-                    {r.in ? <span className="inline-flex items-center gap-1"><ArrowDownLeft className="h-3 w-3" />{formatCurrency(r.in)}</span> : ''}
+                    {r.in ? (
+                      <span className="inline-flex items-center gap-1">
+                        <ArrowDownLeft className="h-3 w-3" />
+                        {formatCurrency(r.in)}
+                      </span>
+                    ) : (
+                      ''
+                    )}
                   </td>
                   <td className="px-4 py-2 text-right text-destructive">
-                    {r.out ? <span className="inline-flex items-center gap-1"><ArrowUpRight className="h-3 w-3" />{formatCurrency(r.out)}</span> : ''}
+                    {r.out ? (
+                      <span className="inline-flex items-center gap-1">
+                        <ArrowUpRight className="h-3 w-3" />
+                        {formatCurrency(r.out)}
+                      </span>
+                    ) : (
+                      ''
+                    )}
                   </td>
-                  <td className="px-4 py-2 text-right font-medium">{formatCurrency(r.balanceAfter)}</td>
+                  <td className="px-4 py-2 text-right font-medium">
+                    {formatCurrency(r.balanceAfter)}
+                  </td>
                 </tr>
               ))}
               {(!cash || cash.rows.length === 0) && (
-                <tr><td colSpan={5} className="px-4 py-8 text-center text-muted-foreground">No cash movements yet.</td></tr>
+                <tr>
+                  <td colSpan={5} className="px-4 py-8 text-center text-muted-foreground">
+                    No cash movements yet.
+                  </td>
+                </tr>
               )}
             </tbody>
           </table>
@@ -210,7 +254,9 @@ export function CashPage() {
 
       <Card className="h-fit">
         <CardHeader className="flex flex-row items-center justify-between space-y-0">
-          <CardTitle className="flex items-center gap-2"><Landmark className="h-4 w-4" /> Bank</CardTitle>
+          <CardTitle className="flex items-center gap-2">
+            <Landmark className="h-4 w-4" /> Bank
+          </CardTitle>
           <AddBankDialog />
         </CardHeader>
         <CardContent className="space-y-2">
@@ -223,7 +269,9 @@ export function CashPage() {
               <span className="font-semibold">{formatCurrency(Number(b.balance))}</span>
             </div>
           ))}
-          {banks.length === 0 && <p className="text-sm text-muted-foreground">No bank accounts yet.</p>}
+          {banks.length === 0 && (
+            <p className="text-sm text-muted-foreground">No bank accounts yet.</p>
+          )}
         </CardContent>
       </Card>
     </div>

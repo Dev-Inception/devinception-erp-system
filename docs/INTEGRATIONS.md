@@ -17,18 +17,19 @@ Template builders live in [`frontend/src/lib/printing.ts`](../frontend/src/lib/p
 the Electron bridge is in [`electron/preload.js`](../electron/preload.js) / [`electron/main.js`](../electron/main.js).
 
 ### Template matrix
-| Document | Template type | Paper |
-|----------|---------------|-------|
-| Receipt | `RECEIPT_THERMAL` | 58/80 mm thermal |
-| Order Ticket | `OT_THERMAL` | 58/80 mm thermal |
-| GP — Divider | `GP_DIVIDER` | divider roll |
-| GP — Half | `GP_A4_HALF` | A4/2 |
-| GP — Full | `GP_A4_FULL` | A4 |
-| Invoice | `INVOICE_A4` | A4 + PDF |
+
+| Document     | Template type     | Paper            |
+| ------------ | ----------------- | ---------------- |
+| Receipt      | `RECEIPT_THERMAL` | 58/80 mm thermal |
+| Order Ticket | `OT_THERMAL`      | 58/80 mm thermal |
+| GP — Divider | `GP_DIVIDER`      | divider roll     |
+| GP — Half    | `GP_A4_HALF`      | A4/2             |
+| GP — Full    | `GP_A4_FULL`      | A4               |
+| Invoice      | `INVOICE_A4`      | A4 + PDF         |
 
 - **Thermal**: monospace, ~72 mm body width; Electron sets `pageSize` to 80 mm microns and `margins: none` for edge-to-edge roll printing.
 - **A4**: branded header, item table, totals block; same HTML is handed to Puppeteer server-side to produce the **PDF** for sharing.
-- `listPrinters()` enumerates OS printers so Settings can map *Receipt → thermal printer* and *Invoice → A4 printer*.
+- `listPrinters()` enumerates OS printers so Settings can map _Receipt → thermal printer_ and _Invoice → A4 printer_.
 
 ## 2. PDF generation (server)
 
@@ -39,6 +40,7 @@ the Electron bridge is in [`electron/preload.js`](../electron/preload.js) / [`el
 Button: **"Send on WhatsApp"** → `POST /invoices/:id/send-whatsapp`.
 
 Two drivers (config `WHATSAPP_DRIVER`):
+
 - **`cloud_api`** (WhatsApp Business Cloud API): upload the PDF as a media document, then send a template/document message to the customer's number using `WHATSAPP_CLOUD_TOKEN` + `WHATSAPP_PHONE_NUMBER_ID`. Production-grade, async-safe.
 - **`web`** (WhatsApp Web / click-to-chat): open `https://wa.me/<number>?text=<encoded message + public PDF link>`. Zero-cost, good for small shops; requires the PDF be reachable via a public/signed URL.
 
@@ -52,6 +54,7 @@ Button: **"Send Invoice"** → `POST /invoices/:id/send-email`.
 - Stamps `invoices.sentEmailAt`; failures surface as a toast and a `notification` event.
 
 ## 5. Settings that drive integrations
+
 `company_settings` holds JSON blocks: `printerConfig` (device-per-document map, paper width),
 `whatsappConfig`, `emailConfig` (SMTP), `invoiceConfig` (numbering, footer, terms),
 `taxConfig` (rates, inclusive/exclusive). Editable from the Settings module.

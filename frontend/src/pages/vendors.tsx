@@ -64,25 +64,47 @@ function CreateVendorDialog() {
         >
           <div className="space-y-1.5">
             <Label htmlFor="v-name">Name *</Label>
-            <Input id="v-name" required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+            <Input
+              id="v-name"
+              required
+              value={form.name}
+              onChange={(e) => setForm({ ...form, name: e.target.value })}
+            />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Label htmlFor="v-phone">Phone</Label>
-              <Input id="v-phone" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
+              <Input
+                id="v-phone"
+                value={form.phone}
+                onChange={(e) => setForm({ ...form, phone: e.target.value })}
+              />
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="v-ntn">NTN</Label>
-              <Input id="v-ntn" value={form.ntn} onChange={(e) => setForm({ ...form, ntn: e.target.value })} />
+              <Input
+                id="v-ntn"
+                value={form.ntn}
+                onChange={(e) => setForm({ ...form, ntn: e.target.value })}
+              />
             </div>
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="v-email">Email</Label>
-            <Input id="v-email" type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
+            <Input
+              id="v-email"
+              type="email"
+              value={form.email}
+              onChange={(e) => setForm({ ...form, email: e.target.value })}
+            />
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="v-addr">Address</Label>
-            <Input id="v-addr" value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} />
+            <Input
+              id="v-addr"
+              value={form.address}
+              onChange={(e) => setForm({ ...form, address: e.target.value })}
+            />
           </div>
           <div className="flex justify-end gap-2 pt-2">
             <DialogClose asChild>

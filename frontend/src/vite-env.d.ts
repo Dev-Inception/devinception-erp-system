@@ -11,7 +11,11 @@ interface ImportMeta {
 // Bridge exposed by Electron preload (printing, etc.)
 interface Window {
   electronAPI?: {
-    print: (payload: { html: string; type: string; deviceName?: string }) => Promise<{ ok: boolean }>;
+    print: (payload: {
+      html: string;
+      type: string;
+      deviceName?: string;
+    }) => Promise<{ ok: boolean }>;
     listPrinters: () => Promise<{ name: string; isDefault: boolean }[]>;
     getVersion: () => Promise<string>;
   };

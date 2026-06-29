@@ -57,7 +57,10 @@ export function SettingsPage() {
           >
             <div className="col-span-2 space-y-1.5">
               <Label>Company Name</Label>
-              <Input value={form.companyName} onChange={(e) => field('companyName', e.target.value)} />
+              <Input
+                value={form.companyName}
+                onChange={(e) => field('companyName', e.target.value)}
+              />
             </div>
             <div className="space-y-1.5">
               <Label>Phone</Label>
@@ -65,11 +68,18 @@ export function SettingsPage() {
             </div>
             <div className="space-y-1.5">
               <Label>Email</Label>
-              <Input type="email" value={form.email ?? ''} onChange={(e) => field('email', e.target.value)} />
+              <Input
+                type="email"
+                value={form.email ?? ''}
+                onChange={(e) => field('email', e.target.value)}
+              />
             </div>
             <div className="space-y-1.5">
               <Label>Tax Number (NTN)</Label>
-              <Input value={form.taxNumber ?? ''} onChange={(e) => field('taxNumber', e.target.value)} />
+              <Input
+                value={form.taxNumber ?? ''}
+                onChange={(e) => field('taxNumber', e.target.value)}
+              />
             </div>
             <div className="space-y-1.5">
               <Label>Currency</Label>
@@ -77,11 +87,18 @@ export function SettingsPage() {
             </div>
             <div className="col-span-2 space-y-1.5">
               <Label>Address</Label>
-              <Input value={form.address ?? ''} onChange={(e) => field('address', e.target.value)} />
+              <Input
+                value={form.address ?? ''}
+                onChange={(e) => field('address', e.target.value)}
+              />
             </div>
             <div className="col-span-2 flex justify-end">
               <Button type="submit" disabled={save.isPending}>
-                {save.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                {save.isPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Save className="h-4 w-4" />
+                )}
                 Save changes
               </Button>
             </div>
@@ -92,11 +109,13 @@ export function SettingsPage() {
       <Card>
         <CardHeader>
           <CardTitle>Integrations</CardTitle>
-          <CardDescription>Printer mapping, WhatsApp and SMTP — configured per docs/INTEGRATIONS.md.</CardDescription>
+          <CardDescription>
+            Printer mapping, WhatsApp and SMTP — configured per docs/INTEGRATIONS.md.
+          </CardDescription>
         </CardHeader>
         <CardContent className="text-sm text-muted-foreground">
-          Invoice/Tax/Printer/WhatsApp/Email config blocks are stored on the company record
-          (JSON) and will get dedicated editors in the next iteration.
+          Invoice/Tax/Printer/WhatsApp/Email config blocks are stored on the company record (JSON)
+          and will get dedicated editors in the next iteration.
         </CardContent>
       </Card>
     </div>

@@ -1,6 +1,18 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Search, Plus, Minus, Trash2, ShoppingCart, Loader2, Paperclip, X, User, UserPlus, Check } from 'lucide-react';
+import {
+  Search,
+  Plus,
+  Minus,
+  Trash2,
+  ShoppingCart,
+  Loader2,
+  Paperclip,
+  X,
+  User,
+  UserPlus,
+  Check,
+} from 'lucide-react';
 import { toast } from 'sonner';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -32,7 +44,11 @@ interface CartLine {
 
 type Method = 'CASH' | 'ONLINE' | 'MIXED';
 // UI method → backend PaymentMethod enum
-const METHOD_MAP: Record<Method, string> = { CASH: 'CASH', ONLINE: 'BANK_TRANSFER', MIXED: 'MIXED' };
+const METHOD_MAP: Record<Method, string> = {
+  CASH: 'CASH',
+  ONLINE: 'BANK_TRANSFER',
+  MIXED: 'MIXED',
+};
 
 interface CustomerLite {
   id: string;
@@ -79,18 +95,29 @@ function CustomerPicker({
       <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle>Select Customer</DialogTitle>
-          <DialogDescription>Attach this sale to a customer, or keep it as a walk-in.</DialogDescription>
+          <DialogDescription>
+            Attach this sale to a customer, or keep it as a walk-in.
+          </DialogDescription>
         </DialogHeader>
 
         {!creating ? (
           <div className="space-y-3">
             <div className="relative">
               <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search customers…" className="pl-8" autoFocus />
+              <Input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search customers…"
+                className="pl-8"
+                autoFocus
+              />
             </div>
             <div className="max-h-64 space-y-1 overflow-y-auto">
               <button
-                onClick={() => { onSelect(null); onOpenChange(false); }}
+                onClick={() => {
+                  onSelect(null);
+                  onOpenChange(false);
+                }}
                 className="flex w-full items-center gap-2 rounded-md border px-3 py-2 text-left text-sm hover:bg-accent"
               >
                 <User className="h-4 w-4 text-muted-foreground" /> Walk-in Customer
@@ -98,7 +125,10 @@ function CustomerPicker({
               {customers.map((c) => (
                 <button
                   key={c.id}
-                  onClick={() => { onSelect({ id: c.id, name: c.name }); onOpenChange(false); }}
+                  onClick={() => {
+                    onSelect({ id: c.id, name: c.name });
+                    onOpenChange(false);
+                  }}
                   className="flex w-full items-center justify-between rounded-md border px-3 py-2 text-left text-sm hover:bg-accent"
                 >
                   <span className="truncate">{c.name}</span>
@@ -111,19 +141,39 @@ function CustomerPicker({
             </Button>
           </div>
         ) : (
-          <form className="space-y-3" onSubmit={(e) => { e.preventDefault(); create.mutate(); }}>
+          <form
+            className="space-y-3"
+            onSubmit={(e) => {
+              e.preventDefault();
+              create.mutate();
+            }}
+          >
             <div className="space-y-1.5">
               <Label>Name *</Label>
-              <Input required autoFocus value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+              <Input
+                required
+                autoFocus
+                value={form.name}
+                onChange={(e) => setForm({ ...form, name: e.target.value })}
+              />
             </div>
             <div className="space-y-1.5">
               <Label>Phone</Label>
-              <Input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
+              <Input
+                value={form.phone}
+                onChange={(e) => setForm({ ...form, phone: e.target.value })}
+              />
             </div>
             <div className="flex justify-end gap-2">
-              <Button type="button" variant="outline" onClick={() => setCreating(false)}>Back</Button>
+              <Button type="button" variant="outline" onClick={() => setCreating(false)}>
+                Back
+              </Button>
               <Button type="submit" disabled={create.isPending}>
-                {create.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+                {create.isPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Check className="h-4 w-4" />
+                )}
                 Add &amp; select
               </Button>
             </div>
@@ -163,7 +213,9 @@ export function PosPage() {
     });
 
   const setQty = (id: string, qty: number) =>
-    setCart((c) => c.flatMap((l) => (l.product.id === id ? (qty <= 0 ? [] : [{ ...l, qty }]) : [l])));
+    setCart((c) =>
+      c.flatMap((l) => (l.product.id === id ? (qty <= 0 ? [] : [{ ...l, qty }]) : [l])),
+    );
 
   const subtotal = cart.reduce((s, l) => s + Number(l.product.salePrice) * l.qty, 0);
   const discountAmount = Math.min(
@@ -202,7 +254,8 @@ export function PosPage() {
         transferReceiptUrl = (await api.post('/uploads', fd)).data.url;
       }
       // 2) create the sale
-      const paidCash = method === 'CASH' ? cashAmount || grandTotal : method === 'MIXED' ? cashAmount : 0;
+      const paidCash =
+        method === 'CASH' ? cashAmount || grandTotal : method === 'MIXED' ? cashAmount : 0;
       const paidBank = method === 'ONLINE' ? grandTotal : method === 'MIXED' ? onlineAmount : 0;
       return (
         await api.post('/sales', {
@@ -239,10 +292,7 @@ export function PosPage() {
   // guard: require a receipt for online payments; mixed split must cover the total
   const mixedShort = method === 'MIXED' && cashAmount + onlineAmount + 0.001 < grandTotal;
   const canCharge =
-    cart.length > 0 &&
-    !checkout.isPending &&
-    (!needsReceipt || !!receipt) &&
-    !mixedShort;
+    cart.length > 0 && !checkout.isPending && (!needsReceipt || !!receipt) && !mixedShort;
 
   return (
     <div className="grid h-[calc(100vh-7rem)] gap-4 lg:grid-cols-[1fr_380px]">
@@ -275,7 +325,9 @@ export function PosPage() {
               <p className="line-clamp-2 text-sm font-medium">{p.name}</p>
               <p className="text-xs text-muted-foreground">{p.sku}</p>
               <div className="mt-1 flex w-full items-center justify-between">
-                <span className="font-semibold text-primary">{formatCurrency(Number(p.salePrice))}</span>
+                <span className="font-semibold text-primary">
+                  {formatCurrency(Number(p.salePrice))}
+                </span>
                 <span className="text-xs text-muted-foreground">{p.currentStock} left</span>
               </div>
             </button>
@@ -311,17 +363,34 @@ export function PosPage() {
             <div key={l.product.id} className="flex items-center gap-2 rounded-md border p-2">
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-medium">{l.product.name}</p>
-                <p className="text-xs text-muted-foreground">{formatCurrency(Number(l.product.salePrice))}</p>
+                <p className="text-xs text-muted-foreground">
+                  {formatCurrency(Number(l.product.salePrice))}
+                </p>
               </div>
               <div className="flex items-center gap-1">
-                <Button size="icon" variant="outline" className="h-7 w-7" onClick={() => setQty(l.product.id, l.qty - 1)}>
+                <Button
+                  size="icon"
+                  variant="outline"
+                  className="h-7 w-7"
+                  onClick={() => setQty(l.product.id, l.qty - 1)}
+                >
                   <Minus className="h-3 w-3" />
                 </Button>
                 <span className="w-7 text-center text-sm">{l.qty}</span>
-                <Button size="icon" variant="outline" className="h-7 w-7" onClick={() => setQty(l.product.id, l.qty + 1)}>
+                <Button
+                  size="icon"
+                  variant="outline"
+                  className="h-7 w-7"
+                  onClick={() => setQty(l.product.id, l.qty + 1)}
+                >
                   <Plus className="h-3 w-3" />
                 </Button>
-                <Button size="icon" variant="ghost" className="h-7 w-7 text-destructive" onClick={() => setQty(l.product.id, 0)}>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="h-7 w-7 text-destructive"
+                  onClick={() => setQty(l.product.id, 0)}
+                >
                   <Trash2 className="h-3 w-3" />
                 </Button>
               </div>
@@ -338,14 +407,24 @@ export function PosPage() {
                 <button
                   type="button"
                   onClick={() => setDiscountType('amount')}
-                  className={cn('px-2.5 text-xs font-medium', discountType === 'amount' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground')}
+                  className={cn(
+                    'px-2.5 text-xs font-medium',
+                    discountType === 'amount'
+                      ? 'bg-primary text-primary-foreground'
+                      : 'text-muted-foreground',
+                  )}
                 >
                   Rs
                 </button>
                 <button
                   type="button"
                   onClick={() => setDiscountType('percent')}
-                  className={cn('px-2.5 text-xs font-medium', discountType === 'percent' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground')}
+                  className={cn(
+                    'px-2.5 text-xs font-medium',
+                    discountType === 'percent'
+                      ? 'bg-primary text-primary-foreground'
+                      : 'text-muted-foreground',
+                  )}
                 >
                   %
                 </button>
@@ -418,7 +497,9 @@ export function PosPage() {
                 onChange={(e) => setCashAmount(Number(e.target.value))}
               />
               {cashAmount > 0 && (
-                <p className="text-right text-xs text-muted-foreground">Change: {formatCurrency(change)}</p>
+                <p className="text-right text-xs text-muted-foreground">
+                  Change: {formatCurrency(change)}
+                </p>
               )}
             </div>
           )}
@@ -444,7 +525,12 @@ export function PosPage() {
                   onChange={(e) => setOnlineAmount(Number(e.target.value))}
                 />
               </div>
-              <p className={cn('col-span-2 text-right text-xs', mixedShort ? 'text-destructive' : 'text-muted-foreground')}>
+              <p
+                className={cn(
+                  'col-span-2 text-right text-xs',
+                  mixedShort ? 'text-destructive' : 'text-muted-foreground',
+                )}
+              >
                 {mixedShort
                   ? `Short by ${formatCurrency(grandTotal - cashAmount - onlineAmount)}`
                   : `Tendered ${formatCurrency(cashAmount + onlineAmount)} · Change ${formatCurrency(change)}`}
@@ -455,7 +541,9 @@ export function PosPage() {
           {/* Online transfer note */}
           {method === 'ONLINE' && (
             <p className="rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">
-              Online transfer of <span className="font-medium text-foreground">{formatCurrency(grandTotal)}</span> — attach the payment receipt below.
+              Online transfer of{' '}
+              <span className="font-medium text-foreground">{formatCurrency(grandTotal)}</span> —
+              attach the payment receipt below.
             </p>
           )}
 
@@ -479,7 +567,10 @@ export function PosPage() {
                     <Paperclip className="h-4 w-4 shrink-0" />
                     <span className="truncate">{receipt.name}</span>
                   </span>
-                  <button onClick={() => setReceipt(null)} className="text-muted-foreground hover:text-destructive">
+                  <button
+                    onClick={() => setReceipt(null)}
+                    className="text-muted-foreground hover:text-destructive"
+                  >
                     <X className="h-4 w-4" />
                   </button>
                 </div>
@@ -490,14 +581,22 @@ export function PosPage() {
             </div>
           )}
 
-          <Button className="h-11 w-full text-base" disabled={!canCharge} onClick={() => checkout.mutate()}>
+          <Button
+            className="h-11 w-full text-base"
+            disabled={!canCharge}
+            onClick={() => checkout.mutate()}
+          >
             {checkout.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
             Charge {formatCurrency(grandTotal)}
           </Button>
         </div>
       </Card>
 
-      <CustomerPicker open={customerPickerOpen} onOpenChange={setCustomerPickerOpen} onSelect={setCustomer} />
+      <CustomerPicker
+        open={customerPickerOpen}
+        onOpenChange={setCustomerPickerOpen}
+        onSelect={setCustomer}
+      />
     </div>
   );
 }

@@ -13,11 +13,31 @@
   "build": {
     "appId": "com.devinception.erp",
     "productName": "DevInception ERP",
-    "directories": { "output": "release" },
-    "files": ["main.js", "preload.js", "../frontend/dist/**/*"],
-    "mac": { "target": ["dmg"], "category": "public.app-category.business" },
-    "win": { "target": ["nsis"] },
-    "publish": [{ "provider": "generic", "url": "https://updates.devinception.com/erp" }]
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "../frontend/dist/**/*"
+    ],
+    "mac": {
+      "target": [
+        "dmg"
+      ],
+      "category": "public.app-category.business"
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ]
+    },
+    "publish": [
+      {
+        "provider": "generic",
+        "url": "https://updates.devinception.com/erp"
+      }
+    ]
   },
   "devDependencies": {
     "cross-env": "^7.0.3",

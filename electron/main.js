@@ -70,7 +70,13 @@ ipcMain.handle('printer:print', async (_evt, { html, type, deviceName }) => {
 
   return new Promise((resolve) => {
     printWin.webContents.print(
-      { silent: true, deviceName, printBackground: true, margins: { marginType: 'none' }, pageSize },
+      {
+        silent: true,
+        deviceName,
+        printBackground: true,
+        margins: { marginType: 'none' },
+        pageSize,
+      },
       (success, reason) => {
         printWin.close();
         resolve({ ok: success, reason });
