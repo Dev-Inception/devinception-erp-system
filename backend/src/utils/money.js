@@ -7,10 +7,16 @@
  * See: https://www.moderntreasury.com/journal/floats-dont-work-for-storing-cents
  */
 
-// Rupees (number, possibly with decimals) -> integer paisa.
+const ApiError = require("./ApiError");
+
+// Rupees (number, possibly with decimals) -> integer paisa. Throws on a
+// non-finite/garbage amount rather than silently coercing it to 0, which would
+// quietly drop money (e.g. a malformed opening balance posting as zero).
 function toPaisa(rupees) {
   const n = Number(rupees);
-  if (!Number.isFinite(n)) return 0;
+  if (!Number.isFinite(n)) {
+    throw ApiError.badRequest("Invalid monetary amount");
+  }
   // Round to the nearest paisa to absorb float representation error.
   return Math.round(n * 100);
 }

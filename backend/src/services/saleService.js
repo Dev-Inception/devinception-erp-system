@@ -9,6 +9,7 @@ const { ACCOUNT, REF, PAYMENT_METHOD, BANK_METHODS } = require("../utils/finance
 const journalService = require("./journalService");
 const stockService = require("./stockService");
 const counterService = require("./counterService");
+const { parsePagination } = require("../utils/query");
 
 /**
  * POS sale flow. Resolves how the sale is settled (cash / bank / on account),
@@ -26,8 +27,8 @@ function resolveSettlement({ method, total, cashReceived, onlineReceived }) {
   } else if (BANK_METHODS.has(method)) {
     online = total;
   } else if (method === PAYMENT_METHOD.MIXED) {
-    cash = toPaisa(cashReceived);
-    online = toPaisa(onlineReceived);
+    cash = toPaisa(cashReceived || 0);
+    online = toPaisa(onlineReceived || 0);
     // The POS "Mixed" mode splits the full total across cash + online; it has
     // no on-account remainder. Reject a short tender instead of silently
     // booking the gap as a receivable.
@@ -193,7 +194,8 @@ async function createSale(actor, input) {
   return sale;
 }
 
-async function listSales({ page = 1, limit = 20, customer, from, to }) {
+async function listSales({ customer, from, to, ...query } = {}) {
+  const { page, limit, skip } = parsePagination(query);
   const filter = {};
   if (customer) filter.customer = customer;
   if (from || to) {
@@ -202,13 +204,12 @@ async function listSales({ page = 1, limit = 20, customer, from, to }) {
     if (to) filter.date.$lte = new Date(to);
   }
 
-  const skip = (Math.max(page, 1) - 1) * limit;
   const [sales, total] = await Promise.all([
     Sale.find(filter).sort({ date: -1, createdAt: -1 }).skip(skip).limit(limit),
     Sale.countDocuments(filter),
   ]);
 
-  return { sales, total, page: Number(page), limit: Number(limit) };
+  return { sales, total, page, limit };
 }
 
 async function getSaleById(id) {

@@ -5,6 +5,7 @@ const ApiError = require("../utils/ApiError");
 const stockService = require("./stockService");
 const journalService = require("./journalService");
 const { ACCOUNT, REF } = require("../utils/finance");
+const { parsePagination, escapeRegex } = require("../utils/query");
 
 /**
  * Product catalog CRUD plus stock visibility. Prices/costs are paisa. Stock
@@ -47,26 +48,27 @@ async function attachStock(products, warehouse) {
   });
 }
 
-async function listProducts({ page = 1, limit = 50, search, warehouse, includeInactive = false }) {
+async function listProducts({ search, warehouse, includeInactive = false, ...query } = {}) {
+  const { page, limit, skip } = parsePagination(query, { defaultLimit: 50 });
   const filter = {};
   // Hide deactivated products from the catalog unless explicitly requested.
   if (!includeInactive) filter.isActive = true;
   if (search) {
+    const term = escapeRegex(search);
     filter.$or = [
-      { name: { $regex: search, $options: "i" } },
-      { sku: { $regex: search, $options: "i" } },
-      { barcode: { $regex: search, $options: "i" } },
+      { name: { $regex: term, $options: "i" } },
+      { sku: { $regex: term, $options: "i" } },
+      { barcode: { $regex: term, $options: "i" } },
     ];
   }
 
-  const skip = (Math.max(page, 1) - 1) * limit;
   const [docs, total] = await Promise.all([
     Product.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
     Product.countDocuments(filter),
   ]);
 
   const products = await attachStock(docs, warehouse);
-  return { products, total, page: Number(page), limit: Number(limit) };
+  return { products, total, page, limit };
 }
 
 async function getProductById(id) {
@@ -115,7 +117,12 @@ async function deleteProduct(id) {
 async function adjustStock(id, { warehouse, delta, unitCost = 0, note = "", createdBy }) {
   const product = await getProductById(id);
 
-  const valueDelta = await stockService.adjustStock(product._id, warehouse, delta, unitCost, {
+  // The id is shape-validated by the route, but a well-formed id that points at
+  // no warehouse would still create stock + a journal entry against a ghost
+  // location. Confirm it actually exists (throws 404 otherwise).
+  const wh = await require("./warehouseService").getWarehouseById(warehouse);
+
+  const valueDelta = await stockService.adjustStock(product._id, wh._id, delta, unitCost, {
     refType: "ADJUST",
     refNo: `ADJ-${product.sku || product._id}`,
   });

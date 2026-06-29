@@ -3,6 +3,7 @@ const ApiError = require("../utils/ApiError");
 const journalService = require("./journalService");
 const { ACCOUNT } = require("../utils/finance");
 const { toRupees } = require("../utils/money");
+const { parsePagination, escapeRegex } = require("../utils/query");
 
 /**
  * Vendor (supplier) management. Authorization is enforced by route
@@ -19,17 +20,18 @@ function pickWritable({ name, phone, email, ntn, address }) {
   return fields;
 }
 
-async function listVendors({ page = 1, limit = 20, search }) {
+async function listVendors(query = {}) {
+  const { page, limit, skip } = parsePagination(query);
   const filter = {};
-  if (search) {
+  if (query.search) {
+    const term = escapeRegex(query.search);
     filter.$or = [
-      { name: { $regex: search, $options: "i" } },
-      { phone: { $regex: search, $options: "i" } },
-      { email: { $regex: search, $options: "i" } },
+      { name: { $regex: term, $options: "i" } },
+      { phone: { $regex: term, $options: "i" } },
+      { email: { $regex: term, $options: "i" } },
     ];
   }
 
-  const skip = (Math.max(page, 1) - 1) * limit;
   const [docs, total, balances] = await Promise.all([
     Vendor.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
     Vendor.countDocuments(filter),
@@ -43,7 +45,7 @@ async function listVendors({ page = 1, limit = 20, search }) {
     outstanding: toRupees(balances.get(String(v._id)) || 0),
   }));
 
-  return { vendors, total, page: Number(page), limit: Number(limit) };
+  return { vendors, total, page, limit };
 }
 
 async function getVendorById(id) {

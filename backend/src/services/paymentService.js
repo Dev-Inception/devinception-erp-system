@@ -25,6 +25,18 @@ async function settlementAccount(method, bankAccountId) {
   throw ApiError.badRequest("Unsupported payment method");
 }
 
+// Refuse to move more money out of a cash/bank account than it holds, so the
+// drawer or bank balance can't be driven negative. (No DB transaction here —
+// matches the rest of the standalone-Mongo flows — but it stops the obvious
+// overdraft.)
+async function assertSufficientFunds(account, ref, amount) {
+  const balance = await journalService.accountBalance(account, ref);
+  if (balance < amount) {
+    const where = account === ACCOUNT.BANK ? "bank account" : "cash drawer";
+    throw ApiError.badRequest(`Insufficient funds in the ${where} for this payment`);
+  }
+}
+
 // Pay a vendor: Dr Accounts-Payable (vendor) / Cr Cash|Bank.
 async function payVendor(actor, { vendor, amount, method = PAYMENT_METHOD.CASH, bankAccount, date, note }) {
   const vendorDoc = await Vendor.findById(vendor);
@@ -34,6 +46,7 @@ async function payVendor(actor, { vendor, amount, method = PAYMENT_METHOD.CASH, 
   if (amt <= 0) throw ApiError.badRequest("Amount must be positive");
 
   const settle = await settlementAccount(method, bankAccount);
+  await assertSufficientFunds(settle.account, settle.ref, amt);
   const when = date ? new Date(date) : new Date();
   const number = await counterService.nextDocNumber("PAY", when.getFullYear(), 4);
 
@@ -85,6 +98,8 @@ async function cashEntry(actor, { direction, amount, date, note }) {
   if (direction !== "IN" && direction !== "OUT") {
     throw ApiError.badRequest("Direction must be IN or OUT");
   }
+  // Taking cash out can't drive the drawer negative.
+  if (direction === "OUT") await assertSufficientFunds(ACCOUNT.CASH, null, amt);
   const when = date ? new Date(date) : new Date();
 
   const lines =

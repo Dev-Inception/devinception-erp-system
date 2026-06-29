@@ -9,6 +9,7 @@ const journalService = require("./journalService");
 const stockService = require("./stockService");
 const paymentService = require("./paymentService");
 const counterService = require("./counterService");
+const { parsePagination } = require("../utils/query");
 
 /**
  * Customer invoices. Issuing an invoice lowers stock (capturing COGS) and posts
@@ -158,7 +159,8 @@ async function payInvoice(actor, id, { amount, method, bankAccount, date, note }
   return invoice;
 }
 
-async function listInvoices({ page = 1, limit = 20, customer, status, from, to }) {
+async function listInvoices({ customer, status, from, to, ...query } = {}) {
+  const { page, limit, skip } = parsePagination(query);
   const filter = {};
   if (customer) filter.customer = customer;
   if (status) filter.status = status;
@@ -168,12 +170,11 @@ async function listInvoices({ page = 1, limit = 20, customer, status, from, to }
     if (to) filter.date.$lte = new Date(to);
   }
 
-  const skip = (Math.max(page, 1) - 1) * limit;
   const [invoices, total] = await Promise.all([
     Invoice.find(filter).sort({ date: -1, createdAt: -1 }).skip(skip).limit(limit),
     Invoice.countDocuments(filter),
   ]);
-  return { invoices, total, page: Number(page), limit: Number(limit) };
+  return { invoices, total, page, limit };
 }
 
 async function getInvoiceById(id) {

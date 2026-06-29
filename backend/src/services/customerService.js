@@ -3,6 +3,7 @@ const ApiError = require("../utils/ApiError");
 const journalService = require("./journalService");
 const { ACCOUNT } = require("../utils/finance");
 const { toRupees } = require("../utils/money");
+const { parsePagination, escapeRegex } = require("../utils/query");
 
 /**
  * Customer management. Authorization is enforced by route middleware; here we
@@ -18,17 +19,18 @@ function pickWritable({ name, phone, email, address, creditLimit }) {
   return fields;
 }
 
-async function listCustomers({ page = 1, limit = 20, search }) {
+async function listCustomers(query = {}) {
+  const { page, limit, skip } = parsePagination(query);
   const filter = {};
-  if (search) {
+  if (query.search) {
+    const term = escapeRegex(query.search);
     filter.$or = [
-      { name: { $regex: search, $options: "i" } },
-      { phone: { $regex: search, $options: "i" } },
-      { email: { $regex: search, $options: "i" } },
+      { name: { $regex: term, $options: "i" } },
+      { phone: { $regex: term, $options: "i" } },
+      { email: { $regex: term, $options: "i" } },
     ];
   }
 
-  const skip = (Math.max(page, 1) - 1) * limit;
   const [docs, total, balances] = await Promise.all([
     Customer.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
     Customer.countDocuments(filter),
@@ -41,7 +43,7 @@ async function listCustomers({ page = 1, limit = 20, search }) {
     outstanding: toRupees(balances.get(String(c._id)) || 0),
   }));
 
-  return { customers, total, page: Number(page), limit: Number(limit) };
+  return { customers, total, page, limit };
 }
 
 async function getCustomerById(id) {

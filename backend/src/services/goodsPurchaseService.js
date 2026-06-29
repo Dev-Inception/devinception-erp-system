@@ -8,6 +8,7 @@ const { ACCOUNT, REF, PAYMENT_METHOD, BANK_METHODS } = require("../utils/finance
 const journalService = require("./journalService");
 const stockService = require("./stockService");
 const counterService = require("./counterService");
+const { parsePagination } = require("../utils/query");
 
 /**
  * Goods purchase flow. Validates everything up front, then: raises stock,
@@ -157,7 +158,8 @@ async function createPurchase(actor, input) {
   return purchase;
 }
 
-async function listPurchases({ page = 1, limit = 20, vendor, from, to }) {
+async function listPurchases({ vendor, from, to, ...query } = {}) {
+  const { page, limit, skip } = parsePagination(query);
   const filter = {};
   if (vendor) filter.vendor = vendor;
   if (from || to) {
@@ -166,7 +168,6 @@ async function listPurchases({ page = 1, limit = 20, vendor, from, to }) {
     if (to) filter.date.$lte = new Date(to);
   }
 
-  const skip = (Math.max(page, 1) - 1) * limit;
   const [purchases, total] = await Promise.all([
     GoodsPurchase.find(filter)
       .populate("vendor", "name")
@@ -176,7 +177,7 @@ async function listPurchases({ page = 1, limit = 20, vendor, from, to }) {
     GoodsPurchase.countDocuments(filter),
   ]);
 
-  return { purchases, total, page: Number(page), limit: Number(limit) };
+  return { purchases, total, page, limit };
 }
 
 async function getPurchaseById(id) {

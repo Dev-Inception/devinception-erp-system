@@ -2,6 +2,7 @@ const express = require("express");
 const authController = require("../controllers/authController");
 const { protect } = require("../middlewares/authMiddleware");
 const { validate } = require("../middlewares/validateMiddleware");
+const { loginLimiter, passwordResetLimiter } = require("../middlewares/rateLimit");
 const {
   loginValidator,
   forgotPasswordValidator,
@@ -12,18 +13,21 @@ const {
 const router = express.Router();
 
 // Public. There is no self-registration: accounts are created by an admin
-// (or super admin) via POST /api/users.
-router.post("/login", loginValidator, validate, authController.login);
+// (or super admin) via POST /api/users. The login and password-reset routes
+// are rate limited to blunt brute-force and email-flooding attempts.
+router.post("/login", loginLimiter, loginValidator, validate, authController.login);
 router.post("/refresh", authController.refresh);
 router.post("/logout", authController.logout);
 router.post(
   "/forgot-password",
+  passwordResetLimiter,
   forgotPasswordValidator,
   validate,
   authController.forgotPassword
 );
 router.post(
   "/reset-password",
+  passwordResetLimiter,
   resetPasswordValidator,
   validate,
   authController.resetPassword

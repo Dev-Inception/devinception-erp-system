@@ -1,5 +1,6 @@
 const express = require("express");
 const cors = require("cors");
+const helmet = require("helmet");
 const cookieParser = require("cookie-parser");
 const swaggerUi = require("swagger-ui-express");
 
@@ -9,6 +10,12 @@ const { notFound, errorHandler } = require("./middlewares/errorMiddleware");
 const env = require("./config/env");
 
 const app = express();
+
+// Security headers. CSP is disabled because the bundled Swagger UI at
+// /api/docs relies on inline scripts/styles that a default CSP would block;
+// this service is otherwise a JSON API, so the remaining helmet defaults
+// (HSTS, no-sniff, frameguard, etc.) are what we want.
+app.use(helmet({ contentSecurityPolicy: false }));
 
 // Core middleware
 app.use(express.json());

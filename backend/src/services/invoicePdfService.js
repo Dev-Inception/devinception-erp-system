@@ -33,15 +33,9 @@ function drawRow(doc, y, cols, { bold = false } = {}) {
   return y + 22;
 }
 
-/**
- * @param {object} invoice  Mongoose invoice doc, ideally with `customer`
- *                          populated (name/phone/email) and `warehouse` (name).
- * @param {Writable} res    The HTTP response (or any writable stream).
- */
-function streamInvoicePdf(invoice, res) {
-  const doc = new PDFDocument({ size: "A4", margin: PAGE_MARGIN });
-  doc.pipe(res);
-
+// Draw the whole invoice onto an open PDFKit document. Kept separate from the
+// streaming lifecycle so streamInvoicePdf can wrap it in error handling.
+function renderInvoice(doc, invoice) {
   const customerName =
     invoice.customerName || (invoice.customer && invoice.customer.name) || "Customer";
 
@@ -121,8 +115,52 @@ function streamInvoicePdf(invoice, res) {
     .fontSize(8)
     .fillColor("#999")
     .text("Thank you for your business.", PAGE_MARGIN, 790, { align: "center", width: 495 });
+}
 
-  doc.end();
+/**
+ * Render an invoice to a PDF and stream it into `res`. Resolves once the PDF
+ * has finished streaming and rejects if generation fails before any bytes were
+ * sent (so the caller can still return a clean error). Once streaming has
+ * started the headers are already committed, so a later failure just tears the
+ * response down rather than corrupting it.
+ *
+ * @param {object} invoice  Mongoose invoice doc, ideally with `customer`
+ *                          populated (name/phone/email) and `warehouse` (name).
+ * @param {Writable} res    The HTTP response (or any writable stream).
+ */
+function streamInvoicePdf(invoice, res) {
+  return new Promise((resolve, reject) => {
+    const doc = new PDFDocument({ size: "A4", margin: PAGE_MARGIN });
+    let started = false; // have any PDF bytes been written to the response yet?
+
+    doc.on("data", () => {
+      started = true;
+    });
+    doc.on("end", resolve);
+
+    // A PDFKit stream error after headers are sent can't be turned into a clean
+    // HTTP error; just stop the stream and tear the response down.
+    doc.on("error", (err) => {
+      if (!res.headersSent) reject(err);
+      else res.destroy(err);
+    });
+
+    // If the client disconnects mid-download, stop generating so a huge invoice
+    // doesn't keep tying up the event loop writing to a dead socket.
+    res.on("close", () => doc.destroy());
+
+    doc.pipe(res);
+
+    try {
+      renderInvoice(doc, invoice);
+      doc.end();
+    } catch (err) {
+      doc.destroy();
+      // Synchronous render error before any bytes left: surface it cleanly.
+      if (!started && !res.headersSent) reject(err);
+      else res.destroy(err);
+    }
+  });
 }
 
 module.exports = { streamInvoicePdf };

@@ -11,19 +11,37 @@ const stockService = require("./stockService");
  * frontend renders / exports them (Print / CSV).
  */
 
-function dateFilter({ from, to }) {
-  const f = {};
-  if (from || to) {
-    f.date = {};
-    if (from) f.date.$gte = new Date(from);
-    if (to) f.date.$lte = new Date(to);
+// The widest period a transactional report may span. Without an upper bound a
+// single request could still pull years of rows into memory.
+const MAX_RANGE_DAYS = 366;
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+/**
+ * Validate and normalize a required reporting window. Both ends are mandatory
+ * for the row-level reports (sales/purchases) so we never load the entire
+ * collection, and the span is capped to keep result sets bounded.
+ */
+function requireRange({ from, to }) {
+  if (!from || !to) {
+    throw ApiError.badRequest("Both 'from' and 'to' dates are required for this report");
   }
-  return f;
+  const start = new Date(from);
+  const end = new Date(to);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+    throw ApiError.badRequest("Invalid 'from' or 'to' date");
+  }
+  if (start > end) {
+    throw ApiError.badRequest("'from' must be on or before 'to'");
+  }
+  if (end - start > MAX_RANGE_DAYS * MS_PER_DAY) {
+    throw ApiError.badRequest(`Date range cannot exceed ${MAX_RANGE_DAYS} days`);
+  }
+  return { date: { $gte: start, $lte: end } };
 }
 
 // Sales report: one row per sale + cash/online/total summary.
 async function salesReport({ from, to }) {
-  const sales = await Sale.find(dateFilter({ from, to })).sort({ date: -1, createdAt: -1 }).lean();
+  const sales = await Sale.find(requireRange({ from, to })).sort({ date: -1, createdAt: -1 }).lean();
 
   const rows = sales.map((s) => ({
     number: s.number,
@@ -53,7 +71,7 @@ async function salesReport({ from, to }) {
 
 // Purchases report: one row per purchase + total/paid/balance summary.
 async function purchasesReport({ from, to }) {
-  const purchases = await GoodsPurchase.find(dateFilter({ from, to }))
+  const purchases = await GoodsPurchase.find(requireRange({ from, to }))
     .populate("vendor", "name")
     .sort({ date: -1, createdAt: -1 })
     .lean();

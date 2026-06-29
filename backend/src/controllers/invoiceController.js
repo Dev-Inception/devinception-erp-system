@@ -51,7 +51,9 @@ const downloadInvoicePdf = asyncHandler(async (req, res) => {
   const invoice = await invoiceService.getInvoiceById(req.params.id);
   res.setHeader("Content-Type", "application/pdf");
   res.setHeader("Content-Disposition", `attachment; filename="${invoice.number}.pdf"`);
-  streamInvoicePdf(invoice, res);
+  // Await so a generation failure before streaming starts propagates to the
+  // error handler instead of leaving the request hanging.
+  await streamInvoicePdf(invoice, res);
 });
 
 module.exports = { createInvoice, payInvoice, listInvoices, getInvoice, downloadInvoicePdf };
