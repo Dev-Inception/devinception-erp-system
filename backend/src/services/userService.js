@@ -1,7 +1,7 @@
-const User = require("../models/userModel");
-const Role = require("../models/roleModel");
-const ApiError = require("../utils/ApiError");
-const { ROLES } = require("../utils/constants");
+const User = require('../models/userModel');
+const Role = require('../models/roleModel');
+const ApiError = require('../utils/ApiError');
+const { ROLES } = require('../utils/constants');
 
 /**
  * Admin-facing user management. Authorization (who may call these) is
@@ -15,7 +15,7 @@ async function assertAssignableRole(actor, roleName) {
   if (!role) throw ApiError.badRequest(`Unknown role: ${roleName}`);
 
   if (role.name === ROLES.SUPER_ADMIN && actor.role !== ROLES.SUPER_ADMIN) {
-    throw ApiError.forbidden("Only a super admin can assign the super_admin role");
+    throw ApiError.forbidden('Only a super admin can assign the super_admin role');
   }
   return role;
 }
@@ -25,8 +25,8 @@ async function listUsers({ page = 1, limit = 20, role, search }) {
   if (role) filter.role = role;
   if (search) {
     filter.$or = [
-      { name: { $regex: search, $options: "i" } },
-      { email: { $regex: search, $options: "i" } },
+      { name: { $regex: search, $options: 'i' } },
+      { email: { $regex: search, $options: 'i' } },
     ];
   }
 
@@ -41,7 +41,7 @@ async function listUsers({ page = 1, limit = 20, role, search }) {
 
 async function getUserById(id) {
   const user = await User.findById(id);
-  if (!user) throw ApiError.notFound("User not found");
+  if (!user) throw ApiError.notFound('User not found');
   return user;
 }
 
@@ -51,18 +51,18 @@ async function createUser(actor, { name, email, password, role }) {
   await assertAssignableRole(actor, roleName);
 
   const existing = await User.findOne({ email });
-  if (existing) throw ApiError.conflict("Email is already registered");
+  if (existing) throw ApiError.conflict('Email is already registered');
 
   return User.create({ name, email, password, role: roleName });
 }
 
 async function updateUserRole(actor, targetId, newRole) {
   const target = await User.findById(targetId);
-  if (!target) throw ApiError.notFound("User not found");
+  if (!target) throw ApiError.notFound('User not found');
 
   // Demoting/changing an existing super admin is also super-admin-only.
   if (target.role === ROLES.SUPER_ADMIN && actor.role !== ROLES.SUPER_ADMIN) {
-    throw ApiError.forbidden("Only a super admin can manage super admins");
+    throw ApiError.forbidden('Only a super admin can manage super admins');
   }
 
   // Validates the role exists and gates assigning super_admin.
@@ -75,13 +75,13 @@ async function updateUserRole(actor, targetId, newRole) {
 
 async function setUserActive(actor, targetId, isActive) {
   if (actor._id.toString() === targetId) {
-    throw ApiError.badRequest("You cannot change your own active status");
+    throw ApiError.badRequest('You cannot change your own active status');
   }
   const target = await User.findById(targetId);
-  if (!target) throw ApiError.notFound("User not found");
+  if (!target) throw ApiError.notFound('User not found');
 
   if (target.role === ROLES.SUPER_ADMIN && actor.role !== ROLES.SUPER_ADMIN) {
-    throw ApiError.forbidden("Only a super admin can manage super admins");
+    throw ApiError.forbidden('Only a super admin can manage super admins');
   }
 
   target.isActive = isActive;
@@ -91,13 +91,13 @@ async function setUserActive(actor, targetId, isActive) {
 
 async function deleteUser(actor, targetId) {
   if (actor._id.toString() === targetId) {
-    throw ApiError.badRequest("You cannot delete your own account");
+    throw ApiError.badRequest('You cannot delete your own account');
   }
   const target = await User.findById(targetId);
-  if (!target) throw ApiError.notFound("User not found");
+  if (!target) throw ApiError.notFound('User not found');
 
   if (target.role === ROLES.SUPER_ADMIN && actor.role !== ROLES.SUPER_ADMIN) {
-    throw ApiError.forbidden("Only a super admin can delete super admins");
+    throw ApiError.forbidden('Only a super admin can delete super admins');
   }
 
   await target.deleteOne();

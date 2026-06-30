@@ -1,9 +1,9 @@
-const crypto = require("crypto");
-const User = require("../models/userModel");
-const ApiError = require("../utils/ApiError");
-const env = require("../config/env");
-const tokenService = require("./tokenService");
-const { sendPasswordResetEmail } = require("./emailService");
+const crypto = require('crypto');
+const User = require('../models/userModel');
+const ApiError = require('../utils/ApiError');
+const env = require('../config/env');
+const tokenService = require('./tokenService');
+const { sendPasswordResetEmail } = require('./emailService');
 
 /**
  * Business logic for authentication. Controllers stay thin and just
@@ -12,12 +12,12 @@ const { sendPasswordResetEmail } = require("./emailService");
 
 async function login({ email, password }) {
   // Password is select:false, so request it explicitly.
-  const user = await User.findOne({ email }).select("+password");
+  const user = await User.findOne({ email }).select('+password');
   if (!user || !(await user.comparePassword(password))) {
-    throw ApiError.unauthorized("Invalid email or password");
+    throw ApiError.unauthorized('Invalid email or password');
   }
   if (!user.isActive) {
-    throw ApiError.forbidden("Account is deactivated");
+    throw ApiError.forbidden('Account is deactivated');
   }
 
   const tokens = tokenService.generateAuthTokens(user);
@@ -26,22 +26,22 @@ async function login({ email, password }) {
 
 async function refresh(refreshToken) {
   if (!refreshToken) {
-    throw ApiError.unauthorized("Refresh token is required");
+    throw ApiError.unauthorized('Refresh token is required');
   }
 
   let payload;
   try {
     payload = tokenService.verifyRefreshToken(refreshToken);
   } catch {
-    throw ApiError.unauthorized("Invalid or expired refresh token");
+    throw ApiError.unauthorized('Invalid or expired refresh token');
   }
 
-  const user = await User.findById(payload.sub).select("+passwordChangedAt");
+  const user = await User.findById(payload.sub).select('+passwordChangedAt');
   if (!user || !user.isActive) {
-    throw ApiError.unauthorized("User no longer exists or is inactive");
+    throw ApiError.unauthorized('User no longer exists or is inactive');
   }
   if (user.passwordChangedAfter(payload.iat)) {
-    throw ApiError.unauthorized("Password changed, please log in again");
+    throw ApiError.unauthorized('Password changed, please log in again');
   }
 
   return tokenService.generateAuthTokens(user);
@@ -66,20 +66,20 @@ async function forgotPassword(email) {
     user.passwordResetToken = undefined;
     user.passwordResetExpires = undefined;
     await user.save({ validateBeforeSave: false });
-    throw ApiError.badRequest("Failed to send reset email, try again later");
+    throw ApiError.badRequest('Failed to send reset email, try again later');
   }
 }
 
 async function resetPassword(rawToken, newPassword) {
-  const hashed = crypto.createHash("sha256").update(rawToken).digest("hex");
+  const hashed = crypto.createHash('sha256').update(rawToken).digest('hex');
 
   const user = await User.findOne({
     passwordResetToken: hashed,
     passwordResetExpires: { $gt: new Date() },
-  }).select("+password");
+  }).select('+password');
 
   if (!user) {
-    throw ApiError.badRequest("Token is invalid or has expired");
+    throw ApiError.badRequest('Token is invalid or has expired');
   }
 
   user.password = newPassword;
@@ -92,11 +92,11 @@ async function resetPassword(rawToken, newPassword) {
 }
 
 async function changePassword(userId, currentPassword, newPassword) {
-  const user = await User.findById(userId).select("+password");
-  if (!user) throw ApiError.notFound("User not found");
+  const user = await User.findById(userId).select('+password');
+  if (!user) throw ApiError.notFound('User not found');
 
   if (!(await user.comparePassword(currentPassword))) {
-    throw ApiError.unauthorized("Current password is incorrect");
+    throw ApiError.unauthorized('Current password is incorrect');
   }
 
   user.password = newPassword;

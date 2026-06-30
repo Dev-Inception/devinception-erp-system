@@ -1,49 +1,49 @@
-const express = require("express");
-const vendorController = require("../controllers/vendorController");
-const { protect } = require("../middlewares/authMiddleware");
-const { requirePermission } = require("../middlewares/roleMiddleware");
-const { validate } = require("../middlewares/validateMiddleware");
-const { PERMISSIONS } = require("../utils/permissions");
+const express = require('express');
+const vendorController = require('../controllers/vendorController');
+const { protect } = require('../middlewares/authMiddleware');
+const { requirePermission } = require('../middlewares/roleMiddleware');
+const { validate } = require('../middlewares/validateMiddleware');
+const { PERMISSIONS } = require('../utils/permissions');
 const {
   createVendorValidator,
   updateVendorValidator,
   idParamValidator,
-} = require("../validators/vendorValidator");
+} = require('../validators/vendorValidator');
 
 const router = express.Router();
 
 // Every route here requires authentication.
 router.use(protect);
 
-router.get("/", requirePermission(PERMISSIONS.VENDORS_READ), vendorController.listVendors);
+router.get('/', requirePermission(PERMISSIONS.VENDORS_READ), vendorController.listVendors);
 router.get(
-  "/:id",
+  '/:id',
   requirePermission(PERMISSIONS.VENDORS_READ),
   idParamValidator,
   validate,
-  vendorController.getVendor
+  vendorController.getVendor,
 );
 
 router.post(
-  "/",
+  '/',
   requirePermission(PERMISSIONS.VENDORS_CREATE),
   createVendorValidator,
   validate,
-  vendorController.createVendor
+  vendorController.createVendor,
 );
 router.patch(
-  "/:id",
+  '/:id',
   requirePermission(PERMISSIONS.VENDORS_UPDATE),
   updateVendorValidator,
   validate,
-  vendorController.updateVendor
+  vendorController.updateVendor,
 );
 router.delete(
-  "/:id",
+  '/:id',
   requirePermission(PERMISSIONS.VENDORS_DELETE),
   idParamValidator,
   validate,
-  vendorController.deleteVendor
+  vendorController.deleteVendor,
 );
 
 module.exports = router;

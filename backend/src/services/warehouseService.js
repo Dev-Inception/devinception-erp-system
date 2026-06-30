@@ -1,6 +1,6 @@
-const Warehouse = require("../models/warehouseModel");
-const StockLevel = require("../models/stockLevelModel");
-const ApiError = require("../utils/ApiError");
+const Warehouse = require('../models/warehouseModel');
+const StockLevel = require('../models/stockLevelModel');
+const ApiError = require('../utils/ApiError');
 
 /**
  * Warehouse CRUD. Exactly one warehouse carries isDefault=true; setting it on
@@ -16,9 +16,9 @@ async function listWarehouses() {
       { $match: { quantity: { $gt: 0 } } },
       {
         $group: {
-          _id: "$warehouse",
+          _id: '$warehouse',
           itemsInStock: { $sum: 1 },
-          stockValue: { $sum: { $round: [{ $multiply: ["$quantity", "$avgCost"] }, 0] } },
+          stockValue: { $sum: { $round: [{ $multiply: ['$quantity', '$avgCost'] }, 0] } },
         },
       },
     ]),
@@ -32,7 +32,7 @@ async function listWarehouses() {
 
 async function getWarehouseById(id) {
   const wh = await Warehouse.findById(id);
-  if (!wh) throw ApiError.notFound("Warehouse not found");
+  if (!wh) throw ApiError.notFound('Warehouse not found');
   return wh;
 }
 
@@ -64,10 +64,10 @@ async function updateWarehouse(id, { name, location, address, isDefault, isActiv
 
 async function deleteWarehouse(id) {
   const wh = await getWarehouseById(id);
-  if (wh.isDefault) throw ApiError.badRequest("The default warehouse cannot be deleted");
+  if (wh.isDefault) throw ApiError.badRequest('The default warehouse cannot be deleted');
 
   const hasStock = await StockLevel.exists({ warehouse: id, quantity: { $ne: 0 } });
-  if (hasStock) throw ApiError.badRequest("Warehouse still holds stock and cannot be deleted");
+  if (hasStock) throw ApiError.badRequest('Warehouse still holds stock and cannot be deleted');
 
   // Drop leftover zero-quantity stock rows so no orphans linger.
   await StockLevel.deleteMany({ warehouse: id });

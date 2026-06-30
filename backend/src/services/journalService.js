@@ -1,6 +1,6 @@
-const JournalEntry = require("../models/journalEntryModel");
-const ApiError = require("../utils/ApiError");
-const { naturalBalance } = require("../utils/finance");
+const JournalEntry = require('../models/journalEntryModel');
+const ApiError = require('../utils/ApiError');
+const { naturalBalance } = require('../utils/finance');
 
 /**
  * The ledger engine. Everything that moves money posts through `post()`, and
@@ -18,7 +18,15 @@ function line(account, { debit = 0, credit = 0, ref = null } = {}) {
  * balanced; we re-check here so callers get a clean 400 instead of a Mongoose
  * ValidationError, and drop any zero/zero lines defensively.
  */
-async function post({ date, description = "", refType, refId = null, refNo = "", lines, createdBy = null }) {
+async function post({
+  date,
+  description = '',
+  refType,
+  refId = null,
+  refNo = '',
+  lines,
+  createdBy = null,
+}) {
   const clean = (lines || []).filter((l) => (l.debit || 0) > 0 || (l.credit || 0) > 0);
 
   let debit = 0;
@@ -28,7 +36,7 @@ async function post({ date, description = "", refType, refId = null, refNo = "",
     credit += l.credit || 0;
   }
   if (clean.length < 2 || debit !== credit) {
-    throw ApiError.badRequest("Internal posting is not balanced");
+    throw ApiError.badRequest('Internal posting is not balanced');
   }
 
   return JournalEntry.create({
@@ -44,7 +52,7 @@ async function post({ date, description = "", refType, refId = null, refNo = "",
 
 // Match expression selecting lines for one account (ref null for singletons).
 function accountMatch(account, ref = null) {
-  return { "lines.account": account, "lines.ref": ref || null };
+  return { 'lines.account': account, 'lines.ref': ref || null };
 }
 
 /**
@@ -67,13 +75,13 @@ async function accountTotals(account, ref = null, { from, to } = {}) {
 
   const rows = await JournalEntry.aggregate([
     ...(Object.keys(entryMatch).length ? [{ $match: entryMatch }] : []),
-    { $unwind: "$lines" },
+    { $unwind: '$lines' },
     { $match: accountMatch(account, ref) },
     {
       $group: {
         _id: null,
-        debit: { $sum: "$lines.debit" },
-        credit: { $sum: "$lines.credit" },
+        debit: { $sum: '$lines.debit' },
+        credit: { $sum: '$lines.credit' },
       },
     },
   ]);
@@ -137,13 +145,13 @@ async function accountStatement(account, ref = null, { from, to } = {}) {
  */
 async function balancesByRef(account) {
   const rows = await JournalEntry.aggregate([
-    { $unwind: "$lines" },
-    { $match: { "lines.account": account } },
+    { $unwind: '$lines' },
+    { $match: { 'lines.account': account } },
     {
       $group: {
-        _id: "$lines.ref",
-        debit: { $sum: "$lines.debit" },
-        credit: { $sum: "$lines.credit" },
+        _id: '$lines.ref',
+        debit: { $sum: '$lines.debit' },
+        credit: { $sum: '$lines.credit' },
       },
     },
   ]);
@@ -164,4 +172,3 @@ module.exports = {
   accountStatement,
   balancesByRef,
 };
-

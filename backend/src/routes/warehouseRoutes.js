@@ -1,46 +1,46 @@
-const express = require("express");
-const warehouseController = require("../controllers/warehouseController");
-const { protect } = require("../middlewares/authMiddleware");
-const { requirePermission } = require("../middlewares/roleMiddleware");
-const { validate } = require("../middlewares/validateMiddleware");
-const { PERMISSIONS } = require("../utils/permissions");
+const express = require('express');
+const warehouseController = require('../controllers/warehouseController');
+const { protect } = require('../middlewares/authMiddleware');
+const { requirePermission } = require('../middlewares/roleMiddleware');
+const { validate } = require('../middlewares/validateMiddleware');
+const { PERMISSIONS } = require('../utils/permissions');
 const {
   createWarehouseValidator,
   updateWarehouseValidator,
   idParamValidator,
-} = require("../validators/warehouseValidator");
+} = require('../validators/warehouseValidator');
 
 const router = express.Router();
 router.use(protect);
 
-router.get("/", requirePermission(PERMISSIONS.INVENTORY_READ), warehouseController.listWarehouses);
+router.get('/', requirePermission(PERMISSIONS.INVENTORY_READ), warehouseController.listWarehouses);
 router.get(
-  "/:id",
+  '/:id',
   requirePermission(PERMISSIONS.INVENTORY_READ),
   idParamValidator,
   validate,
-  warehouseController.getWarehouse
+  warehouseController.getWarehouse,
 );
 router.post(
-  "/",
+  '/',
   requirePermission(PERMISSIONS.INVENTORY_MANAGE),
   createWarehouseValidator,
   validate,
-  warehouseController.createWarehouse
+  warehouseController.createWarehouse,
 );
 router.patch(
-  "/:id",
+  '/:id',
   requirePermission(PERMISSIONS.INVENTORY_MANAGE),
   updateWarehouseValidator,
   validate,
-  warehouseController.updateWarehouse
+  warehouseController.updateWarehouse,
 );
 router.delete(
-  "/:id",
+  '/:id',
   requirePermission(PERMISSIONS.INVENTORY_MANAGE),
   idParamValidator,
   validate,
-  warehouseController.deleteWarehouse
+  warehouseController.deleteWarehouse,
 );
 
 module.exports = router;

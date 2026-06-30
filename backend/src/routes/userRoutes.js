@@ -1,15 +1,15 @@
-const express = require("express");
-const userController = require("../controllers/userController");
-const { protect } = require("../middlewares/authMiddleware");
-const { requirePermission } = require("../middlewares/roleMiddleware");
-const { validate } = require("../middlewares/validateMiddleware");
-const { PERMISSIONS } = require("../utils/permissions");
+const express = require('express');
+const userController = require('../controllers/userController');
+const { protect } = require('../middlewares/authMiddleware');
+const { requirePermission } = require('../middlewares/roleMiddleware');
+const { validate } = require('../middlewares/validateMiddleware');
+const { PERMISSIONS } = require('../utils/permissions');
 const {
   createUserValidator,
   updateRoleValidator,
   setActiveValidator,
   idParamValidator,
-} = require("../validators/userValidator");
+} = require('../validators/userValidator');
 
 const router = express.Router();
 
@@ -17,47 +17,43 @@ const router = express.Router();
 router.use(protect);
 
 // Read access
+router.get('/', requirePermission(PERMISSIONS.USERS_READ), userController.listUsers);
 router.get(
-  "/",
-  requirePermission(PERMISSIONS.USERS_READ),
-  userController.listUsers
-);
-router.get(
-  "/:id",
+  '/:id',
   requirePermission(PERMISSIONS.USERS_READ),
   idParamValidator,
   validate,
-  userController.getUser
+  userController.getUser,
 );
 
 // Write access
 router.post(
-  "/",
+  '/',
   requirePermission(PERMISSIONS.USERS_CREATE),
   createUserValidator,
   validate,
-  userController.createUser
+  userController.createUser,
 );
 router.patch(
-  "/:id/role",
+  '/:id/role',
   requirePermission(PERMISSIONS.USERS_UPDATE_ROLE),
   updateRoleValidator,
   validate,
-  userController.updateUserRole
+  userController.updateUserRole,
 );
 router.patch(
-  "/:id/active",
+  '/:id/active',
   requirePermission(PERMISSIONS.USERS_SET_ACTIVE),
   setActiveValidator,
   validate,
-  userController.setUserActive
+  userController.setUserActive,
 );
 router.delete(
-  "/:id",
+  '/:id',
   requirePermission(PERMISSIONS.USERS_DELETE),
   idParamValidator,
   validate,
-  userController.deleteUser
+  userController.deleteUser,
 );
 
 module.exports = router;

@@ -1,5 +1,5 @@
-const mongoose = require("mongoose");
-const { PERMISSION_VALUES, WILDCARD } = require("../utils/permissions");
+const mongoose = require('mongoose');
+const { PERMISSION_VALUES, WILDCARD } = require('../utils/permissions');
 
 /**
  * A role is a named bundle of permissions. The five built-in roles are
@@ -14,7 +14,7 @@ const roleSchema = new mongoose.Schema(
   {
     name: {
       type: String,
-      required: [true, "Role name is required"],
+      required: [true, 'Role name is required'],
       unique: true,
       lowercase: true,
       trim: true,
@@ -24,15 +24,14 @@ const roleSchema = new mongoose.Schema(
       type: String,
       trim: true,
       maxlength: 200,
-      default: "",
+      default: '',
     },
     permissions: {
       type: [String],
       default: [],
       validate: {
-        validator: (perms) =>
-          perms.every((p) => p === WILDCARD || PERMISSION_VALUES.includes(p)),
-        message: "permissions contains an unknown permission",
+        validator: (perms) => perms.every((p) => p === WILDCARD || PERMISSION_VALUES.includes(p)),
+        message: 'permissions contains an unknown permission',
       },
     },
     // Built-in roles cannot be renamed or deleted.
@@ -41,14 +40,14 @@ const roleSchema = new mongoose.Schema(
       default: false,
     },
   },
-  { timestamps: true }
+  { timestamps: true },
 );
 
-roleSchema.set("toJSON", {
+roleSchema.set('toJSON', {
   transform: (_doc, ret) => {
     delete ret.__v;
     return ret;
   },
 });
 
-module.exports = mongoose.model("Role", roleSchema);
+module.exports = mongoose.model('Role', roleSchema);

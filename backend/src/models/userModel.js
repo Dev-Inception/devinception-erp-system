@@ -1,19 +1,19 @@
-const mongoose = require("mongoose");
-const bcrypt = require("bcryptjs");
-const crypto = require("crypto");
-const { ROLES } = require("../utils/constants");
+const mongoose = require('mongoose');
+const bcrypt = require('bcryptjs');
+const crypto = require('crypto');
+const { ROLES } = require('../utils/constants');
 
 const userSchema = new mongoose.Schema(
   {
     name: {
       type: String,
-      required: [true, "Name is required"],
+      required: [true, 'Name is required'],
       trim: true,
       maxlength: 80,
     },
     email: {
       type: String,
-      required: [true, "Email is required"],
+      required: [true, 'Email is required'],
       unique: true,
       lowercase: true,
       trim: true,
@@ -21,7 +21,7 @@ const userSchema = new mongoose.Schema(
     },
     password: {
       type: String,
-      required: [true, "Password is required"],
+      required: [true, 'Password is required'],
       minlength: 8,
       // Never return the hash unless explicitly selected.
       select: false,
@@ -46,13 +46,13 @@ const userSchema = new mongoose.Schema(
     // Bumped whenever the password changes; lets us invalidate old JWTs.
     passwordChangedAt: { type: Date, select: false },
   },
-  { timestamps: true }
+  { timestamps: true },
 );
 
 // Hash the password before saving whenever it has been modified.
 // Mongoose 9 async middleware is promise-based (no `next` callback).
-userSchema.pre("save", async function hashPassword() {
-  if (!this.isModified("password")) return;
+userSchema.pre('save', async function hashPassword() {
+  if (!this.isModified('password')) return;
 
   const salt = await bcrypt.genSalt(10);
   this.password = await bcrypt.hash(this.password, salt);
@@ -78,22 +78,17 @@ userSchema.methods.passwordChangedAfter = function passwordChangedAfter(jwtIat) 
 
 // Generate a reset token: return the RAW token (emailed to user) and
 // store its hash + expiry on the document.
-userSchema.methods.createPasswordResetToken = function createPasswordResetToken(
-  expiresMin
-) {
-  const rawToken = crypto.randomBytes(32).toString("hex");
+userSchema.methods.createPasswordResetToken = function createPasswordResetToken(expiresMin) {
+  const rawToken = crypto.randomBytes(32).toString('hex');
 
-  this.passwordResetToken = crypto
-    .createHash("sha256")
-    .update(rawToken)
-    .digest("hex");
+  this.passwordResetToken = crypto.createHash('sha256').update(rawToken).digest('hex');
   this.passwordResetExpires = new Date(Date.now() + expiresMin * 60 * 1000);
 
   return rawToken;
 };
 
 // Strip sensitive fields from any JSON serialization.
-userSchema.set("toJSON", {
+userSchema.set('toJSON', {
   transform: (_doc, ret) => {
     delete ret.password;
     delete ret.passwordResetToken;
@@ -104,4 +99,4 @@ userSchema.set("toJSON", {
   },
 });
 
-module.exports = mongoose.model("User", userSchema);
+module.exports = mongoose.model('User', userSchema);

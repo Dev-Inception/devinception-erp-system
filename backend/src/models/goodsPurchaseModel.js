@@ -1,5 +1,5 @@
-const mongoose = require("mongoose");
-const { PAYMENT_METHODS } = require("../utils/finance");
+const mongoose = require('mongoose');
+const { PAYMENT_METHODS } = require('../utils/finance');
 
 /**
  * A goods purchase (GRN) from a vendor. Receiving the goods raises stock and
@@ -11,7 +11,7 @@ const { PAYMENT_METHODS } = require("../utils/finance");
  */
 const purchaseItemSchema = new mongoose.Schema(
   {
-    product: { type: mongoose.Schema.Types.ObjectId, ref: "Product", required: true },
+    product: { type: mongoose.Schema.Types.ObjectId, ref: 'Product', required: true },
     name: { type: String, required: true }, // snapshot of product name
     quantity: { type: Number, required: true, min: 0 },
     unitCost: { type: Number, required: true, min: 0 }, // paisa per unit (net of discount)
@@ -19,15 +19,15 @@ const purchaseItemSchema = new mongoose.Schema(
     tax: { type: Number, default: 0, min: 0 }, // paisa, input tax for the line
     lineTotal: { type: Number, required: true, min: 0 }, // paisa, net (excl tax)
   },
-  { _id: false }
+  { _id: false },
 );
 
 const goodsPurchaseSchema = new mongoose.Schema(
   {
     number: { type: String, required: true, unique: true, index: true }, // GP-2026-0002
-    vendorInvoiceNo: { type: String, trim: true, default: "" }, // supplier's invoice number
-    vendor: { type: mongoose.Schema.Types.ObjectId, ref: "Vendor", required: true, index: true },
-    warehouse: { type: mongoose.Schema.Types.ObjectId, ref: "Warehouse", required: true },
+    vendorInvoiceNo: { type: String, trim: true, default: '' }, // supplier's invoice number
+    vendor: { type: mongoose.Schema.Types.ObjectId, ref: 'Vendor', required: true, index: true },
+    warehouse: { type: mongoose.Schema.Types.ObjectId, ref: 'Warehouse', required: true },
     date: { type: Date, default: Date.now, index: true },
 
     items: { type: [purchaseItemSchema], required: true },
@@ -40,19 +40,19 @@ const goodsPurchaseSchema = new mongoose.Schema(
     balance: { type: Number, default: 0 }, // paisa (total - paid)
 
     paymentMethod: { type: String, enum: PAYMENT_METHODS, default: undefined },
-    bankAccount: { type: mongoose.Schema.Types.ObjectId, ref: "BankAccount", default: null },
+    bankAccount: { type: mongoose.Schema.Types.ObjectId, ref: 'BankAccount', default: null },
 
-    notes: { type: String, trim: true, default: "" },
-    createdBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
+    notes: { type: String, trim: true, default: '' },
+    createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
   },
-  { timestamps: true }
+  { timestamps: true },
 );
 
-goodsPurchaseSchema.set("toJSON", {
+goodsPurchaseSchema.set('toJSON', {
   transform: (_doc, ret) => {
     delete ret.__v;
     return ret;
   },
 });
 
-module.exports = mongoose.model("GoodsPurchase", goodsPurchaseSchema);
+module.exports = mongoose.model('GoodsPurchase', goodsPurchaseSchema);

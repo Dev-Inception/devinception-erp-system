@@ -1,8 +1,8 @@
-const BankAccount = require("../models/bankAccountModel");
-const ApiError = require("../utils/ApiError");
-const { toPaisa } = require("../utils/money");
-const { ACCOUNT, REF } = require("../utils/finance");
-const journalService = require("./journalService");
+const BankAccount = require('../models/bankAccountModel');
+const ApiError = require('../utils/ApiError');
+const { toPaisa } = require('../utils/money');
+const { ACCOUNT, REF } = require('../utils/finance');
+const journalService = require('./journalService');
 
 /**
  * Bank account management. Balances are derived from the BANK journal lines
@@ -17,13 +17,13 @@ async function listBankAccounts() {
     accounts.map(async (a) => ({
       ...a,
       balance: await journalService.accountBalance(ACCOUNT.BANK, a._id),
-    }))
+    })),
   );
 }
 
 async function getBankAccountById(id) {
   const account = await BankAccount.findById(id);
-  if (!account) throw ApiError.notFound("Bank account not found");
+  if (!account) throw ApiError.notFound('Bank account not found');
   return account;
 }
 
@@ -59,7 +59,8 @@ async function updateBankAccount(id, { name, bankName, accountNumber, isActive }
 async function deleteBankAccount(id) {
   const account = await getBankAccountById(id);
   const balance = await journalService.accountBalance(ACCOUNT.BANK, account._id);
-  if (balance !== 0) throw ApiError.badRequest("Bank account has a non-zero balance and cannot be deleted");
+  if (balance !== 0)
+    throw ApiError.badRequest('Bank account has a non-zero balance and cannot be deleted');
   await account.deleteOne();
 }
 

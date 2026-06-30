@@ -1,8 +1,8 @@
-const ApiError = require("../utils/ApiError");
-const asyncHandler = require("../utils/asyncHandler");
-const roleService = require("../services/roleService");
-const { ROLE_HIERARCHY } = require("../utils/constants");
-const { WILDCARD } = require("../utils/permissions");
+const ApiError = require('../utils/ApiError');
+const asyncHandler = require('../utils/asyncHandler');
+const roleService = require('../services/roleService');
+const { ROLE_HIERARCHY } = require('../utils/constants');
+const { WILDCARD } = require('../utils/permissions');
 
 /**
  * Authorize by explicit role list. Must run after `protect`.
@@ -12,12 +12,10 @@ const { WILDCARD } = require("../utils/permissions");
 function authorize(...allowedRoles) {
   return (req, _res, next) => {
     if (!req.user) {
-      return next(ApiError.unauthorized("Not authenticated"));
+      return next(ApiError.unauthorized('Not authenticated'));
     }
     if (!allowedRoles.includes(req.user.role)) {
-      return next(
-        ApiError.forbidden("You do not have permission to perform this action")
-      );
+      return next(ApiError.forbidden('You do not have permission to perform this action'));
     }
     next();
   };
@@ -32,13 +30,11 @@ function requireMinRole(minRole) {
 
   return (req, _res, next) => {
     if (!req.user) {
-      return next(ApiError.unauthorized("Not authenticated"));
+      return next(ApiError.unauthorized('Not authenticated'));
     }
     const userIndex = ROLE_HIERARCHY.indexOf(req.user.role);
     if (userIndex < minIndex) {
-      return next(
-        ApiError.forbidden("You do not have permission to perform this action")
-      );
+      return next(ApiError.forbidden('You do not have permission to perform this action'));
     }
     next();
   };
@@ -54,13 +50,12 @@ function requireMinRole(minRole) {
 function requirePermission(...required) {
   return asyncHandler(async (req, _res, next) => {
     if (!req.user) {
-      throw ApiError.unauthorized("Not authenticated");
+      throw ApiError.unauthorized('Not authenticated');
     }
     const perms = await roleService.getPermissions(req.user.role);
-    const ok =
-      perms.has(WILDCARD) || required.every((p) => perms.has(p));
+    const ok = perms.has(WILDCARD) || required.every((p) => perms.has(p));
     if (!ok) {
-      throw ApiError.forbidden("You do not have permission to perform this action");
+      throw ApiError.forbidden('You do not have permission to perform this action');
     }
     next();
   });

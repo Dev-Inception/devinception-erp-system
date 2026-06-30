@@ -25,7 +25,7 @@ function parsePagination({ page, limit } = {}, { defaultLimit = 20, maxLimit = 1
  * (ReDoS) when used in a `$regex` filter.
  */
 function escapeRegex(str) {
-  return String(str).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return String(str).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 module.exports = { parsePagination, escapeRegex };

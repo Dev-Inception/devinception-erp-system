@@ -10,15 +10,15 @@
 // and BANK carry a `ref` to the specific customer/vendor/bank account; the
 // rest are singletons for the business as a whole.
 const ACCOUNT = {
-  CASH: "CASH", // cash on hand (asset)
-  BANK: "BANK", // a specific bank account (asset), ref = BankAccount
-  INVENTORY: "INVENTORY", // stock at cost (asset)
-  AR: "AR", // accounts receivable (asset), ref = Customer
-  AP: "AP", // accounts payable (liability), ref = Vendor
-  SALES: "SALES", // sales revenue (income)
-  COGS: "COGS", // cost of goods sold (expense)
-  TAX: "TAX", // net sales tax payable: output tax (credit) − input tax (debit)
-  EQUITY: "EQUITY", // opening balances / owner adjustments
+  CASH: 'CASH', // cash on hand (asset)
+  BANK: 'BANK', // a specific bank account (asset), ref = BankAccount
+  INVENTORY: 'INVENTORY', // stock at cost (asset)
+  AR: 'AR', // accounts receivable (asset), ref = Customer
+  AP: 'AP', // accounts payable (liability), ref = Vendor
+  SALES: 'SALES', // sales revenue (income)
+  COGS: 'COGS', // cost of goods sold (expense)
+  TAX: 'TAX', // net sales tax payable: output tax (credit) − input tax (debit)
+  EQUITY: 'EQUITY', // opening balances / owner adjustments
 };
 
 const ACCOUNT_KINDS = Object.values(ACCOUNT);
@@ -44,22 +44,22 @@ function naturalBalance(kind, debit, credit) {
 
 // Source document types a journal entry can reference.
 const REF = {
-  SALE: "SALE",
-  PURCHASE: "PURCHASE",
-  PAYMENT: "PAYMENT", // money paid to a vendor
-  RECEIPT: "RECEIPT", // money received from a customer
-  CASH_ADJUST: "CASH_ADJUST", // manual cash in/out
-  OPENING: "OPENING", // opening balances
+  SALE: 'SALE',
+  PURCHASE: 'PURCHASE',
+  PAYMENT: 'PAYMENT', // money paid to a vendor
+  RECEIPT: 'RECEIPT', // money received from a customer
+  CASH_ADJUST: 'CASH_ADJUST', // manual cash in/out
+  OPENING: 'OPENING', // opening balances
 };
 
 // How a sale (or purchase) was settled.
 const PAYMENT_METHOD = {
-  CASH: "CASH",
-  CARD: "CARD",
-  BANK_TRANSFER: "BANK_TRANSFER",
-  ONLINE: "ONLINE",
-  MIXED: "MIXED", // split across cash + a bank/online account
-  CREDIT: "CREDIT", // on account (AR/AP), settled later
+  CASH: 'CASH',
+  CARD: 'CARD',
+  BANK_TRANSFER: 'BANK_TRANSFER',
+  ONLINE: 'ONLINE',
+  MIXED: 'MIXED', // split across cash + a bank/online account
+  CREDIT: 'CREDIT', // on account (AR/AP), settled later
 };
 
 const PAYMENT_METHODS = Object.values(PAYMENT_METHOD);

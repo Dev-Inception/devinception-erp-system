@@ -1,5 +1,5 @@
-const { validationResult } = require("express-validator");
-const ApiError = require("../utils/ApiError");
+const { validationResult } = require('express-validator');
+const ApiError = require('../utils/ApiError');
 
 /**
  * Runs after a list of express-validator checks and turns any failures
@@ -14,7 +14,7 @@ function validate(req, _res, next) {
     if (!details[err.path]) details[err.path] = err.msg;
   }
 
-  return next(ApiError.badRequest("Validation failed", details));
+  return next(ApiError.badRequest('Validation failed', details));
 }
 
 module.exports = { validate };
