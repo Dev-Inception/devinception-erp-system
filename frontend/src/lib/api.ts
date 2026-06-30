@@ -1230,6 +1230,43 @@ async function realPartyLedger(kindPlural: string, id: string) {
   };
 }
 
+/* ── Users (Permissions page) ── */
+function mapManagedUser(u: any) {
+  return {
+    id: String(u._id ?? u.id),
+    fullName: u.name,
+    email: u.email,
+    role: String(u.role).toUpperCase(), // backend lowercase → FE uppercase
+    active: u.isActive !== false,
+    createdAt: u.createdAt ? String(u.createdAt).slice(0, 10) : '',
+  };
+}
+async function realUsers() {
+  const res = await http.get('/users', { params: { limit: 100 } });
+  return (res.data.users as any[]).map(mapManagedUser);
+}
+async function realCreateUser(body: any) {
+  const res = await http.post('/users', {
+    name: body.fullName,
+    email: body.email,
+    password: body.password,
+    role: String(body.role).toLowerCase(),
+  });
+  return mapManagedUser(res.data.user);
+}
+async function realUpdateUserRole(id: string, body: any) {
+  const res = await http.patch(`/users/${id}/role`, { role: String(body.role).toLowerCase() });
+  return mapManagedUser(res.data.user);
+}
+async function realSetUserActive(id: string, body: any) {
+  const res = await http.patch(`/users/${id}/active`, { isActive: body.active });
+  return mapManagedUser(res.data.user);
+}
+async function realDeleteUser(id: string) {
+  await http.delete(`/users/${id}`);
+  return { success: true };
+}
+
 /**
  * Route a call to the real backend if its module is migrated; otherwise return
  * `undefined` so the caller falls back to the in-memory mock.
@@ -1252,6 +1289,7 @@ async function tryReal(
     if (url === '/sales') return wrap(await realSales());
     if (url === '/cash') return wrap(await realCashLedger());
     if (url === '/bank/accounts') return wrap(await realBankAccounts());
+    if (url === '/users') return wrap(await realUsers());
     if (url === '/dashboard/kpis') return wrap(await realDashKpis());
     if (url === '/dashboard/sales-trend') return wrap(await realDashTrend());
     if (url === '/dashboard/top-products') return wrap(await realDashTop());
@@ -1269,11 +1307,19 @@ async function tryReal(
     if (url === '/purchases') return wrap(await realCreatePurchase(body));
     if (url === '/cash') return wrap(await realCashEntry(body));
     if (url === '/bank/accounts') return wrap(await realCreateBankAccount(body));
+    if (url === '/users') return wrap(await realCreateUser(body));
     if (seg[0] === 'warehouses' && seg[2] === 'set-default')
       return wrap(await realSetDefaultWarehouse(seg[1]));
   }
   if (method === 'patch') {
     if (seg[0] === 'products' && seg[1]) return wrap(await realUpdateProduct(seg[1], body));
+    if (seg[0] === 'users' && seg[2] === 'role')
+      return wrap(await realUpdateUserRole(seg[1], body));
+    if (seg[0] === 'users' && seg[2] === 'active')
+      return wrap(await realSetUserActive(seg[1], body));
+  }
+  if (method === 'delete') {
+    if (seg[0] === 'users' && seg[1] && !seg[2]) return wrap(await realDeleteUser(seg[1]));
   }
   return undefined;
 }

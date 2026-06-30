@@ -1,5 +1,7 @@
 import { useState } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Plus, Trash2, ShieldAlert, RotateCcw, Check, UserPlus } from 'lucide-react';
+import { api } from '@/lib/api';
 import { toast } from 'sonner';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -54,26 +56,37 @@ function RoleSelect({
 }
 
 function CreateUserDialog() {
-  const addUser = usePermissionsStore((s) => s.addUser);
-  const users = usePermissionsStore((s) => s.users);
+  const qc = useQueryClient();
   const [open, setOpen] = useState(false);
-  const [form, setForm] = useState<{ fullName: string; email: string; role: Role }>({
+  const [form, setForm] = useState<{
+    fullName: string;
+    email: string;
+    password: string;
+    role: Role;
+  }>({
     fullName: '',
     email: '',
+    password: '',
     role: 'CASHIER',
+  });
+
+  const create = useMutation({
+    mutationFn: async () => (await api.post('/users', form)).data,
+    onSuccess: () => {
+      toast.success(`${form.fullName} added as ${ROLE_LABELS[form.role]}`);
+      qc.invalidateQueries({ queryKey: ['users'] });
+      setForm({ fullName: '', email: '', password: '', role: 'CASHIER' });
+      setOpen(false);
+    },
+    onError: (e: any) =>
+      toast.error(
+        e?.response?.data?.message?.[0] ?? e?.response?.data?.message ?? 'Could not create user',
+      ),
   });
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
-    const email = form.email.trim().toLowerCase();
-    if (users.some((u) => u.email === email)) {
-      toast.error('A user with that email already exists');
-      return;
-    }
-    addUser(form);
-    toast.success(`${form.fullName} added as ${ROLE_LABELS[form.role]}`);
-    setForm({ fullName: '', email: '', role: 'CASHIER' });
-    setOpen(false);
+    create.mutate();
   };
 
   return (
@@ -109,6 +122,17 @@ function CreateUserDialog() {
             />
           </div>
           <div className="space-y-1.5">
+            <Label>Password *</Label>
+            <Input
+              required
+              type="password"
+              minLength={8}
+              placeholder="At least 8 characters"
+              value={form.password}
+              onChange={(e) => setForm({ ...form, password: e.target.value })}
+            />
+          </div>
+          <div className="space-y-1.5">
             <Label htmlFor="new-user-role">Role</Label>
             <RoleSelect
               id="new-user-role"
@@ -122,7 +146,7 @@ function CreateUserDialog() {
                 Cancel
               </Button>
             </DialogClose>
-            <Button type="submit">
+            <Button type="submit" disabled={create.isPending}>
               <UserPlus className="h-4 w-4" /> Create User
             </Button>
           </div>
@@ -133,15 +157,42 @@ function CreateUserDialog() {
 }
 
 function UsersCard() {
-  const users = usePermissionsStore((s) => s.users);
-  const updateUser = usePermissionsStore((s) => s.updateUser);
-  const removeUser = usePermissionsStore((s) => s.removeUser);
+  const qc = useQueryClient();
   const currentUser = useAuthStore((s) => s.user);
+  const onError = (e: any) => toast.error(e?.response?.data?.message ?? 'Action failed');
+  const invalidate = () => qc.invalidateQueries({ queryKey: ['users'] });
 
-  const remove = (u: ManagedUser) => {
-    removeUser(u.id);
-    toast.success(`${u.fullName} removed`);
+  const { data: users = [] } = useQuery<ManagedUser[]>({
+    queryKey: ['users'],
+    queryFn: async () => (await api.get('/users')).data,
+  });
+
+  const setRole = useMutation({
+    mutationFn: async ({ id, role }: { id: string; role: Role }) =>
+      (await api.patch(`/users/${id}/role`, { role })).data,
+    onSuccess: invalidate,
+    onError,
+  });
+  const setActive = useMutation({
+    mutationFn: async ({ id, active }: { id: string; active: boolean }) =>
+      (await api.patch(`/users/${id}/active`, { active })).data,
+    onSuccess: invalidate,
+    onError,
+  });
+  const removeMut = useMutation({
+    mutationFn: async (id: string) => (await api.delete(`/users/${id}`)).data,
+    onSuccess: (_d, _id) => {
+      toast.success('User removed');
+      invalidate();
+    },
+    onError,
+  });
+
+  const updateUser = (id: string, patch: { role?: Role; active?: boolean }) => {
+    if (patch.role !== undefined) setRole.mutate({ id, role: patch.role });
+    if (patch.active !== undefined) setActive.mutate({ id, active: patch.active });
   };
+  const remove = (u: ManagedUser) => removeMut.mutate(u.id);
 
   return (
     <Card className="overflow-hidden">
