@@ -1,14 +1,14 @@
-const GoodsPurchase = require("../models/goodsPurchaseModel");
-const Vendor = require("../models/vendorModel");
-const Product = require("../models/productModel");
-const BankAccount = require("../models/bankAccountModel");
-const ApiError = require("../utils/ApiError");
-const { toPaisa } = require("../utils/money");
-const { ACCOUNT, REF, PAYMENT_METHOD, BANK_METHODS } = require("../utils/finance");
-const journalService = require("./journalService");
-const stockService = require("./stockService");
-const counterService = require("./counterService");
-const { parsePagination } = require("../utils/query");
+const GoodsPurchase = require('../models/goodsPurchaseModel');
+const Vendor = require('../models/vendorModel');
+const Product = require('../models/productModel');
+const BankAccount = require('../models/bankAccountModel');
+const ApiError = require('../utils/ApiError');
+const { toPaisa } = require('../utils/money');
+const { ACCOUNT, REF, PAYMENT_METHOD, BANK_METHODS } = require('../utils/finance');
+const journalService = require('./journalService');
+const stockService = require('./stockService');
+const counterService = require('./counterService');
+const { parsePagination } = require('../utils/query');
 
 /**
  * Goods purchase flow. Validates everything up front, then: raises stock,
@@ -20,27 +20,39 @@ const { parsePagination } = require("../utils/query");
 // Resolve the settlement account (cash drawer or a bank account) for a method.
 async function settlementAccount(method, bankAccountId) {
   if (BANK_METHODS.has(method)) {
-    if (!bankAccountId) throw ApiError.badRequest("A bank account is required for this payment method");
+    if (!bankAccountId)
+      throw ApiError.badRequest('A bank account is required for this payment method');
     const bank = await BankAccount.findById(bankAccountId);
-    if (!bank) throw ApiError.notFound("Bank account not found");
+    if (!bank) throw ApiError.notFound('Bank account not found');
     return { account: ACCOUNT.BANK, ref: bank._id };
   }
   if (method === PAYMENT_METHOD.CASH) return { account: ACCOUNT.CASH, ref: null };
-  throw ApiError.badRequest("Unsupported payment method for a purchase");
+  throw ApiError.badRequest('Unsupported payment method for a purchase');
 }
 
 async function createPurchase(actor, input) {
-  const { vendor, warehouse, date, items, discount = 0, vendorInvoiceNo, paid = 0, paymentMethod, bankAccount, notes } = input;
+  const {
+    vendor,
+    warehouse,
+    date,
+    items,
+    discount = 0,
+    vendorInvoiceNo,
+    paid = 0,
+    paymentMethod,
+    bankAccount,
+    notes,
+  } = input;
 
   const vendorDoc = await Vendor.findById(vendor);
-  if (!vendorDoc) throw ApiError.notFound("Vendor not found");
+  if (!vendorDoc) throw ApiError.notFound('Vendor not found');
 
   if (!Array.isArray(items) || items.length === 0) {
-    throw ApiError.badRequest("At least one item is required");
+    throw ApiError.badRequest('At least one item is required');
   }
 
   const wh = warehouse
-    ? await require("./warehouseService").getWarehouseById(warehouse)
+    ? await require('./warehouseService').getWarehouseById(warehouse)
     : await stockService.ensureDefaultWarehouse();
 
   // First pass: gross line totals (before any discount) to size the discount.
@@ -50,14 +62,15 @@ async function createPurchase(actor, input) {
     const product = await Product.findById(it.product);
     if (!product) throw ApiError.notFound(`Product not found: ${it.product}`);
     const quantity = Number(it.quantity);
-    if (!(quantity > 0)) throw ApiError.badRequest("Item quantity must be positive");
-    const gross = Math.round(quantity * toPaisa(it.unitCost));
+    if (!(quantity > 0)) throw ApiError.badRequest('Item quantity must be positive');
+    const enteredUnitCost = toPaisa(it.unitCost);
+    const gross = Math.round(quantity * enteredUnitCost);
     subtotal += gross;
-    parsed.push({ product, quantity, gross, taxPct: Number(it.taxPercent) || 0 });
+    parsed.push({ product, quantity, gross, enteredUnitCost, taxPct: Number(it.taxPercent) || 0 });
   }
 
   const discountPaisa = toPaisa(discount);
-  if (discountPaisa > subtotal) throw ApiError.badRequest("Discount cannot exceed the subtotal");
+  if (discountPaisa > subtotal) throw ApiError.badRequest('Discount cannot exceed the subtotal');
 
   // Allocate the order-level discount across lines so inventory is valued at
   // the net (discounted) cost. Per-line tax is charged on the net line amount.
@@ -84,21 +97,25 @@ async function createPurchase(actor, input) {
 
   const total = net + totalTax; // grand total payable
   const paidPaisa = toPaisa(paid);
-  if (paidPaisa < 0) throw ApiError.badRequest("Paid amount cannot be negative");
-  if (paidPaisa > total) throw ApiError.badRequest("Paid amount cannot exceed the purchase total");
+  if (paidPaisa < 0) throw ApiError.badRequest('Paid amount cannot be negative');
+  if (paidPaisa > total) throw ApiError.badRequest('Paid amount cannot exceed the purchase total');
 
+  // The GP form captures no payment method; default to cash when an amount is
+  // paid so the purchase posts without the UI having to send one. Paying by
+  // bank still works by passing BANK_TRANSFER/CARD/ONLINE + a bank account.
   let settle = null;
+  let method = paymentMethod;
   if (paidPaisa > 0) {
-    if (!paymentMethod) throw ApiError.badRequest("A payment method is required when paying");
-    settle = await settlementAccount(paymentMethod, bankAccount);
+    method = method || PAYMENT_METHOD.CASH;
+    settle = await settlementAccount(method, bankAccount);
   }
 
   const when = date ? new Date(date) : new Date();
-  const number = await counterService.nextDocNumber("GP", when.getFullYear(), 4);
+  const number = await counterService.nextDocNumber('GP', when.getFullYear(), 4);
 
   const purchase = await GoodsPurchase.create({
     number,
-    vendorInvoiceNo: vendorInvoiceNo || "",
+    vendorInvoiceNo: vendorInvoiceNo || '',
     vendor: vendorDoc._id,
     warehouse: wh._id,
     date: when,
@@ -109,9 +126,9 @@ async function createPurchase(actor, input) {
     total,
     paid: paidPaisa,
     balance: total - paidPaisa,
-    paymentMethod: paidPaisa > 0 ? paymentMethod : undefined,
+    paymentMethod: paidPaisa > 0 ? method : undefined,
     bankAccount: settle && settle.account === ACCOUNT.BANK ? settle.ref : null,
-    notes: notes || "",
+    notes: notes || '',
     createdBy: actor ? actor._id : null,
   });
 
@@ -122,6 +139,14 @@ async function createPurchase(actor, input) {
       refNo: number,
       date: when,
     });
+  }
+
+  // Keep the catalog's expected buying rate in step with the latest purchase:
+  // set each product's purchasePrice to the (entered) rate it was just bought
+  // at. Inventory is still valued at the moving-average avgCost; this only
+  // refreshes the catalog figure shown in Products and prefilled in the GP form.
+  for (const p of parsed) {
+    await Product.updateOne({ _id: p.product._id }, { purchasePrice: p.enteredUnitCost });
   }
 
   // Purchase posting: Dr Inventory (net) + Dr Tax (input) / Cr A-P (grand total).
@@ -170,7 +195,7 @@ async function listPurchases({ vendor, from, to, ...query } = {}) {
 
   const [purchases, total] = await Promise.all([
     GoodsPurchase.find(filter)
-      .populate("vendor", "name")
+      .populate('vendor', 'name')
       .sort({ date: -1, createdAt: -1 })
       .skip(skip)
       .limit(limit),
@@ -182,9 +207,9 @@ async function listPurchases({ vendor, from, to, ...query } = {}) {
 
 async function getPurchaseById(id) {
   const purchase = await GoodsPurchase.findById(id)
-    .populate("vendor", "name phone")
-    .populate("warehouse", "name");
-  if (!purchase) throw ApiError.notFound("Purchase not found");
+    .populate('vendor', 'name phone')
+    .populate('warehouse', 'name');
+  if (!purchase) throw ApiError.notFound('Purchase not found');
   return purchase;
 }
 

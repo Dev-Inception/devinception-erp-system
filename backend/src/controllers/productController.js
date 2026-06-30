@@ -1,11 +1,41 @@
-const productService = require("../services/productService");
-const asyncHandler = require("../utils/asyncHandler");
-const { sendSuccess } = require("../utils/ApiResponse");
-const { toPaisa, view } = require("../utils/money");
+const productService = require('../services/productService');
+const asyncHandler = require('../utils/asyncHandler');
+const { sendSuccess } = require('../utils/ApiResponse');
+const { toPaisa, view } = require('../utils/money');
 
 // paisa -> rupees for the wire.
 const out = (p) => (p && p.toJSON ? p.toJSON() : p);
-const serialize = (p) => view(out(p), ["purchasePrice", "salePrice", "stockValue"]);
+
+// A populated catalog ref -> { id, name(, abbreviation) }; tolerates a bare id
+// or a legacy free-text string so older product rows still serialize cleanly.
+function refObject(ref, withAbbrev) {
+  if (!ref) return { id: undefined, obj: null };
+  if (typeof ref === 'object') {
+    const id = String(ref._id ?? ref.id);
+    const obj = withAbbrev
+      ? { id, name: ref.name, abbreviation: ref.abbreviation || ref.name }
+      : { id, name: ref.name };
+    return { id, obj };
+  }
+  // Unpopulated ObjectId or legacy string: surface it as both id and label.
+  const id = String(ref);
+  const obj = withAbbrev ? { id, name: id, abbreviation: id } : { id, name: id };
+  return { id, obj };
+}
+
+function serialize(product) {
+  const p = view(out(product), ['purchasePrice', 'salePrice', 'stockValue']);
+  const c = refObject(p.category);
+  const b = refObject(p.brand);
+  const u = refObject(p.unit, true);
+  p.categoryId = c.id;
+  p.brandId = b.id;
+  p.unitId = u.id;
+  p.category = c.obj;
+  p.brand = b.obj;
+  p.unit = u.obj;
+  return p;
+}
 
 const listProducts = asyncHandler(async (req, res) => {
   const { page, limit, search, warehouse, includeInactive } = req.query;
@@ -14,9 +44,9 @@ const listProducts = asyncHandler(async (req, res) => {
     limit,
     search,
     warehouse,
-    includeInactive: includeInactive === "true",
+    includeInactive: includeInactive === 'true',
   });
-  return sendSuccess(res, 200, "Products fetched", {
+  return sendSuccess(res, 200, 'Products fetched', {
     ...result,
     products: result.products.map(serialize),
   });
@@ -24,7 +54,7 @@ const listProducts = asyncHandler(async (req, res) => {
 
 const getProduct = asyncHandler(async (req, res) => {
   const product = await productService.getProductById(req.params.id);
-  return sendSuccess(res, 200, "Product fetched", { product: serialize(product) });
+  return sendSuccess(res, 200, 'Product fetched', { product: serialize(product) });
 });
 
 // Convert the rupee price fields on the way in.
@@ -37,30 +67,39 @@ function pricesToPaisa(data) {
 
 const createProduct = asyncHandler(async (req, res) => {
   const product = await productService.createProduct(pricesToPaisa(req.body));
-  return sendSuccess(res, 201, "Product created", { product: serialize(product) });
+  return sendSuccess(res, 201, 'Product created', { product: serialize(product) });
 });
 
 const updateProduct = asyncHandler(async (req, res) => {
   const product = await productService.updateProduct(req.params.id, pricesToPaisa(req.body));
-  return sendSuccess(res, 200, "Product updated", { product: serialize(product) });
+  return sendSuccess(res, 200, 'Product updated', { product: serialize(product) });
 });
 
 const deleteProduct = asyncHandler(async (req, res) => {
   await productService.deleteProduct(req.params.id);
-  return sendSuccess(res, 200, "Product deleted");
+  return sendSuccess(res, 200, 'Product deleted');
 });
 
-// Manual stock adjustment / opening stock.
+// Manual stock adjustment / opening stock. Accepts a first-class
+// `{ type, quantity }` or a signed `delta`; returns the product and `newQty`.
 const adjustStock = asyncHandler(async (req, res) => {
-  const { warehouse, delta, unitCost, note } = req.body;
-  const product = await productService.adjustStock(req.params.id, {
+  const { warehouse, type, quantity, delta, unitCost, note } = req.body;
+  const { product, newQty } = await productService.adjustStock(req.params.id, {
     warehouse,
-    delta: Number(delta),
-    unitCost: unitCost !== undefined ? toPaisa(unitCost) : 0,
+    type,
+    quantity: quantity !== undefined ? Number(quantity) : undefined,
+    delta: delta !== undefined ? Number(delta) : undefined,
+    unitCost: unitCost !== undefined && unitCost !== null ? toPaisa(unitCost) : undefined,
     note,
     createdBy: req.user,
   });
-  return sendSuccess(res, 200, "Stock adjusted", { product: serialize(product) });
+  return sendSuccess(res, 200, 'Stock adjusted', { product: serialize(product), newQty });
+});
+
+// Current on-hand quantity for a product (optionally at one warehouse).
+const getStock = asyncHandler(async (req, res) => {
+  const quantity = await productService.getStock(req.params.id, req.query.warehouse);
+  return sendSuccess(res, 200, 'Stock fetched', { quantity });
 });
 
 module.exports = {
@@ -70,4 +109,5 @@ module.exports = {
   updateProduct,
   deleteProduct,
   adjustStock,
+  getStock,
 };

@@ -1,4 +1,4 @@
-const mongoose = require("mongoose");
+const mongoose = require('mongoose');
 
 /**
  * A sellable product. `salePrice` is the default selling price in paisa.
@@ -10,7 +10,7 @@ const productSchema = new mongoose.Schema(
   {
     name: {
       type: String,
-      required: [true, "Name is required"],
+      required: [true, 'Name is required'],
       trim: true,
       maxlength: 160,
       index: true,
@@ -20,11 +20,14 @@ const productSchema = new mongoose.Schema(
       trim: true,
       uppercase: true,
       maxlength: 60,
-      default: "",
+      default: '',
     },
-    barcode: { type: String, trim: true, maxlength: 60, default: "" },
-    category: { type: String, trim: true, maxlength: 80, default: "" },
-    unit: { type: String, trim: true, maxlength: 20, default: "pcs" },
+    barcode: { type: String, trim: true, maxlength: 60, default: '' },
+
+    // Catalog classification, referenced by id (see Category/Brand/Unit models).
+    category: { type: mongoose.Schema.Types.ObjectId, ref: 'Category', default: null },
+    brand: { type: mongoose.Schema.Types.ObjectId, ref: 'Brand', default: null },
+    unit: { type: mongoose.Schema.Types.ObjectId, ref: 'Unit', default: null },
 
     // Catalog default prices (paisa). `purchasePrice` is the expected buying
     // rate shown in the catalog; actual stock cost is the moving-average
@@ -37,20 +40,17 @@ const productSchema = new mongoose.Schema(
 
     isActive: { type: Boolean, default: true },
   },
-  { timestamps: true }
+  { timestamps: true },
 );
 
 // SKUs are unique when present (sparse so multiple blank SKUs are allowed).
-productSchema.index(
-  { sku: 1 },
-  { unique: true, partialFilterExpression: { sku: { $gt: "" } } }
-);
+productSchema.index({ sku: 1 }, { unique: true, partialFilterExpression: { sku: { $gt: '' } } });
 
-productSchema.set("toJSON", {
+productSchema.set('toJSON', {
   transform: (_doc, ret) => {
     delete ret.__v;
     return ret;
   },
 });
 
-module.exports = mongoose.model("Product", productSchema);
+module.exports = mongoose.model('Product', productSchema);

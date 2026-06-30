@@ -1,12 +1,8 @@
-const Role = require("../models/roleModel");
-const User = require("../models/userModel");
-const ApiError = require("../utils/ApiError");
-const { ROLES } = require("../utils/constants");
-const {
-  PERMISSIONS,
-  PERMISSION_VALUES,
-  WILDCARD,
-} = require("../utils/permissions");
+const Role = require('../models/roleModel');
+const User = require('../models/userModel');
+const ApiError = require('../utils/ApiError');
+const { ROLES } = require('../utils/constants');
+const { PERMISSIONS, PERMISSION_VALUES, WILDCARD } = require('../utils/permissions');
 
 /**
  * Role management + a small in-process permission cache so authorization
@@ -21,7 +17,7 @@ const {
 const SYSTEM_ROLES = [
   {
     name: ROLES.CASHIER,
-    description: "Point-of-sale operator",
+    description: 'Point-of-sale operator',
     // The POS needs to look up/add walk-in customers, read stock, and ring sales.
     permissions: [
       PERMISSIONS.CUSTOMERS_READ,
@@ -33,7 +29,7 @@ const SYSTEM_ROLES = [
   },
   {
     name: ROLES.ACCOUNTANT,
-    description: "Finance / reporting",
+    description: 'Finance / reporting',
     // Read-only over partners, plus full finance, ledger and report access.
     permissions: [
       PERMISSIONS.VENDORS_READ,
@@ -49,7 +45,7 @@ const SYSTEM_ROLES = [
   },
   {
     name: ROLES.MANAGER,
-    description: "Can view staff and run day-to-day operations",
+    description: 'Can view staff and run day-to-day operations',
     permissions: [
       PERMISSIONS.USERS_READ,
       PERMISSIONS.VENDORS_READ,
@@ -72,7 +68,7 @@ const SYSTEM_ROLES = [
   },
   {
     name: ROLES.ADMIN,
-    description: "Manages staff accounts, operations and finance",
+    description: 'Manages staff accounts, operations and finance',
     permissions: [
       PERMISSIONS.USERS_READ,
       PERMISSIONS.USERS_CREATE,
@@ -98,11 +94,13 @@ const SYSTEM_ROLES = [
       PERMISSIONS.FINANCE_READ,
       PERMISSIONS.FINANCE_MANAGE,
       PERMISSIONS.REPORTS_READ,
+      PERMISSIONS.SETTINGS_READ,
+      PERMISSIONS.SETTINGS_MANAGE,
     ],
   },
   {
     name: ROLES.SUPER_ADMIN,
-    description: "Full access, including role management",
+    description: 'Full access, including role management',
     permissions: [WILDCARD],
   },
 ];
@@ -133,7 +131,7 @@ async function ensureSystemRoles() {
     await Role.updateOne(
       { name: def.name },
       { $setOnInsert: { ...def, isSystem: true } },
-      { upsert: true }
+      { upsert: true },
     );
   }
   invalidateCache();
@@ -141,11 +139,11 @@ async function ensureSystemRoles() {
 
 function validatePermissions(permissions) {
   if (permissions.includes(WILDCARD)) {
-    throw ApiError.badRequest("The wildcard permission cannot be assigned to a custom role");
+    throw ApiError.badRequest('The wildcard permission cannot be assigned to a custom role');
   }
   const unknown = permissions.filter((p) => !PERMISSION_VALUES.includes(p));
   if (unknown.length) {
-    throw ApiError.badRequest(`Unknown permission(s): ${unknown.join(", ")}`);
+    throw ApiError.badRequest(`Unknown permission(s): ${unknown.join(', ')}`);
   }
 }
 
@@ -155,14 +153,14 @@ async function listRoles() {
 
 async function getRoleById(id) {
   const role = await Role.findById(id);
-  if (!role) throw ApiError.notFound("Role not found");
+  if (!role) throw ApiError.notFound('Role not found');
   return role;
 }
 
 async function createRole({ name, description, permissions = [] }) {
   const normalized = name.trim().toLowerCase();
   const existing = await Role.findOne({ name: normalized });
-  if (existing) throw ApiError.conflict("A role with that name already exists");
+  if (existing) throw ApiError.conflict('A role with that name already exists');
 
   validatePermissions(permissions);
 
@@ -182,7 +180,7 @@ async function updateRole(id, { description, permissions }) {
   const role = await getRoleById(id);
 
   if (role.name === ROLES.SUPER_ADMIN) {
-    throw ApiError.forbidden("The super_admin role cannot be modified");
+    throw ApiError.forbidden('The super_admin role cannot be modified');
   }
 
   if (permissions !== undefined) {
@@ -202,13 +200,13 @@ async function deleteRole(id) {
   const role = await getRoleById(id);
 
   if (role.isSystem) {
-    throw ApiError.forbidden("Built-in roles cannot be deleted");
+    throw ApiError.forbidden('Built-in roles cannot be deleted');
   }
 
   const inUse = await User.countDocuments({ role: role.name });
   if (inUse) {
     throw ApiError.badRequest(
-      `Role is assigned to ${inUse} user(s); reassign them before deleting`
+      `Role is assigned to ${inUse} user(s); reassign them before deleting`,
     );
   }
 
