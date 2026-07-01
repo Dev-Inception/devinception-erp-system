@@ -15,6 +15,17 @@ const createUserValidator = [
 
 const updateRoleValidator = [idParam, roleRule('role')];
 
+// Profile edit: name and/or email. Both optional, but a valid value when present.
+const updateUserValidator = [
+  idParam,
+  body('name').optional({ values: 'falsy' }).trim().notEmpty().withMessage('Name cannot be empty'),
+  body('email')
+    .optional({ values: 'falsy' })
+    .isEmail()
+    .withMessage('A valid email is required')
+    .normalizeEmail(),
+];
+
 const setActiveValidator = [
   idParam,
   body('isActive').isBoolean().withMessage('isActive must be a boolean'),
@@ -25,6 +36,7 @@ const idParamValidator = [idParam];
 module.exports = {
   createUserValidator,
   updateRoleValidator,
+  updateUserValidator,
   setActiveValidator,
   idParamValidator,
 };

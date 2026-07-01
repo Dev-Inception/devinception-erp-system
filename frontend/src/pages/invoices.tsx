@@ -1,9 +1,11 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { FileText, FileDown, Mail, MessageCircle, Plus, Loader2 } from 'lucide-react';
+import { FileText, FileDown, Mail, MessageCircle, Plus, Loader2, Wallet } from 'lucide-react';
 import { toast } from 'sonner';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import {
   Dialog,
   DialogContent,
@@ -11,9 +13,12 @@ import {
   DialogTitle,
   DialogDescription,
   DialogTrigger,
+  DialogClose,
 } from '@/components/ui/dialog';
 import { api } from '@/lib/api';
 import { formatCurrency, cn } from '@/lib/utils';
+import { useAuthStore } from '@/store/auth';
+import { grantsPermission } from '@/lib/modules';
 
 interface Invoice {
   id: string;
@@ -96,9 +101,86 @@ function CreateInvoiceDialog() {
   );
 }
 
+function PayInvoiceDialog({
+  invoice,
+  balance,
+  trigger,
+}: {
+  invoice: Invoice;
+  balance: number;
+  trigger: React.ReactNode;
+}) {
+  const qc = useQueryClient();
+  const [open, setOpen] = useState(false);
+  const [amount, setAmount] = useState(balance);
+
+  useEffect(() => {
+    if (open) setAmount(balance);
+  }, [open, balance]);
+
+  const pay = useMutation({
+    mutationFn: async () =>
+      (await api.post(`/invoices/${invoice.id}/pay`, { amount, method: 'CASH' })).data,
+    onSuccess: () => {
+      toast.success('Payment recorded');
+      qc.invalidateQueries({ queryKey: ['invoices'] });
+      setOpen(false);
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Could not record payment'),
+  });
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>{trigger}</DialogTrigger>
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle>Record Payment</DialogTitle>
+          <DialogDescription>
+            {invoice.invoiceNumber} — outstanding {formatCurrency(balance)}. Recorded as a cash
+            receipt against the customer.
+          </DialogDescription>
+        </DialogHeader>
+        <form
+          className="space-y-3"
+          onSubmit={(e) => {
+            e.preventDefault();
+            pay.mutate();
+          }}
+        >
+          <div className="space-y-1.5">
+            <Label>Amount</Label>
+            <Input
+              type="number"
+              step="0.01"
+              min={0.01}
+              max={balance}
+              required
+              value={amount}
+              onChange={(e) => setAmount(Number(e.target.value))}
+            />
+          </div>
+          <div className="flex justify-end gap-2 pt-1">
+            <DialogClose asChild>
+              <Button type="button" variant="outline">
+                Cancel
+              </Button>
+            </DialogClose>
+            <Button type="submit" disabled={pay.isPending || amount <= 0 || amount > balance}>
+              {pay.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+              Record
+            </Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export function InvoicesPage() {
   const qc = useQueryClient();
   const [busy, setBusy] = useState<string | null>(null);
+  const perms = useAuthStore((s) => s.user?.permissions);
+  const canPay = grantsPermission(perms, 'invoices:create');
 
   const { data: invoices = [], isLoading } = useQuery<Invoice[]>({
     queryKey: ['invoices'],
@@ -197,6 +279,22 @@ export function InvoicesPage() {
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex justify-end gap-1">
+                      {canPay && Number(inv.grandTotal) - Number(inv.paidAmount) > 0 && (
+                        <PayInvoiceDialog
+                          invoice={inv}
+                          balance={Number(inv.grandTotal) - Number(inv.paidAmount)}
+                          trigger={
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="h-8 w-8 text-emerald-600"
+                              title="Record payment"
+                            >
+                              <Wallet className="h-4 w-4" />
+                            </Button>
+                          }
+                        />
+                      )}
                       <Button
                         size="icon"
                         variant="ghost"

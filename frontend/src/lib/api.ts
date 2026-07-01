@@ -741,6 +741,17 @@ async function realSetDefaultWarehouse(id: string) {
   await http.patch(`/warehouses/${id}`, { isDefault: true });
   return { success: true };
 }
+async function realUpdateWarehouse(id: string, body: any) {
+  const res = await http.patch(`/warehouses/${id}`, {
+    name: body.name,
+    location: body.location,
+  });
+  return mapWarehouse(res.data.warehouse);
+}
+async function realDeleteWarehouse(id: string) {
+  await http.delete(`/warehouses/${id}`);
+  return { success: true };
+}
 
 /* ── Products ── */
 function mapProduct(p: any) {
@@ -755,12 +766,15 @@ function mapProduct(p: any) {
     minStock: p.minStock ?? 0,
     currentStock: p.stock ?? 0,
     isLowStock: !!p.lowStock,
-    // Backend stores category/unit as free strings (no Category/Unit entities);
-    // treat the string as its own id so the edit-form dropdowns round-trip.
-    categoryId: p.category || undefined,
-    unitId: p.unit || undefined,
-    category: p.category ? { id: p.category, name: p.category } : null,
-    unit: p.unit ? { id: p.unit, abbreviation: p.unit } : null,
+    // Backend serializes catalog refs as { id, name(, abbreviation) } objects
+    // plus matching *Id fields; pass them straight through so the edit-form
+    // dropdowns round-trip on the catalog id.
+    categoryId: p.categoryId || undefined,
+    unitId: p.unitId || undefined,
+    category: p.category ? { id: p.category.id, name: p.category.name } : null,
+    unit: p.unit
+      ? { id: p.unit.id, name: p.unit.name, abbreviation: p.unit.abbreviation || p.unit.name }
+      : null,
   };
 }
 async function realFetchProducts(params: { search?: unknown; warehouse?: unknown }) {
@@ -781,13 +795,14 @@ async function realProductsList(params: any) {
   return products.map(mapProduct);
 }
 function productPayload(body: any) {
-  // FE → backend field mapping (categoryId/unitId are the string id; taxRate→taxPercent).
+  // FE → backend field mapping. Catalog refs are real catalog ids, so send them
+  // as *Id fields (the backend resolves refs by id); taxRate→taxPercent.
   return {
     name: body.name,
     sku: body.sku,
     barcode: body.barcode,
-    category: body.categoryId,
-    unit: body.unitId,
+    categoryId: body.categoryId || undefined,
+    unitId: body.unitId || undefined,
     purchasePrice: body.purchasePrice,
     salePrice: body.salePrice,
     taxPercent: body.taxRate,
@@ -803,16 +818,10 @@ async function realUpdateProduct(id: string, body: any) {
   return mapProduct(res.data.product);
 }
 
-/* ── Catalog: derived from products (backend has no Category/Brand/Unit) ── */
+/* ── Catalog: real Category/Brand/Unit entities from the backend ── */
 async function realCatalog() {
-  const products = await realFetchProducts({});
-  const cats = Array.from(new Set(products.map((p) => p.category).filter(Boolean)));
-  const units = Array.from(new Set(products.map((p) => p.unit).filter(Boolean)));
-  return {
-    categories: cats.map((name) => ({ id: name, name })),
-    brands: [] as { id: string; name: string }[], // backend has no brands
-    units: units.map((name) => ({ id: name, name, abbreviation: name })),
-  };
+  // { categories:[{id,name}], brands:[{id,name}], units:[{id,name,abbreviation}] }
+  return (await http.get('/catalog')).data;
 }
 
 /* ── Stock adjust: FE type/quantity → backend signed delta + unit cost ── */
@@ -871,6 +880,20 @@ async function realCreateCustomer(body: any) {
   });
   return mapCustomer(res.data.customer);
 }
+async function realUpdateCustomer(id: string, body: any) {
+  const res = await http.patch(`/customers/${id}`, {
+    name: body.name,
+    phone: body.phone,
+    email: body.email,
+    address: body.address,
+    creditLimit: body.creditLimit,
+  });
+  return mapCustomer(res.data.customer);
+}
+async function realDeleteCustomer(id: string) {
+  await http.delete(`/customers/${id}`);
+  return { success: true };
+}
 
 /* ── Vendors ── */
 function mapVendor(v: any) {
@@ -899,6 +922,20 @@ async function realCreateVendor(body: any) {
     ntn: body.ntn,
   });
   return mapVendor(res.data.vendor);
+}
+async function realUpdateVendor(id: string, body: any) {
+  const res = await http.patch(`/vendors/${id}`, {
+    name: body.name,
+    phone: body.phone,
+    email: body.email,
+    address: body.address,
+    ntn: body.ntn,
+  });
+  return mapVendor(res.data.vendor);
+}
+async function realDeleteVendor(id: string) {
+  await http.delete(`/vendors/${id}`);
+  return { success: true };
 }
 
 /* ── Sales / POS ── */
@@ -957,7 +994,7 @@ async function realCreateSale(body: any) {
       method: body.paymentMethod,
       cash: body.paidCash,
       online: body.paidBank,
-      receiptRef: body.transferReceiptUrl, // from the (mock) /uploads call
+      receiptRef: body.transferReceiptUrl, // from the /uploads call
     },
   });
   return mapSale(res.data.sale);
@@ -1214,6 +1251,102 @@ async function realCreateBankAccount(body: any) {
   return { id: String(a._id ?? a.id), name: a.name, bankName: a.bankName || undefined, balance: 0 };
 }
 
+/* ── Invoices ── */
+function mapInvoice(i: any) {
+  // Backend already serializes to the FE field names (invoiceNumber, issueDate,
+  // grandTotal, paidAmount, status, customer.name); we just pin a stable id.
+  return {
+    id: String(i._id ?? i.id),
+    invoiceNumber: i.invoiceNumber,
+    issueDate: i.issueDate,
+    status: i.status,
+    grandTotal: i.grandTotal,
+    paidAmount: i.paidAmount,
+    customer: i.customer ? { name: i.customer.name } : undefined,
+  };
+}
+async function realInvoices() {
+  const res = await http.get('/invoices', { params: { limit: 100 } });
+  return (res.data.invoices as any[]).map(mapInvoice);
+}
+async function realCreateInvoice(body: any) {
+  const res = await http.post('/invoices', { saleId: body.saleId });
+  return mapInvoice(res.data.invoice);
+}
+async function realPayInvoice(id: string, body: any) {
+  const res = await http.post(`/invoices/${id}/pay`, {
+    amount: body.amount,
+    method: body.method || undefined,
+  });
+  return mapInvoice(res.data.invoice);
+}
+async function realInvoicePdf(id: string) {
+  const res = await http.get(`/invoices/${id}/pdf`, { responseType: 'blob' });
+  return res.data as Blob;
+}
+async function realFetchInvoice(id: string) {
+  return (await http.get(`/invoices/${id}`)).data.invoice;
+}
+// Email/WhatsApp have no backend endpoint; run them client-side off the real
+// invoice so the buttons keep working against live data.
+async function realSendInvoiceEmail(id: string) {
+  const inv = await realFetchInvoice(id);
+  const email = inv.customer?.email;
+  return {
+    sent: false,
+    message: email
+      ? `Email delivery isn't configured on the server yet (would send to ${email}).`
+      : 'Customer has no email address.',
+  };
+}
+async function realSendInvoiceWhatsapp(id: string) {
+  const inv = await realFetchInvoice(id);
+  const digits = String(inv.customer?.phone || '').replace(/[^0-9]/g, '');
+  const text = encodeURIComponent(`Hello, here is your invoice ${inv.invoiceNumber}.`);
+  return { url: `https://wa.me/${digits}?text=${text}`, hasPhone: digits.length > 0 };
+}
+
+/* ── Uploads (multipart receipt; field name `file`) ── */
+async function realUpload(body: FormData) {
+  // Let axios set the multipart boundary; the backend returns { url, name, size }.
+  const res = await http.post('/uploads', body);
+  return { url: res.data.url, name: res.data.name, size: res.data.size };
+}
+
+/* ── Settings (flat singleton; backend serializes the exact FE shape) ── */
+async function realSettings() {
+  return (await http.get('/settings')).data;
+}
+async function realUpdateSettings(body: any) {
+  return (
+    await http.put('/settings', {
+      companyName: body.companyName,
+      address: body.address,
+      phone: body.phone,
+      email: body.email,
+      taxNumber: body.taxNumber,
+      currency: body.currency,
+    })
+  ).data;
+}
+
+/* ── Roles (permission matrix on the Permissions screen) ── */
+function mapRole(r: any) {
+  return {
+    id: String(r._id ?? r.id),
+    name: r.name as string, // backend role names are lowercase (e.g. 'cashier')
+    permissions: (r.permissions as string[]) ?? [],
+  };
+}
+async function realRoles() {
+  const res = await http.get('/roles');
+  return (res.data.roles as any[]).map(mapRole);
+}
+async function realUpdateRole(id: string, body: any) {
+  const res = await http.patch(`/roles/${id}`, { permissions: body.permissions });
+  return mapRole(res.data.role);
+}
+
 /* ── Party ledger (customer/vendor statement) ── */
 async function realPartyLedger(kindPlural: string, id: string) {
   const kind = kindPlural === 'customers' ? 'customer' : 'vendor';
@@ -1254,6 +1387,10 @@ async function realCreateUser(body: any) {
   });
   return mapManagedUser(res.data.user);
 }
+async function realUpdateUser(id: string, body: any) {
+  const res = await http.patch(`/users/${id}`, { name: body.fullName, email: body.email });
+  return mapManagedUser(res.data.user);
+}
 async function realUpdateUserRole(id: string, body: any) {
   const res = await http.patch(`/users/${id}/role`, { role: String(body.role).toLowerCase() });
   return mapManagedUser(res.data.user);
@@ -1290,6 +1427,10 @@ async function tryReal(
     if (url === '/cash') return wrap(await realCashLedger());
     if (url === '/bank/accounts') return wrap(await realBankAccounts());
     if (url === '/users') return wrap(await realUsers());
+    if (url === '/roles') return wrap(await realRoles());
+    if (url === '/invoices') return wrap(await realInvoices());
+    if (seg[0] === 'invoices' && seg[2] === 'pdf') return wrap(await realInvoicePdf(seg[1]));
+    if (url === '/settings') return wrap(await realSettings());
     if (url === '/dashboard/kpis') return wrap(await realDashKpis());
     if (url === '/dashboard/sales-trend') return wrap(await realDashTrend());
     if (url === '/dashboard/top-products') return wrap(await realDashTop());
@@ -1308,18 +1449,40 @@ async function tryReal(
     if (url === '/cash') return wrap(await realCashEntry(body));
     if (url === '/bank/accounts') return wrap(await realCreateBankAccount(body));
     if (url === '/users') return wrap(await realCreateUser(body));
+    if (url === '/invoices') return wrap(await realCreateInvoice(body));
+    if (seg[0] === 'invoices' && seg[2] === 'pay') return wrap(await realPayInvoice(seg[1], body));
+    if (url === '/uploads') return wrap(await realUpload(body));
+    if (seg[0] === 'invoices' && seg[2] === 'send-email')
+      return wrap(await realSendInvoiceEmail(seg[1]));
+    if (seg[0] === 'invoices' && seg[2] === 'send-whatsapp')
+      return wrap(await realSendInvoiceWhatsapp(seg[1]));
     if (seg[0] === 'warehouses' && seg[2] === 'set-default')
       return wrap(await realSetDefaultWarehouse(seg[1]));
   }
   if (method === 'patch') {
     if (seg[0] === 'products' && seg[1]) return wrap(await realUpdateProduct(seg[1], body));
+    if (seg[0] === 'vendors' && seg[1] && !seg[2])
+      return wrap(await realUpdateVendor(seg[1], body));
+    if (seg[0] === 'customers' && seg[1] && !seg[2])
+      return wrap(await realUpdateCustomer(seg[1], body));
+    if (seg[0] === 'warehouses' && seg[1] && !seg[2])
+      return wrap(await realUpdateWarehouse(seg[1], body));
+    if (seg[0] === 'users' && seg[1] && !seg[2]) return wrap(await realUpdateUser(seg[1], body));
     if (seg[0] === 'users' && seg[2] === 'role')
       return wrap(await realUpdateUserRole(seg[1], body));
     if (seg[0] === 'users' && seg[2] === 'active')
       return wrap(await realSetUserActive(seg[1], body));
+    if (seg[0] === 'roles' && seg[1] && !seg[2]) return wrap(await realUpdateRole(seg[1], body));
+  }
+  if (method === 'put') {
+    if (url === '/settings') return wrap(await realUpdateSettings(body));
   }
   if (method === 'delete') {
     if (seg[0] === 'users' && seg[1] && !seg[2]) return wrap(await realDeleteUser(seg[1]));
+    if (seg[0] === 'vendors' && seg[1] && !seg[2]) return wrap(await realDeleteVendor(seg[1]));
+    if (seg[0] === 'customers' && seg[1] && !seg[2]) return wrap(await realDeleteCustomer(seg[1]));
+    if (seg[0] === 'warehouses' && seg[1] && !seg[2])
+      return wrap(await realDeleteWarehouse(seg[1]));
   }
   return undefined;
 }

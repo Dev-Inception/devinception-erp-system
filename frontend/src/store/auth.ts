@@ -10,6 +10,8 @@ export interface AuthUser {
   fullName: string;
   role: Role;
   avatarUrl?: string;
+  /** Resolved permission strings for this user's role ('*' = wildcard/super admin). */
+  permissions?: string[];
 }
 
 interface AuthState {
@@ -36,6 +38,7 @@ interface BackendUser {
   fullName?: string;
   role: string;
   avatarUrl?: string;
+  permissions?: string[];
 }
 
 function mapUser(u: BackendUser): AuthUser {
@@ -45,6 +48,7 @@ function mapUser(u: BackendUser): AuthUser {
     fullName: u.name ?? u.fullName ?? u.email,
     role: String(u.role).toUpperCase() as Role,
     avatarUrl: u.avatarUrl,
+    permissions: u.permissions,
   };
 }
 

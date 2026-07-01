@@ -13,6 +13,7 @@ const PERMISSIONS = {
   // User management
   USERS_READ: 'users:read',
   USERS_CREATE: 'users:create',
+  USERS_UPDATE: 'users:update',
   USERS_UPDATE_ROLE: 'users:update_role',
   USERS_SET_ACTIVE: 'users:set_active',
   USERS_DELETE: 'users:delete',
