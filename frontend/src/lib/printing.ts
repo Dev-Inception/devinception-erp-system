@@ -7,7 +7,12 @@ import { formatCurrency } from './utils';
  */
 
 export type TemplateType =
-  'GP_DIVIDER' | 'GP_A4_HALF' | 'GP_A4_FULL' | 'INVOICE_A4' | 'RECEIPT_THERMAL' | 'OT_THERMAL';
+  | 'GP_DIVIDER'
+  | 'GP_A4_HALF'
+  | 'GP_A4_FULL'
+  | 'INVOICE_A4'
+  | 'RECEIPT_THERMAL'
+  | 'OT_THERMAL';
 
 interface LineItem {
   name: string;
