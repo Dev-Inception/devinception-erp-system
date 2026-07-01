@@ -1,9 +1,9 @@
-const Sale = require("../models/saleModel");
-const GoodsPurchase = require("../models/goodsPurchaseModel");
-const ApiError = require("../utils/ApiError");
-const { ACCOUNT } = require("../utils/finance");
-const journalService = require("./journalService");
-const stockService = require("./stockService");
+const Sale = require('../models/saleModel');
+const GoodsPurchase = require('../models/goodsPurchaseModel');
+const ApiError = require('../utils/ApiError');
+const { ACCOUNT } = require('../utils/finance');
+const journalService = require('./journalService');
+const stockService = require('./stockService');
 
 /**
  * Reporting: date-range aggregations over the transactional data and the
@@ -41,7 +41,9 @@ function requireRange({ from, to }) {
 
 // Sales report: one row per sale + cash/online/total summary.
 async function salesReport({ from, to }) {
-  const sales = await Sale.find(requireRange({ from, to })).sort({ date: -1, createdAt: -1 }).lean();
+  const sales = await Sale.find(requireRange({ from, to }))
+    .sort({ date: -1, createdAt: -1 })
+    .lean();
 
   const rows = sales.map((s) => ({
     number: s.number,
@@ -63,7 +65,7 @@ async function salesReport({ from, to }) {
       acc.total += r.total;
       return acc;
     },
-    { count: 0, cash: 0, online: 0, credit: 0, total: 0 }
+    { count: 0, cash: 0, online: 0, credit: 0, total: 0 },
   );
 
   return { rows, summary };
@@ -72,14 +74,14 @@ async function salesReport({ from, to }) {
 // Purchases report: one row per purchase + total/paid/balance summary.
 async function purchasesReport({ from, to }) {
   const purchases = await GoodsPurchase.find(requireRange({ from, to }))
-    .populate("vendor", "name")
+    .populate('vendor', 'name')
     .sort({ date: -1, createdAt: -1 })
     .lean();
 
   const rows = purchases.map((p) => ({
     number: p.number,
     date: p.date,
-    vendor: p.vendor ? p.vendor.name : "—",
+    vendor: p.vendor ? p.vendor.name : '—',
     total: p.total,
     paid: p.paid,
     balance: p.balance,
@@ -93,7 +95,7 @@ async function purchasesReport({ from, to }) {
       acc.balance += r.balance;
       return acc;
     },
-    { count: 0, total: 0, paid: 0, balance: 0 }
+    { count: 0, total: 0, paid: 0, balance: 0 },
   );
 
   return { rows, summary };
@@ -105,9 +107,9 @@ async function stockValuationReport({ warehouse }) {
   return {
     rows: rows.map((r) => ({
       product: r.product.name,
-      sku: r.product.sku || "",
-      unit: r.product.unit || "",
-      warehouse: r.warehouse ? r.warehouse.name : "",
+      sku: r.product.sku || '',
+      unit: r.product.unit ? r.product.unit.abbreviation || r.product.unit.name : '',
+      warehouse: r.warehouse ? r.warehouse.name : '',
       quantity: r.quantity,
       avgCost: r.avgCost,
       value: r.value,
@@ -146,8 +148,8 @@ async function profitAndLossReport({ from, to }) {
 const REPORTS = {
   sales: salesReport,
   purchases: purchasesReport,
-  "stock-valuation": stockValuationReport,
-  "profit-loss": profitAndLossReport,
+  'stock-valuation': stockValuationReport,
+  'profit-loss': profitAndLossReport,
 };
 
 async function runReport(type, params) {

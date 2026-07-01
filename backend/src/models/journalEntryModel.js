@@ -1,5 +1,5 @@
-const mongoose = require("mongoose");
-const { ACCOUNT_KINDS, REF } = require("../utils/finance");
+const mongoose = require('mongoose');
+const { ACCOUNT_KINDS, REF } = require('../utils/finance');
 
 /**
  * A single, immutable journal entry — the atomic unit of the double-entry
@@ -22,19 +22,19 @@ const lineSchema = new mongoose.Schema(
     debit: { type: Number, default: 0, min: 0 }, // paisa
     credit: { type: Number, default: 0, min: 0 }, // paisa
   },
-  { _id: false }
+  { _id: false },
 );
 
 const journalEntrySchema = new mongoose.Schema(
   {
     // Effective accounting date (may differ from createdAt).
     date: { type: Date, required: true, default: Date.now, index: true },
-    description: { type: String, trim: true, default: "" },
+    description: { type: String, trim: true, default: '' },
 
     // Source document this entry was generated from.
     refType: { type: String, enum: Object.values(REF), required: true, index: true },
     refId: { type: mongoose.Schema.Types.ObjectId, default: null },
-    refNo: { type: String, trim: true, default: "", index: true },
+    refNo: { type: String, trim: true, default: '', index: true },
 
     lines: {
       type: [lineSchema],
@@ -53,23 +53,23 @@ const journalEntrySchema = new mongoose.Schema(
           }
           return debit === credit;
         },
-        message: "Journal lines must be balanced (sum of debits === credits)",
+        message: 'Journal lines must be balanced (sum of debits === credits)',
       },
     },
 
-    createdBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
+    createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
   },
-  { timestamps: true }
+  { timestamps: true },
 );
 
 // Common lookups: a party/account statement and per-account aggregation.
-journalEntrySchema.index({ "lines.account": 1, "lines.ref": 1, date: 1 });
+journalEntrySchema.index({ 'lines.account': 1, 'lines.ref': 1, date: 1 });
 
-journalEntrySchema.set("toJSON", {
+journalEntrySchema.set('toJSON', {
   transform: (_doc, ret) => {
     delete ret.__v;
     return ret;
   },
 });
 
-module.exports = mongoose.model("JournalEntry", journalEntrySchema);
+module.exports = mongoose.model('JournalEntry', journalEntrySchema);

@@ -37,6 +37,8 @@ pnpm-debug.log*
 # ─── Backend runtime ────────────────────────────────────────
 backend/storage/*
 !backend/storage/.gitkeep
+backend/uploads/*
+!backend/uploads/.gitkeep
 
 # ─── OS / editor ────────────────────────────────────────────
 .DS_Store

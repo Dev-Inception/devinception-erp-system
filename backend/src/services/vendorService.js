@@ -1,9 +1,9 @@
-const Vendor = require("../models/vendorModel");
-const ApiError = require("../utils/ApiError");
-const journalService = require("./journalService");
-const { ACCOUNT } = require("../utils/finance");
-const { toRupees } = require("../utils/money");
-const { parsePagination, escapeRegex } = require("../utils/query");
+const Vendor = require('../models/vendorModel');
+const ApiError = require('../utils/ApiError');
+const journalService = require('./journalService');
+const { ACCOUNT } = require('../utils/finance');
+const { toRupees } = require('../utils/money');
+const { parsePagination, escapeRegex } = require('../utils/query');
 
 /**
  * Vendor (supplier) management. Authorization is enforced by route
@@ -21,14 +21,16 @@ function pickWritable({ name, phone, email, ntn, address }) {
 }
 
 async function listVendors(query = {}) {
-  const { page, limit, skip } = parsePagination(query);
+  // The GP vendor picker and the Vendors page consume the full list (no
+  // pagination UI), so allow a far larger page size than the default cap.
+  const { page, limit, skip } = parsePagination(query, { defaultLimit: 1000, maxLimit: 100000 });
   const filter = {};
   if (query.search) {
     const term = escapeRegex(query.search);
     filter.$or = [
-      { name: { $regex: term, $options: "i" } },
-      { phone: { $regex: term, $options: "i" } },
-      { email: { $regex: term, $options: "i" } },
+      { name: { $regex: term, $options: 'i' } },
+      { phone: { $regex: term, $options: 'i' } },
+      { email: { $regex: term, $options: 'i' } },
     ];
   }
 
@@ -50,7 +52,7 @@ async function listVendors(query = {}) {
 
 async function getVendorById(id) {
   const vendor = await Vendor.findById(id);
-  if (!vendor) throw ApiError.notFound("Vendor not found");
+  if (!vendor) throw ApiError.notFound('Vendor not found');
   return vendor;
 }
 
@@ -68,9 +70,7 @@ async function updateVendor(id, data) {
 async function deleteVendor(id) {
   const vendor = await getVendorById(id);
   if (vendor.outstanding > 0) {
-    throw ApiError.badRequest(
-      "Vendor has an outstanding balance and cannot be deleted"
-    );
+    throw ApiError.badRequest('Vendor has an outstanding balance and cannot be deleted');
   }
   await vendor.deleteOne();
 }

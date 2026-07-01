@@ -1,4 +1,4 @@
-const mongoose = require("mongoose");
+const mongoose = require('mongoose');
 
 /**
  * A bank (or online wallet) account. Its running balance is NOT stored here —
@@ -10,23 +10,23 @@ const bankAccountSchema = new mongoose.Schema(
   {
     name: {
       type: String,
-      required: [true, "Name is required"],
+      required: [true, 'Name is required'],
       trim: true,
       maxlength: 120,
       index: true,
     },
-    bankName: { type: String, trim: true, maxlength: 120, default: "" },
-    accountNumber: { type: String, trim: true, maxlength: 60, default: "" },
+    bankName: { type: String, trim: true, maxlength: 120, default: '' },
+    accountNumber: { type: String, trim: true, maxlength: 60, default: '' },
     isActive: { type: Boolean, default: true },
   },
-  { timestamps: true }
+  { timestamps: true },
 );
 
-bankAccountSchema.set("toJSON", {
+bankAccountSchema.set('toJSON', {
   transform: (_doc, ret) => {
     delete ret.__v;
     return ret;
   },
 });
 
-module.exports = mongoose.model("BankAccount", bankAccountSchema);
+module.exports = mongoose.model('BankAccount', bankAccountSchema);

@@ -1,5 +1,5 @@
-const nodemailer = require("nodemailer");
-const env = require("../config/env");
+const nodemailer = require('nodemailer');
+const env = require('../config/env');
 
 /**
  * Lazily-created SMTP transport. In development without SMTP creds the
@@ -11,7 +11,7 @@ let transporter;
 // Placeholder values shipped in .env.example. They look configured but can't
 // authenticate, so treat them as "unset" and fall back to console logging
 // rather than attempting a doomed SMTP send (which makes forgot-password fail).
-const PLACEHOLDER_CREDS = new Set(["your_smtp_user", "your_smtp_pass"]);
+const PLACEHOLDER_CREDS = new Set(['your_smtp_user', 'your_smtp_pass']);
 
 function isConfigured() {
   const { host, user, pass } = env.mail;
@@ -41,11 +41,11 @@ async function sendEmail({ to, subject, html, text }) {
 
   if (!tx) {
     // eslint-disable-next-line no-console
-    console.log("\n--- EMAIL (dev fallback) ---");
+    console.log('\n--- EMAIL (dev fallback) ---');
     // eslint-disable-next-line no-console
     console.log(`To: ${to}\nSubject: ${subject}\n${text || html}`);
     // eslint-disable-next-line no-console
-    console.log("--- END EMAIL ---\n");
+    console.log('--- END EMAIL ---\n');
     return;
   }
 
@@ -53,7 +53,7 @@ async function sendEmail({ to, subject, html, text }) {
 }
 
 async function sendPasswordResetEmail(to, resetUrl) {
-  const subject = "Reset your Point of Sale password";
+  const subject = 'Reset your Point of Sale password';
   const text = `You requested a password reset. Open this link to set a new password (valid for ${env.resetTokenExpiresMin} minutes):\n\n${resetUrl}\n\nIf you didn't request this, ignore this email.`;
   const html = `
     <p>You requested a password reset.</p>

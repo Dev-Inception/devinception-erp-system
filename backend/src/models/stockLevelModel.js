@@ -1,4 +1,4 @@
-const mongoose = require("mongoose");
+const mongoose = require('mongoose');
 
 /**
  * Current stock of a product in a warehouse. `avgCost` is the moving-average
@@ -8,21 +8,21 @@ const mongoose = require("mongoose");
  */
 const stockLevelSchema = new mongoose.Schema(
   {
-    product: { type: mongoose.Schema.Types.ObjectId, ref: "Product", required: true },
-    warehouse: { type: mongoose.Schema.Types.ObjectId, ref: "Warehouse", required: true },
+    product: { type: mongoose.Schema.Types.ObjectId, ref: 'Product', required: true },
+    warehouse: { type: mongoose.Schema.Types.ObjectId, ref: 'Warehouse', required: true },
     quantity: { type: Number, default: 0 },
     avgCost: { type: Number, default: 0, min: 0 }, // paisa per unit
   },
-  { timestamps: true }
+  { timestamps: true },
 );
 
 stockLevelSchema.index({ product: 1, warehouse: 1 }, { unique: true });
 
-stockLevelSchema.set("toJSON", {
+stockLevelSchema.set('toJSON', {
   transform: (_doc, ret) => {
     delete ret.__v;
     return ret;
   },
 });
 
-module.exports = mongoose.model("StockLevel", stockLevelSchema);
+module.exports = mongoose.model('StockLevel', stockLevelSchema);

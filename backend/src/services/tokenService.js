@@ -1,5 +1,5 @@
-const jwt = require("jsonwebtoken");
-const env = require("../config/env");
+const jwt = require('jsonwebtoken');
+const env = require('../config/env');
 
 /**
  * JWT helpers. Access tokens are short-lived and sent in the response /
@@ -7,11 +7,9 @@ const env = require("../config/env");
  * new access tokens.
  */
 function signAccessToken(user) {
-  return jwt.sign(
-    { sub: user._id.toString(), role: user.role },
-    env.jwt.accessSecret,
-    { expiresIn: env.jwt.accessExpiresIn }
-  );
+  return jwt.sign({ sub: user._id.toString(), role: user.role }, env.jwt.accessSecret, {
+    expiresIn: env.jwt.accessExpiresIn,
+  });
 }
 
 function signRefreshToken(user) {

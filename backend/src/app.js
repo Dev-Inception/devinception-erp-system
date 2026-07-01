@@ -1,13 +1,14 @@
-const express = require("express");
-const cors = require("cors");
-const helmet = require("helmet");
-const cookieParser = require("cookie-parser");
-const swaggerUi = require("swagger-ui-express");
+const express = require('express');
+const cors = require('cors');
+const helmet = require('helmet');
+const cookieParser = require('cookie-parser');
+const swaggerUi = require('swagger-ui-express');
 
-const routes = require("./routes");
-const swaggerSpec = require("./config/swagger");
-const { notFound, errorHandler } = require("./middlewares/errorMiddleware");
-const env = require("./config/env");
+const routes = require('./routes');
+const swaggerSpec = require('./config/swagger');
+const { notFound, errorHandler } = require('./middlewares/errorMiddleware');
+const env = require('./config/env');
+const { UPLOAD_DIR, UPLOAD_ROUTE } = require('./config/uploads');
 
 const app = express();
 
@@ -25,23 +26,27 @@ app.use(
   cors({
     origin: env.clientUrl,
     credentials: true,
-  })
+  }),
 );
 
 // Interactive API docs
 app.use(
-  "/api/docs",
+  '/api/docs',
   swaggerUi.serve,
   swaggerUi.setup(swaggerSpec, {
-    customSiteTitle: "POS API Docs",
+    customSiteTitle: 'POS API Docs',
     swaggerOptions: { persistAuthorization: true },
-  })
+  }),
 );
 // Raw spec for tooling / import into Postman
-app.get("/api/docs.json", (_req, res) => res.json(swaggerSpec));
+app.get('/api/docs.json', (_req, res) => res.json(swaggerSpec));
+
+// Uploaded files (e.g. POS transfer receipts) served as static content so the
+// `url` returned by POST /api/uploads is directly retrievable.
+app.use(UPLOAD_ROUTE, express.static(UPLOAD_DIR));
 
 // API routes
-app.use("/api", routes);
+app.use('/api', routes);
 
 // 404 + centralized error handling (must be last)
 app.use(notFound);

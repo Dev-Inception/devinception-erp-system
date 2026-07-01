@@ -1,4 +1,4 @@
-const mongoose = require("mongoose");
+const mongoose = require('mongoose');
 
 /**
  * Atomic, monotonic counters for human-readable document numbers
@@ -9,10 +9,10 @@ const mongoose = require("mongoose");
 const counterSchema = new mongoose.Schema({
   // e.g. "SALE", "GP", "PAY". Scoped per year so numbering resets each year.
   key: { type: String, required: true },
-  scope: { type: String, required: true, default: "" },
+  scope: { type: String, required: true, default: '' },
   seq: { type: Number, default: 0 },
 });
 
 counterSchema.index({ key: 1, scope: 1 }, { unique: true });
 
-module.exports = mongoose.model("Counter", counterSchema);
+module.exports = mongoose.model('Counter', counterSchema);

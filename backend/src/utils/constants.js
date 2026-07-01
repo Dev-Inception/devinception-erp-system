@@ -3,11 +3,11 @@
  * Use the ROLES object everywhere instead of magic strings.
  */
 const ROLES = {
-  CASHIER: "cashier",
-  ACCOUNTANT: "accountant",
-  MANAGER: "manager",
-  ADMIN: "admin",
-  SUPER_ADMIN: "super_admin",
+  CASHIER: 'cashier',
+  ACCOUNTANT: 'accountant',
+  MANAGER: 'manager',
+  ADMIN: 'admin',
+  SUPER_ADMIN: 'super_admin',
 };
 
 const ROLE_VALUES = Object.values(ROLES);

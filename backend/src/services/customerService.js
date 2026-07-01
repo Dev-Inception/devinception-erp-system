@@ -1,9 +1,9 @@
-const Customer = require("../models/customerModel");
-const ApiError = require("../utils/ApiError");
-const journalService = require("./journalService");
-const { ACCOUNT } = require("../utils/finance");
-const { toRupees } = require("../utils/money");
-const { parsePagination, escapeRegex } = require("../utils/query");
+const Customer = require('../models/customerModel');
+const ApiError = require('../utils/ApiError');
+const journalService = require('./journalService');
+const { ACCOUNT } = require('../utils/finance');
+const { toRupees } = require('../utils/money');
+const { parsePagination, escapeRegex } = require('../utils/query');
 
 /**
  * Customer management. Authorization is enforced by route middleware; here we
@@ -20,14 +20,16 @@ function pickWritable({ name, phone, email, address, creditLimit }) {
 }
 
 async function listCustomers(query = {}) {
-  const { page, limit, skip } = parsePagination(query);
+  // The POS customer picker and the Customers page consume the full list (no
+  // pagination UI), so allow a far larger page size than the default cap.
+  const { page, limit, skip } = parsePagination(query, { defaultLimit: 1000, maxLimit: 100000 });
   const filter = {};
   if (query.search) {
     const term = escapeRegex(query.search);
     filter.$or = [
-      { name: { $regex: term, $options: "i" } },
-      { phone: { $regex: term, $options: "i" } },
-      { email: { $regex: term, $options: "i" } },
+      { name: { $regex: term, $options: 'i' } },
+      { phone: { $regex: term, $options: 'i' } },
+      { email: { $regex: term, $options: 'i' } },
     ];
   }
 
@@ -48,7 +50,7 @@ async function listCustomers(query = {}) {
 
 async function getCustomerById(id) {
   const customer = await Customer.findById(id);
-  if (!customer) throw ApiError.notFound("Customer not found");
+  if (!customer) throw ApiError.notFound('Customer not found');
   return customer;
 }
 
@@ -66,9 +68,7 @@ async function updateCustomer(id, data) {
 async function deleteCustomer(id) {
   const customer = await getCustomerById(id);
   if (customer.outstanding > 0) {
-    throw ApiError.badRequest(
-      "Customer has an outstanding balance and cannot be deleted"
-    );
+    throw ApiError.badRequest('Customer has an outstanding balance and cannot be deleted');
   }
   await customer.deleteOne();
 }

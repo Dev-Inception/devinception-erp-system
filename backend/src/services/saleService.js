@@ -1,15 +1,15 @@
-const Sale = require("../models/saleModel");
-const Customer = require("../models/customerModel");
-const Product = require("../models/productModel");
-const StockLevel = require("../models/stockLevelModel");
-const BankAccount = require("../models/bankAccountModel");
-const ApiError = require("../utils/ApiError");
-const { toPaisa } = require("../utils/money");
-const { ACCOUNT, REF, PAYMENT_METHOD, BANK_METHODS } = require("../utils/finance");
-const journalService = require("./journalService");
-const stockService = require("./stockService");
-const counterService = require("./counterService");
-const { parsePagination } = require("../utils/query");
+const Sale = require('../models/saleModel');
+const Customer = require('../models/customerModel');
+const Product = require('../models/productModel');
+const StockLevel = require('../models/stockLevelModel');
+const BankAccount = require('../models/bankAccountModel');
+const ApiError = require('../utils/ApiError');
+const { toPaisa } = require('../utils/money');
+const { ACCOUNT, REF, PAYMENT_METHOD, BANK_METHODS } = require('../utils/finance');
+const journalService = require('./journalService');
+const stockService = require('./stockService');
+const counterService = require('./counterService');
+const { parsePagination } = require('../utils/query');
 
 /**
  * POS sale flow. Resolves how the sale is settled (cash / bank / on account),
@@ -29,21 +29,25 @@ function resolveSettlement({ method, total, cashReceived, onlineReceived }) {
   } else if (method === PAYMENT_METHOD.MIXED) {
     cash = toPaisa(cashReceived || 0);
     online = toPaisa(onlineReceived || 0);
-    // The POS "Mixed" mode splits the full total across cash + online; it has
-    // no on-account remainder. Reject a short tender instead of silently
-    // booking the gap as a receivable.
-    if (cash + online !== total) {
-      throw ApiError.badRequest("Mixed payment: cash + online must equal the sale total");
+    // The POS "Mixed" mode splits the full total across cash + online and has
+    // no on-account remainder, but it allows over-tender (and shows change).
+    // Reject a short tender; treat any excess as change by capping the booked
+    // amounts at the total (online first, then cash — the drawer gives change
+    // from cash), instead of erroring on an exact-match mismatch.
+    if (cash + online < total) {
+      throw ApiError.badRequest('Mixed payment: cash + online must cover the sale total');
     }
+    online = Math.min(online, total);
+    cash = total - online;
   } else if (method === PAYMENT_METHOD.CREDIT) {
     // entirely on account
   } else {
-    throw ApiError.badRequest("Unsupported payment method");
+    throw ApiError.badRequest('Unsupported payment method');
   }
 
-  if (cash < 0 || online < 0) throw ApiError.badRequest("Payment amounts cannot be negative");
+  if (cash < 0 || online < 0) throw ApiError.badRequest('Payment amounts cannot be negative');
   const credit = total - cash - online;
-  if (credit < 0) throw ApiError.badRequest("Amount tendered exceeds the sale total");
+  if (credit < 0) throw ApiError.badRequest('Amount tendered exceeds the sale total');
   return { cash, online, credit };
 }
 
@@ -51,16 +55,16 @@ async function createSale(actor, input) {
   const { customer, warehouse, date, items, discount = 0, taxPercent = 0, payment = {} } = input;
 
   if (!Array.isArray(items) || items.length === 0) {
-    throw ApiError.badRequest("At least one item is required");
+    throw ApiError.badRequest('At least one item is required');
   }
   const method = payment.method;
-  if (!method) throw ApiError.badRequest("A payment method is required");
+  if (!method) throw ApiError.badRequest('A payment method is required');
 
   const customerDoc = customer ? await Customer.findById(customer) : null;
-  if (customer && !customerDoc) throw ApiError.notFound("Customer not found");
+  if (customer && !customerDoc) throw ApiError.notFound('Customer not found');
 
   const wh = warehouse
-    ? await require("./warehouseService").getWarehouseById(warehouse)
+    ? await require('./warehouseService').getWarehouseById(warehouse)
     : await stockService.ensureDefaultWarehouse();
 
   // Build line items (paisa) and pre-check stock so we never half-sell.
@@ -70,7 +74,7 @@ async function createSale(actor, input) {
     const product = await Product.findById(it.product);
     if (!product) throw ApiError.notFound(`Product not found: ${it.product}`);
     const quantity = Number(it.quantity);
-    if (!(quantity > 0)) throw ApiError.badRequest("Item quantity must be positive");
+    if (!(quantity > 0)) throw ApiError.badRequest('Item quantity must be positive');
 
     const unitPrice = it.unitPrice !== undefined ? toPaisa(it.unitPrice) : product.salePrice;
     const lineTotal = Math.round(quantity * unitPrice);
@@ -84,7 +88,7 @@ async function createSale(actor, input) {
   }
 
   const discountPaisa = toPaisa(discount);
-  if (discountPaisa > subtotal) throw ApiError.badRequest("Discount cannot exceed the subtotal");
+  if (discountPaisa > subtotal) throw ApiError.badRequest('Discount cannot exceed the subtotal');
   const net = subtotal - discountPaisa; // taxable amount
   const taxPct = Number(taxPercent) || 0;
   const tax = Math.round((net * taxPct) / 100);
@@ -99,14 +103,14 @@ async function createSale(actor, input) {
 
   // Credit (on account) requires a real customer to owe the balance.
   if (credit > 0 && !customerDoc) {
-    throw ApiError.badRequest("A customer is required for a credit (unpaid) sale");
+    throw ApiError.badRequest('A customer is required for a credit (unpaid) sale');
   }
 
   // Any online/bank-settled portion needs proof of transfer (the POS blocks
   // the charge until a receipt is attached), so enforce it server-side too.
-  const receiptRef = (payment.receiptRef || "").trim();
+  const receiptRef = (payment.receiptRef || '').trim();
   if (online > 0 && !receiptRef) {
-    throw ApiError.badRequest("A transfer receipt is required for online payments");
+    throw ApiError.badRequest('A transfer receipt is required for online payments');
   }
 
   // A bank/online portion lands in a specific bank account when given,
@@ -115,12 +119,12 @@ async function createSale(actor, input) {
   let bankRef = null;
   if (online > 0 && payment.bankAccount) {
     const bank = await BankAccount.findById(payment.bankAccount);
-    if (!bank) throw ApiError.notFound("Bank account not found");
+    if (!bank) throw ApiError.notFound('Bank account not found');
     bankRef = bank._id;
   }
 
   const when = date ? new Date(date) : new Date();
-  const number = await counterService.nextDocNumber("SALE", when.getFullYear(), 6);
+  const number = await counterService.nextDocNumber('SALE', when.getFullYear(), 6);
 
   // Issue stock and capture COGS per line.
   let cost = 0;
@@ -137,7 +141,7 @@ async function createSale(actor, input) {
   const sale = await Sale.create({
     number,
     customer: customerDoc ? customerDoc._id : null,
-    customerName: customerDoc ? customerDoc.name : "Walk-in",
+    customerName: customerDoc ? customerDoc.name : 'Walk-in',
     warehouse: wh._id,
     date: when,
     items: lineItems,
@@ -159,7 +163,8 @@ async function createSale(actor, input) {
   // Revenue: Dr Cash/Bank/Receivable ... Cr Sales (total).
   const revenueLines = [];
   if (cash > 0) revenueLines.push(journalService.line(ACCOUNT.CASH, { debit: cash }));
-  if (online > 0) revenueLines.push(journalService.line(ACCOUNT.BANK, { debit: online, ref: bankRef }));
+  if (online > 0)
+    revenueLines.push(journalService.line(ACCOUNT.BANK, { debit: online, ref: bankRef }));
   if (credit > 0)
     revenueLines.push(journalService.line(ACCOUNT.AR, { debit: credit, ref: customerDoc._id }));
   revenueLines.push(journalService.line(ACCOUNT.SALES, { credit: net }));
@@ -214,9 +219,9 @@ async function listSales({ customer, from, to, ...query } = {}) {
 
 async function getSaleById(id) {
   const sale = await Sale.findById(id)
-    .populate("customer", "name phone")
-    .populate("warehouse", "name");
-  if (!sale) throw ApiError.notFound("Sale not found");
+    .populate('customer', 'name phone')
+    .populate('warehouse', 'name');
+  if (!sale) throw ApiError.notFound('Sale not found');
   return sale;
 }
 

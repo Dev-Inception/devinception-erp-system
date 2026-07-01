@@ -4,17 +4,17 @@
  *
  *   node src/scripts/seedSuperAdmin.js
  */
-const mongoose = require("mongoose");
-const connectDB = require("../config/db");
-const env = require("../config/env");
-const User = require("../models/userModel");
-const roleService = require("../services/roleService");
-const { ROLES } = require("../utils/constants");
+const mongoose = require('mongoose');
+const connectDB = require('../config/db');
+const env = require('../config/env');
+const User = require('../models/userModel');
+const roleService = require('../services/roleService');
+const { ROLES } = require('../utils/constants');
 
 async function seed() {
   if (!env.superAdmin.email || !env.superAdmin.password) {
     // eslint-disable-next-line no-console
-    console.error("Set SUPER_ADMIN_EMAIL and SUPER_ADMIN_PASSWORD in .env first");
+    console.error('Set SUPER_ADMIN_EMAIL and SUPER_ADMIN_PASSWORD in .env first');
     process.exit(1);
   }
 

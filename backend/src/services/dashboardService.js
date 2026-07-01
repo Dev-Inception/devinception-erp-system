@@ -1,8 +1,8 @@
-const mongoose = require("mongoose");
-const Sale = require("../models/saleModel");
-const journalService = require("./journalService");
-const stockService = require("./stockService");
-const { ACCOUNT, naturalBalance } = require("../utils/finance");
+const mongoose = require('mongoose');
+const Sale = require('../models/saleModel');
+const journalService = require('./journalService');
+const stockService = require('./stockService');
+const { ACCOUNT, naturalBalance } = require('../utils/finance');
 
 /**
  * Dashboard overview: the handful of headline figures and mini-charts shown on
@@ -36,7 +36,7 @@ function saleWarehouseMatch(warehouse) {
 async function salesTotal(match) {
   const rows = await Sale.aggregate([
     { $match: match },
-    { $group: { _id: null, total: { $sum: "$total" } } },
+    { $group: { _id: null, total: { $sum: '$total' } } },
   ]);
   return rows[0] ? rows[0].total : 0;
 }
@@ -48,8 +48,8 @@ async function salesTrend(whMatch, fromDate) {
     { $match: { ...whMatch, date: { $gte: fromDate } } },
     {
       $group: {
-        _id: { $dateToString: { format: "%Y-%m-%d", date: "$date" } },
-        total: { $sum: "$total" },
+        _id: { $dateToString: { format: '%Y-%m-%d', date: '$date' } },
+        total: { $sum: '$total' },
       },
     },
   ]);
@@ -68,13 +68,13 @@ async function salesTrend(whMatch, fromDate) {
 async function topProducts(whMatch) {
   const rows = await Sale.aggregate([
     { $match: whMatch },
-    { $unwind: "$items" },
+    { $unwind: '$items' },
     {
       $group: {
-        _id: "$items.product",
-        name: { $first: "$items.name" },
-        quantity: { $sum: "$items.quantity" },
-        revenue: { $sum: "$items.lineTotal" },
+        _id: '$items.product',
+        name: { $first: '$items.name' },
+        quantity: { $sum: '$items.quantity' },
+        revenue: { $sum: '$items.lineTotal' },
       },
     },
     { $sort: { revenue: -1 } },
@@ -107,7 +107,9 @@ async function summary({ warehouse } = {}) {
   const whMatch = saleWarehouseMatch(warehouse);
 
   const now = new Date();
-  const startOfToday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  const startOfToday = new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
+  );
   const startOfMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
   const trendStart = new Date(startOfToday.getTime() - (TREND_DAYS - 1) * 86400000);
 
@@ -128,7 +130,9 @@ async function summary({ warehouse } = {}) {
     stockService.valuation({ warehouse }).then((v) => v.total),
     // No operating-expense accounts are modelled yet, so Cost of Goods Sold is
     // used as the "Expenses" figure. Replace when expense accounts land.
-    journalService.accountTotals(ACCOUNT.COGS).then((t) => naturalBalance(ACCOUNT.COGS, t.debit, t.credit)),
+    journalService
+      .accountTotals(ACCOUNT.COGS)
+      .then((t) => naturalBalance(ACCOUNT.COGS, t.debit, t.credit)),
     outstanding(ACCOUNT.AR),
     outstanding(ACCOUNT.AP),
     salesTrend(whMatch, trendStart),

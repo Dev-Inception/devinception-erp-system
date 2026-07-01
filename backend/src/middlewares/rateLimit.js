@@ -1,4 +1,4 @@
-const rateLimit = require("express-rate-limit");
+const rateLimit = require('express-rate-limit');
 
 /**
  * Rate limiters for abuse-prone endpoints. Login/password flows are the prime
@@ -14,19 +14,19 @@ const message = (msg) => ({ success: false, message: msg });
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
   limit: 10,
-  standardHeaders: "draft-7",
+  standardHeaders: 'draft-7',
   legacyHeaders: false,
   skipSuccessfulRequests: true,
-  message: message("Too many login attempts. Please try again later."),
+  message: message('Too many login attempts. Please try again later.'),
 });
 
 // Forgot/reset password: very tight, since each request can trigger an email.
 const passwordResetLimiter = rateLimit({
   windowMs: 60 * 60 * 1000, // 1 hour
   limit: 5,
-  standardHeaders: "draft-7",
+  standardHeaders: 'draft-7',
   legacyHeaders: false,
-  message: message("Too many password reset requests. Please try again later."),
+  message: message('Too many password reset requests. Please try again later.'),
 });
 
 module.exports = { loginLimiter, passwordResetLimiter };

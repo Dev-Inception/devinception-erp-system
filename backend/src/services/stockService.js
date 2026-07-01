@@ -1,7 +1,7 @@
-const StockLevel = require("../models/stockLevelModel");
-const StockMovement = require("../models/stockMovementModel");
-const Warehouse = require("../models/warehouseModel");
-const ApiError = require("../utils/ApiError");
+const StockLevel = require('../models/stockLevelModel');
+const StockMovement = require('../models/stockMovementModel');
+const Warehouse = require('../models/warehouseModel');
+const ApiError = require('../utils/ApiError');
 
 /**
  * Inventory mechanics: moving-average costing. Receiving stock blends the new
@@ -15,7 +15,7 @@ const ApiError = require("../utils/ApiError");
 // The default warehouse, created on first use. Used when none is specified.
 async function ensureDefaultWarehouse() {
   let wh = await Warehouse.findOne({ isDefault: true });
-  if (!wh) wh = await Warehouse.create({ name: "Main Store", isDefault: true });
+  if (!wh) wh = await Warehouse.create({ name: 'Main Store', isDefault: true });
   return wh;
 }
 
@@ -31,7 +31,7 @@ async function getLevel(product, warehouse) {
  * (paisa) for the Dr Inventory journal line.
  */
 async function receiveStock(product, warehouse, qty, unitCost, ref = {}) {
-  if (qty <= 0) throw ApiError.badRequest("Receive quantity must be positive");
+  if (qty <= 0) throw ApiError.badRequest('Receive quantity must be positive');
 
   const level = await getLevel(product, warehouse);
   const oldQty = level.quantity;
@@ -47,11 +47,11 @@ async function receiveStock(product, warehouse, qty, unitCost, ref = {}) {
   await StockMovement.create({
     product,
     warehouse,
-    type: "IN",
+    type: 'IN',
     quantity: qty,
     unitCost,
-    refType: ref.refType || "",
-    refNo: ref.refNo || "",
+    refType: ref.refType || '',
+    refNo: ref.refNo || '',
     date: ref.date || new Date(),
   });
 
@@ -64,7 +64,7 @@ async function receiveStock(product, warehouse, qty, unitCost, ref = {}) {
  * Dr COGS / Cr Inventory journal lines.
  */
 async function issueStock(product, warehouse, qty, ref = {}) {
-  if (qty <= 0) throw ApiError.badRequest("Issue quantity must be positive");
+  if (qty <= 0) throw ApiError.badRequest('Issue quantity must be positive');
 
   // Decrement atomically, and only when enough stock exists, so concurrent
   // issues can't oversell via a read-modify-write race (the conditional filter
@@ -73,10 +73,10 @@ async function issueStock(product, warehouse, qty, ref = {}) {
   const level = await StockLevel.findOneAndUpdate(
     { product, warehouse, quantity: { $gte: qty } },
     { $inc: { quantity: -qty } },
-    { new: true }
+    { new: true },
   );
   if (!level) {
-    throw ApiError.badRequest("Insufficient stock for one or more items");
+    throw ApiError.badRequest('Insufficient stock for one or more items');
   }
 
   const cogs = Math.round(qty * level.avgCost);
@@ -84,11 +84,11 @@ async function issueStock(product, warehouse, qty, ref = {}) {
   await StockMovement.create({
     product,
     warehouse,
-    type: "OUT",
+    type: 'OUT',
     quantity: -qty,
     unitCost: level.avgCost,
-    refType: ref.refType || "",
-    refNo: ref.refNo || "",
+    refType: ref.refType || '',
+    refNo: ref.refNo || '',
     date: ref.date || new Date(),
   });
 
@@ -102,17 +102,17 @@ async function issueStock(product, warehouse, qty, ref = {}) {
  * balancing journal line against equity.
  */
 async function adjustStock(product, warehouse, delta, unitCost, ref = {}) {
-  if (delta === 0) throw ApiError.badRequest("Adjustment quantity cannot be zero");
+  if (delta === 0) throw ApiError.badRequest('Adjustment quantity cannot be zero');
   if (delta > 0) {
     const value = await receiveStock(product, warehouse, delta, unitCost, {
       ...ref,
-      refType: ref.refType || "ADJUST",
+      refType: ref.refType || 'ADJUST',
     });
     return value;
   }
   const cogs = await issueStock(product, warehouse, -delta, {
     ...ref,
-    refType: ref.refType || "ADJUST",
+    refType: ref.refType || 'ADJUST',
   });
   return -cogs;
 }
@@ -124,8 +124,12 @@ async function valuation({ warehouse } = {}) {
   if (warehouse) filter.warehouse = warehouse;
 
   const levels = await StockLevel.find(filter)
-    .populate("product", "name sku unit")
-    .populate("warehouse", "name")
+    .populate({
+      path: 'product',
+      select: 'name sku unit',
+      populate: { path: 'unit', select: 'name abbreviation' },
+    })
+    .populate('warehouse', 'name')
     .lean();
 
   const rows = levels
