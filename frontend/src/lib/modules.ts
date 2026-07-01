@@ -118,6 +118,39 @@ export const SECTION_ORDER = ['Overview', 'Operations', 'Catalog', 'Partners', '
 /** Modules that appear as rows in the Permissions access matrix. */
 export const CONFIGURABLE_MODULES = MODULES.filter((m) => !m.superAdminOnly);
 
+/** Wildcard permission — a role holding it is granted everything. */
+export const WILDCARD_PERMISSION = '*';
+
+/**
+ * Governing backend permission for each configurable module: a role sees the
+ * module iff it holds this permission (or the wildcard). These mirror the
+ * permission each module's primary route requires on the backend.
+ *
+ * Note: `dashboard` and `reports` both map to `reports:read` (there is no
+ * separate dashboard permission), so those two toggle together.
+ */
+export const MODULE_PERMISSION: Record<string, string> = {
+  dashboard: 'reports:read',
+  pos: 'sales:create',
+  sales: 'sales:read',
+  purchases: 'purchases:read',
+  invoices: 'invoices:read',
+  products: 'inventory:read',
+  warehouses: 'inventory:manage',
+  customers: 'customers:read',
+  vendors: 'vendors:read',
+  ledgers: 'finance:read',
+  reports: 'reports:read',
+  cash: 'finance:manage',
+  settings: 'settings:manage',
+};
+
+/** True if a permission list grants `permission`, honoring the wildcard. */
+export function grantsPermission(perms: string[] | undefined, permission: string): boolean {
+  if (!perms) return false;
+  return perms.includes(WILDCARD_PERMISSION) || perms.includes(permission);
+}
+
 /** The set of module keys a role can see by default, before any admin tuning. */
 export function defaultModulesForRole(role: Role): string[] {
   return MODULES.filter((m) => {
@@ -125,4 +158,32 @@ export function defaultModulesForRole(role: Role): string[] {
     if (role === 'SUPER_ADMIN') return true;
     return (m.defaultRoles ?? CONFIGURABLE_ROLES).includes(role);
   }).map((m) => m.key);
+}
+
+/**
+ * Whether the current user may see a module. Super Admin sees everything;
+ * everyone else is gated by their real backend permissions. Sessions predating
+ * permission-aware login (no `permissions`) fall back to per-role defaults.
+ */
+export function canSeeModule(
+  role: Role | undefined,
+  permissions: string[] | undefined,
+  m: ModuleDef,
+): boolean {
+  if (m.superAdminOnly) return role === 'SUPER_ADMIN';
+  if (role === 'SUPER_ADMIN') return true;
+  if (!role) return false;
+  if (!permissions) return defaultModulesForRole(role).includes(m.key);
+  const required = MODULE_PERMISSION[m.key];
+  return required ? grantsPermission(permissions, required) : true;
+}
+
+/**
+ * The route the user should land on: the first module (in nav order) they can
+ * actually see. Used after login and to redirect away from an inaccessible '/'.
+ * Returns '/' only in the degenerate case of no visible module.
+ */
+export function landingPath(role: Role | undefined, permissions: string[] | undefined): string {
+  const first = MODULES.find((m) => canSeeModule(role, permissions, m));
+  return first ? first.to : '/';
 }

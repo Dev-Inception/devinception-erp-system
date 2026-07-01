@@ -1,24 +1,16 @@
 import { NavLink } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/store/auth';
-import { usePermissionsStore } from '@/store/permissions';
-import { MODULES, SECTION_ORDER } from '@/lib/modules';
+import { MODULES, SECTION_ORDER, canSeeModule } from '@/lib/modules';
 
 export function Sidebar() {
+  // Gate nav by the current user's real backend permissions (from login/me).
   const role = useAuthStore((s) => s.user?.role);
-  // Subscribe to access so the nav re-renders when the super admin tunes permissions.
-  const access = usePermissionsStore((s) => s.access);
-
-  const visible = (key: string, superAdminOnly?: boolean) => {
-    if (superAdminOnly) return role === 'SUPER_ADMIN';
-    if (role === 'SUPER_ADMIN') return true;
-    if (!role) return false;
-    return (access[role] ?? []).includes(key);
-  };
+  const permissions = useAuthStore((s) => s.user?.permissions);
 
   const groups = SECTION_ORDER.map((section) => ({
     section,
-    items: MODULES.filter((m) => m.section === section && visible(m.key, m.superAdminOnly)),
+    items: MODULES.filter((m) => m.section === section && canSeeModule(role, permissions, m)),
   })).filter((g) => g.items.length > 0);
 
   return (

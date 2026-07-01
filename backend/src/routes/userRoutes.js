@@ -7,6 +7,7 @@ const { PERMISSIONS } = require('../utils/permissions');
 const {
   createUserValidator,
   updateRoleValidator,
+  updateUserValidator,
   setActiveValidator,
   idParamValidator,
 } = require('../validators/userValidator');
@@ -33,6 +34,13 @@ router.post(
   createUserValidator,
   validate,
   userController.createUser,
+);
+router.patch(
+  '/:id',
+  requirePermission(PERMISSIONS.USERS_UPDATE),
+  updateUserValidator,
+  validate,
+  userController.updateUser,
 );
 router.patch(
   '/:id/role',

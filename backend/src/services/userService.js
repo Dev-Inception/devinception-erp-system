@@ -89,6 +89,27 @@ async function setUserActive(actor, targetId, isActive) {
   return target;
 }
 
+// Edit a user's profile (name and/or email). Role and active status have their
+// own dedicated endpoints.
+async function updateUser(actor, targetId, { name, email }) {
+  const target = await User.findById(targetId);
+  if (!target) throw ApiError.notFound('User not found');
+
+  if (target.role === ROLES.SUPER_ADMIN && actor.role !== ROLES.SUPER_ADMIN) {
+    throw ApiError.forbidden('Only a super admin can manage super admins');
+  }
+
+  if (email && email !== target.email) {
+    const existing = await User.findOne({ email });
+    if (existing) throw ApiError.conflict('Email is already registered');
+    target.email = email;
+  }
+  if (name) target.name = name;
+
+  await target.save();
+  return target;
+}
+
 async function deleteUser(actor, targetId) {
   if (actor._id.toString() === targetId) {
     throw ApiError.badRequest('You cannot delete your own account');
@@ -107,6 +128,7 @@ module.exports = {
   listUsers,
   getUserById,
   createUser,
+  updateUser,
   updateUserRole,
   setUserActive,
   deleteUser,

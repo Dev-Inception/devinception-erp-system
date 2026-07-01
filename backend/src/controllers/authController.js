@@ -1,7 +1,16 @@
 const authService = require('../services/authService');
+const roleService = require('../services/roleService');
 const asyncHandler = require('../utils/asyncHandler');
 const { sendSuccess } = require('../utils/ApiResponse');
 const env = require('../config/env');
+
+// Attach the caller's resolved permission list to a serialized user object so
+// the client can gate its navigation without a second round-trip. `user` is a
+// plain object carrying the role name (super_admin resolves to the wildcard).
+async function withPermissions(user) {
+  const perms = await roleService.getPermissions(user.role);
+  return { ...user, permissions: [...perms] };
+}
 
 // Set the refresh token as an httpOnly cookie so it isn't exposed to JS.
 function setRefreshCookie(res, refreshToken) {
@@ -20,7 +29,7 @@ const login = asyncHandler(async (req, res) => {
 
   setRefreshCookie(res, tokens.refreshToken);
   return sendSuccess(res, 200, 'Login successful', {
-    user,
+    user: await withPermissions(user),
     accessToken: tokens.accessToken,
   });
 });
@@ -68,7 +77,7 @@ const changePassword = asyncHandler(async (req, res) => {
 });
 
 const me = asyncHandler(async (req, res) => {
-  return sendSuccess(res, 200, 'Current user', { user: req.user.toJSON() });
+  return sendSuccess(res, 200, 'Current user', { user: await withPermissions(req.user.toJSON()) });
 });
 
 module.exports = {

@@ -24,6 +24,12 @@ const createUser = asyncHandler(async (req, res) => {
   return sendSuccess(res, 201, 'User created', { user });
 });
 
+const updateUser = asyncHandler(async (req, res) => {
+  const { name, email } = req.body;
+  const user = await userService.updateUser(req.user, req.params.id, { name, email });
+  return sendSuccess(res, 200, 'User updated', { user });
+});
+
 const updateUserRole = asyncHandler(async (req, res) => {
   const user = await userService.updateUserRole(req.user, req.params.id, req.body.role);
   return sendSuccess(res, 200, 'User role updated', { user });
@@ -43,6 +49,7 @@ module.exports = {
   listUsers,
   getUser,
   createUser,
+  updateUser,
   updateUserRole,
   setUserActive,
   deleteUser,
