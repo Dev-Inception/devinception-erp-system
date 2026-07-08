@@ -100,19 +100,6 @@ const SYSTEM_ROLES = [
     ],
   },
   {
-    name: ROLES.LABOUR,
-    description: 'Warehouse/labor staff for inventory and purchase operations',
-    permissions: [
-      PERMISSIONS.INVENTORY_READ,
-      PERMISSIONS.INVENTORY_MANAGE,
-      PERMISSIONS.PURCHASES_READ,
-      PERMISSIONS.PURCHASES_CREATE,
-      PERMISSIONS.VENDORS_READ,
-      PERMISSIONS.CUSTOMERS_READ,
-      // Add or remove permissions based on what labour should access
-    ],
-  },
-  {
     name: ROLES.SUPER_ADMIN,
     description: 'Full access, including role management',
     permissions: [WILDCARD],

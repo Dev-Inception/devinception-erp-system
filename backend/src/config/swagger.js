@@ -130,6 +130,33 @@ const customerSchema = {
   },
 };
 
+const labourSchema = {
+  type: 'object',
+  properties: {
+    _id: { type: 'string', example: '6a398f83d9b8a761a28ae5a1' },
+    name: { type: 'string', example: 'Workshop Labour' },
+    phoneNumber: { type: 'string', example: '0300 1234567' },
+    createdAt: { type: 'string', format: 'date-time' },
+    updatedAt: { type: 'string', format: 'date-time' },
+  },
+};
+
+const productWriteProperties = {
+  name: { type: 'string', example: 'Widget' },
+  sku: { type: 'string', example: 'WIDG-1' },
+  barcode: { type: 'string', example: '1234567890123' },
+  categoryId: { type: 'string', description: 'Existing category id' },
+  brandId: { type: 'string', description: 'Existing brand id' },
+  unitId: { type: 'string', description: 'Existing unit id' },
+  category: { type: 'string', example: 'Hardware', description: 'Free-text category name' },
+  brand: { type: 'string', example: 'Generic', description: 'Free-text brand name' },
+  unit: { type: 'string', example: 'pcs', description: 'Free-text unit name' },
+  purchasePrice: { type: 'number', example: 35, description: 'Rupees' },
+  salePrice: { type: 'number', example: 100, description: 'Rupees' },
+  taxPercent: { type: 'number', example: 0 },
+  minStock: { type: 'number', example: 5 },
+};
+
 const authTokenResponse = {
   description: 'Success',
   content: {
@@ -158,6 +185,10 @@ const swaggerSpec = {
     { name: 'Roles', description: 'Role & permission management (super_admin only)' },
     { name: 'Vendors', description: 'Supplier management (RBAC protected)' },
     { name: 'Customers', description: 'Customer management (RBAC protected)' },
+    {
+      name: 'Labour',
+      description: 'Labour master data; POS users can read, only super_admin can manage',
+    },
     { name: 'Inventory', description: 'Warehouses, products and stock' },
     { name: 'Purchases', description: 'Goods purchases from vendors' },
     { name: 'Sales', description: 'POS sales' },
@@ -179,6 +210,7 @@ const swaggerSpec = {
       Role: roleSchema,
       Vendor: vendorSchema,
       Customer: customerSchema,
+      Labour: labourSchema,
     },
   },
   paths: {
@@ -881,6 +913,116 @@ const swaggerSpec = {
       },
     },
 
+    '/labour': {
+      get: {
+        tags: ['Labour'],
+        summary: 'List labour for POS selection (requires sales:create)',
+        security: [{ bearerAuth: [] }],
+        responses: {
+          200: {
+            description: 'Labour list',
+            content: {
+              'application/json': {
+                schema: successData({
+                  labour: { type: 'array', items: labourSchema },
+                }),
+              },
+            },
+          },
+          401: errorResponse,
+          403: errorResponse,
+        },
+      },
+      post: {
+        tags: ['Labour'],
+        summary: 'Create labour (super_admin only)',
+        security: [{ bearerAuth: [] }],
+        requestBody: jsonBody(['name', 'phoneNumber'], {
+          name: { type: 'string', example: 'Workshop Labour' },
+          phoneNumber: { type: 'string', example: '0300 1234567' },
+        }),
+        responses: {
+          201: {
+            description: 'Created labour',
+            content: { 'application/json': { schema: successData({ labour: labourSchema }) } },
+          },
+          400: errorResponse,
+          403: errorResponse,
+          409: errorResponse,
+        },
+      },
+    },
+    '/labour/{id}': {
+      get: {
+        tags: ['Labour'],
+        summary: 'Get labour by id for POS selection (requires sales:create)',
+        security: [{ bearerAuth: [] }],
+        parameters: [pathId],
+        responses: {
+          200: {
+            description: 'Labour',
+            content: { 'application/json': { schema: successData({ labour: labourSchema }) } },
+          },
+          400: errorResponse,
+          401: errorResponse,
+          403: errorResponse,
+          404: errorResponse,
+        },
+      },
+      patch: {
+        tags: ['Labour'],
+        summary: 'Update labour (super_admin only)',
+        security: [{ bearerAuth: [] }],
+        parameters: [pathId],
+        requestBody: jsonBody([], {
+          name: { type: 'string', example: 'Installation Labour' },
+          phoneNumber: { type: 'string', example: '0300 7654321' },
+        }),
+        responses: {
+          200: {
+            description: 'Updated labour',
+            content: { 'application/json': { schema: successData({ labour: labourSchema }) } },
+          },
+          400: errorResponse,
+          403: errorResponse,
+          404: errorResponse,
+          409: errorResponse,
+        },
+      },
+      put: {
+        tags: ['Labour'],
+        summary: 'Update labour (super_admin only; PUT compatibility route)',
+        security: [{ bearerAuth: [] }],
+        parameters: [pathId],
+        requestBody: jsonBody([], {
+          name: { type: 'string', example: 'Installation Labour' },
+          phoneNumber: { type: 'string', example: '0300 7654321' },
+        }),
+        responses: {
+          200: {
+            description: 'Updated labour',
+            content: { 'application/json': { schema: successData({ labour: labourSchema }) } },
+          },
+          400: errorResponse,
+          403: errorResponse,
+          404: errorResponse,
+          409: errorResponse,
+        },
+      },
+      delete: {
+        tags: ['Labour'],
+        summary: 'Delete labour (super_admin only)',
+        security: [{ bearerAuth: [] }],
+        parameters: [pathId],
+        responses: {
+          200: { description: 'Deleted' },
+          400: errorResponse,
+          403: errorResponse,
+          404: errorResponse,
+        },
+      },
+    },
+
     /* --------------------------- Inventory --------------------------- */
     '/warehouses': {
       get: {
@@ -940,12 +1082,7 @@ const swaggerSpec = {
         tags: ['Inventory'],
         summary: 'Create a product (inventory:manage). Prices are rupees.',
         security: [{ bearerAuth: [] }],
-        requestBody: jsonBody(['name'], {
-          name: { type: 'string', example: 'Widget' },
-          sku: { type: 'string', example: 'WIDG-1' },
-          unit: { type: 'string', example: 'pcs' },
-          salePrice: { type: 'number', example: 100 },
-        }),
+        requestBody: jsonBody(['name', 'sku'], productWriteProperties),
         responses: {
           201: { description: 'Created' },
           400: errorResponse,
@@ -960,11 +1097,33 @@ const swaggerSpec = {
         summary: 'Update a product (inventory:manage)',
         security: [{ bearerAuth: [] }],
         parameters: [pathId],
+        requestBody: jsonBody([], {
+          ...productWriteProperties,
+          isActive: { type: 'boolean', example: true },
+        }),
         responses: {
           200: { description: 'Updated' },
           400: errorResponse,
           403: errorResponse,
           404: errorResponse,
+          409: errorResponse,
+        },
+      },
+      put: {
+        tags: ['Inventory'],
+        summary: 'Update a product (inventory:manage; PUT compatibility route)',
+        security: [{ bearerAuth: [] }],
+        parameters: [pathId],
+        requestBody: jsonBody([], {
+          ...productWriteProperties,
+          isActive: { type: 'boolean', example: true },
+        }),
+        responses: {
+          200: { description: 'Updated' },
+          400: errorResponse,
+          403: errorResponse,
+          404: errorResponse,
+          409: errorResponse,
         },
       },
       delete: {
@@ -1084,6 +1243,13 @@ const swaggerSpec = {
         requestBody: jsonBody(['items', 'payment'], {
           customer: { type: 'string', description: 'Omit for a walk-in sale' },
           warehouse: { type: 'string' },
+          labour: {
+            type: 'array',
+            items: { type: 'string' },
+            example: ['6a398f83d9b8a761a28ae5a1'],
+            description:
+              'Optional labour IDs selected for the current POS work. They are validated and snapshotted onto the sale.',
+          },
           items: {
             type: 'array',
             items: {
@@ -1103,6 +1269,10 @@ const swaggerSpec = {
               cash: { type: 'number' },
               online: { type: 'number' },
               bankAccount: { type: 'string' },
+              receiptRef: {
+                type: 'string',
+                description: 'Required when the sale has an online/bank-settled amount',
+              },
             },
           },
         }),

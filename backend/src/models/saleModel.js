@@ -20,6 +20,15 @@ const saleItemSchema = new mongoose.Schema(
   { _id: false },
 );
 
+const saleLabourSchema = new mongoose.Schema(
+  {
+    labour: { type: mongoose.Schema.Types.ObjectId, ref: 'Labour', required: true },
+    name: { type: String, required: true },
+    phoneNumber: { type: String, default: '' },
+  },
+  { _id: false },
+);
+
 const saleSchema = new mongoose.Schema(
   {
     number: { type: String, required: true, unique: true, index: true }, // SALE-2026-000010
@@ -29,6 +38,7 @@ const saleSchema = new mongoose.Schema(
     date: { type: Date, default: Date.now, index: true },
 
     items: { type: [saleItemSchema], required: true },
+    labour: { type: [saleLabourSchema], default: [] },
 
     subtotal: { type: Number, required: true, min: 0 }, // paisa, before discount
     discount: { type: Number, default: 0, min: 0 }, // paisa

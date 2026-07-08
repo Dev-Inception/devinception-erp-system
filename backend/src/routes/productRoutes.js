@@ -45,6 +45,13 @@ router.patch(
   validate,
   productController.updateProduct,
 );
+router.put(
+  '/:id',
+  requirePermission(PERMISSIONS.INVENTORY_MANAGE),
+  updateProductValidator,
+  validate,
+  productController.updateProduct,
+);
 router.post(
   '/:id/adjust-stock',
   requirePermission(PERMISSIONS.INVENTORY_MANAGE),
