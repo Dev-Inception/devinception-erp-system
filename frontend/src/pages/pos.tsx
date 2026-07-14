@@ -291,8 +291,13 @@ export function PosPage() {
 
   // guard: require a receipt for online payments; mixed split must cover the total
   const mixedShort = method === 'MIXED' && cashAmount + onlineAmount + 0.001 < grandTotal;
+  const cashShort = method === 'CASH' && cashAmount > 0 && cashAmount + 0.001 < grandTotal;
   const canCharge =
-    cart.length > 0 && !checkout.isPending && (!needsReceipt || !!receipt) && !mixedShort;
+    cart.length > 0 &&
+    !checkout.isPending &&
+    (!needsReceipt || !!receipt) &&
+    !mixedShort &&
+    !cashShort;
 
   return (
     <div className="grid h-[calc(100vh-7rem)] gap-4 lg:grid-cols-[1fr_380px]">
@@ -497,8 +502,15 @@ export function PosPage() {
                 onChange={(e) => setCashAmount(Number(e.target.value))}
               />
               {cashAmount > 0 && (
-                <p className="text-right text-xs text-muted-foreground">
-                  Change: {formatCurrency(change)}
+                <p
+                  className={cn(
+                    'text-right text-xs',
+                    cashShort ? 'text-destructive' : 'text-muted-foreground',
+                  )}
+                >
+                  {cashShort
+                    ? `Amount does not match total. Short by ${formatCurrency(grandTotal - cashAmount)}`
+                    : `Change: ${formatCurrency(change)}`}
                 </p>
               )}
             </div>

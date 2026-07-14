@@ -178,9 +178,10 @@ function ProductDialog({
             <Input
               type="number"
               step="0.01"
+              min="0"
               required
-              value={form.purchasePrice}
-              onChange={(e) => field('purchasePrice', Number(e.target.value))}
+              value={form.purchasePrice || ''}
+              onChange={(e) => field('purchasePrice', Math.max(0, Number(e.target.value)))}
             />
           </div>
           <div className="space-y-1.5">
@@ -188,9 +189,10 @@ function ProductDialog({
             <Input
               type="number"
               step="0.01"
+              min="0"
               required
-              value={form.salePrice}
-              onChange={(e) => field('salePrice', Number(e.target.value))}
+              value={form.salePrice || ''}
+              onChange={(e) => field('salePrice', Math.max(0, Number(e.target.value)))}
             />
           </div>
           <div className="space-y-1.5">
@@ -198,16 +200,18 @@ function ProductDialog({
             <Input
               type="number"
               step="0.01"
-              value={form.taxRate}
-              onChange={(e) => field('taxRate', Number(e.target.value))}
+              min="0"
+              value={form.taxRate || ''}
+              onChange={(e) => field('taxRate', Math.max(0, Number(e.target.value)))}
             />
           </div>
           <div className="space-y-1.5">
             <Label>Min Stock</Label>
             <Input
               type="number"
-              value={form.minStock}
-              onChange={(e) => field('minStock', Number(e.target.value))}
+              min="0"
+              value={form.minStock || ''}
+              onChange={(e) => field('minStock', Math.max(0, Number(e.target.value)))}
             />
           </div>
           <div className="col-span-2 flex justify-end gap-2 pt-2">
