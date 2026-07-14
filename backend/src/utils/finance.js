@@ -17,6 +17,7 @@ const ACCOUNT = {
   AP: 'AP', // accounts payable (liability), ref = Vendor
   SALES: 'SALES', // sales revenue (income)
   COGS: 'COGS', // cost of goods sold (expense)
+  OPERATING_EXPENSE: 'OPERATING_EXPENSE', // rent, utilities, payroll, etc.
   TAX: 'TAX', // net sales tax payable: output tax (credit) − input tax (debit)
   EQUITY: 'EQUITY', // opening balances / owner adjustments
 };
@@ -32,6 +33,7 @@ const DEBIT_NORMAL = new Set([
   ACCOUNT.INVENTORY,
   ACCOUNT.AR,
   ACCOUNT.COGS,
+  ACCOUNT.OPERATING_EXPENSE,
 ]);
 
 // Signed balance (in paisa) for an account given its debit/credit totals,
@@ -49,6 +51,7 @@ const REF = {
   PAYMENT: 'PAYMENT', // money paid to a vendor
   RECEIPT: 'RECEIPT', // money received from a customer
   CASH_ADJUST: 'CASH_ADJUST', // manual cash in/out
+  EXPENSE: 'EXPENSE', // operating expense paid from cash/bank
   OPENING: 'OPENING', // opening balances
 };
 

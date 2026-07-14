@@ -1149,24 +1149,62 @@ const swaggerSpec = {
         summary:
           'Create a customer invoice (invoices:create). Lowers stock, posts Dr A-R / Cr Sales (+Tax).',
         security: [{ bearerAuth: [] }],
-        requestBody: jsonBody(['customer', 'items'], {
-          customer: { type: 'string' },
-          warehouse: { type: 'string' },
-          dueDate: { type: 'string', format: 'date' },
-          items: {
-            type: 'array',
-            items: {
-              type: 'object',
-              properties: {
-                product: { type: 'string' },
-                quantity: { type: 'number' },
-                unitPrice: { type: 'number' },
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                oneOf: [
+                  {
+                    type: 'object',
+                    required: ['saleId'],
+                    properties: {
+                      saleId: {
+                        type: 'string',
+                        description: 'Existing sale to turn into an idempotent printable invoice.',
+                      },
+                    },
+                  },
+                  {
+                    type: 'object',
+                    required: ['customer', 'items'],
+                    properties: {
+                      customer: { type: 'string' },
+                      warehouse: { type: 'string' },
+                      dueDate: { type: 'string', format: 'date' },
+                      items: {
+                        type: 'array',
+                        minItems: 1,
+                        items: {
+                          type: 'object',
+                          required: ['product', 'quantity'],
+                          properties: {
+                            product: { type: 'string' },
+                            quantity: { type: 'number', exclusiveMinimum: 0 },
+                            unitPrice: { type: 'number', minimum: 0 },
+                          },
+                        },
+                      },
+                      discount: {
+                        type: 'number',
+                        minimum: 0,
+                        description:
+                          'Fixed invoice-level discount in currency units. Applied to subtotal before tax.',
+                      },
+                      taxPercent: {
+                        type: 'number',
+                        minimum: 0,
+                        maximum: 100,
+                        example: 1,
+                        description: 'Tax percentage applied to subtotal minus discount.',
+                      },
+                    },
+                  },
+                ],
               },
             },
           },
-          discount: { type: 'number' },
-          taxPercent: { type: 'number', example: 1 },
-        }),
+        },
         responses: {
           201: { description: 'Created' },
           400: errorResponse,
@@ -1179,6 +1217,8 @@ const swaggerSpec = {
       get: {
         tags: ['Invoices'],
         summary: 'Get an invoice (invoices:read)',
+        description:
+          'Returns backend-calculated invoice lines/totals and a pdfUrl for the backend-rendered document.',
         security: [{ bearerAuth: [] }],
         parameters: [pathId],
         responses: { 200: { description: 'Invoice' }, 403: errorResponse, 404: errorResponse },
@@ -1295,6 +1335,28 @@ const swaggerSpec = {
         responses: { 201: { description: 'Recorded' }, 400: errorResponse, 403: errorResponse },
       },
     },
+    '/finance/expenses': {
+      post: {
+        tags: ['Finance'],
+        summary: 'Record a warehouse operating expense (finance:manage)',
+        description:
+          'Posts Dr Operating Expense / Cr Cash or Bank and feeds the Operating Expenses and Net Profit rows in Profit & Loss reports.',
+        security: [{ bearerAuth: [] }],
+        requestBody: jsonBody(['amount'], {
+          warehouse: { type: 'string', description: 'Defaults to the default warehouse' },
+          amount: { type: 'number', exclusiveMinimum: 0 },
+          method: {
+            type: 'string',
+            enum: ['CASH', 'CARD', 'BANK_TRANSFER', 'ONLINE'],
+            default: 'CASH',
+          },
+          bankAccount: { type: 'string' },
+          date: { type: 'string', format: 'date-time' },
+          note: { type: 'string' },
+        }),
+        responses: { 201: { description: 'Recorded' }, 400: errorResponse, 403: errorResponse },
+      },
+    },
     '/finance/payments/vendor': {
       post: {
         tags: ['Finance'],
@@ -1381,6 +1443,8 @@ const swaggerSpec = {
       get: {
         tags: ['Reports'],
         summary: 'Generate a report (reports:read)',
+        description:
+          'Returns presentation-ready title, columns, detailed rows, summary cards, report metadata, and an authenticated export.url. Sales and purchases require from/to; Profit & Loss accepts both or neither; stock valuation is current-state and ignores dates. Pass warehouse to scope any report.',
         security: [{ bearerAuth: [] }],
         parameters: [
           {
@@ -1398,10 +1462,46 @@ const swaggerSpec = {
             name: 'warehouse',
             in: 'query',
             schema: { type: 'string' },
-            description: 'Stock-valuation only',
+            description: 'Optional warehouse ID. Supported by every report type.',
           },
         ],
         responses: { 200: { description: 'Report' }, 400: errorResponse, 403: errorResponse },
+      },
+    },
+    '/reports/{type}/csv': {
+      get: {
+        tags: ['Reports'],
+        summary: 'Download a backend-generated report CSV (reports:read)',
+        description:
+          'Accepts the same filters as the JSON report and returns an authenticated UTF-8 CSV attachment with metadata, detailed rows, and summary totals.',
+        security: [{ bearerAuth: [] }],
+        parameters: [
+          {
+            name: 'type',
+            in: 'path',
+            required: true,
+            schema: {
+              type: 'string',
+              enum: ['sales', 'purchases', 'stock-valuation', 'profit-loss'],
+            },
+          },
+          qFrom,
+          qTo,
+          {
+            name: 'warehouse',
+            in: 'query',
+            schema: { type: 'string' },
+            description: 'Optional warehouse ID. Supported by every report type.',
+          },
+        ],
+        responses: {
+          200: {
+            description: 'CSV file',
+            content: { 'text/csv': { schema: { type: 'string', format: 'binary' } } },
+          },
+          400: errorResponse,
+          403: errorResponse,
+        },
       },
     },
 

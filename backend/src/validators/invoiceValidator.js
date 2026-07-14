@@ -20,7 +20,7 @@ const createInvoiceValidator = [
     .isFloat({ gt: 0 })
     .withMessage('Each item quantity must be positive'),
   body('items.*.unitPrice')
-    .optional({ values: 'falsy' })
+    .optional()
     .isFloat({ min: 0 })
     .withMessage('Unit price must be non-negative'),
   body('discount')
@@ -31,6 +31,7 @@ const createInvoiceValidator = [
     .optional({ values: 'falsy' })
     .isFloat({ min: 0, max: 100 })
     .withMessage('Tax % must be 0–100'),
+  body('notes').optional({ values: 'falsy' }).trim().isLength({ max: 1000 }),
 ];
 
 const payInvoiceValidator = [

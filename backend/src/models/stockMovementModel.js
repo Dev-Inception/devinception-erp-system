@@ -14,6 +14,9 @@ const stockMovementSchema = new mongoose.Schema(
     // Signed change applied to stock (negative for OUT / downward ADJUST).
     quantity: { type: Number, required: true },
     unitCost: { type: Number, default: 0, min: 0 }, // paisa per unit at the time
+    // Added for exact reconciliation. Legacy movements leave this undefined
+    // rather than pretending their unknown historical total was zero.
+    totalCost: { type: Number, min: 0 }, // exact integer-paisa movement value
 
     refType: { type: String, default: '' }, // SALE | PURCHASE | ADJUST | OPENING
     refNo: { type: String, default: '' },

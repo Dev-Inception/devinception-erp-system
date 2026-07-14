@@ -7,6 +7,7 @@ const journalService = require('./journalService');
 const catalogService = require('./catalogService');
 const { ACCOUNT, REF } = require('../utils/finance');
 const { parsePagination, escapeRegex } = require('../utils/query');
+const { QUANTITY_DECIMALS, normalizeQuantity } = require('../utils/quantity');
 
 /**
  * Product catalog CRUD plus stock visibility. Prices/costs are paisa. Stock
@@ -32,14 +33,18 @@ async function attachStock(products, warehouse) {
       $group: {
         _id: '$product',
         quantity: { $sum: '$quantity' },
-        value: { $sum: { $round: [{ $multiply: ['$quantity', '$avgCost'] }, 0] } },
+        value: {
+          $sum: {
+            $round: [{ $multiply: [{ $round: ['$quantity', QUANTITY_DECIMALS] }, '$avgCost'] }, 0],
+          },
+        },
       },
     },
   ]);
   const byId = new Map(levels.map((l) => [String(l._id), l]));
   return products.map((p) => {
     const s = byId.get(String(p._id));
-    const stock = s ? s.quantity : 0;
+    const stock = s ? normalizeQuantity(s.quantity) : 0;
     return {
       ...p,
       stock,
@@ -146,7 +151,7 @@ async function getStock(id, warehouse) {
     { $match: match },
     { $group: { _id: null, quantity: { $sum: '$quantity' } } },
   ]);
-  return rows[0] ? rows[0].quantity : 0;
+  return rows[0] ? normalizeQuantity(rows[0].quantity) : 0;
 }
 
 // How each first-class adjustment type maps to the sign of the change. An
@@ -174,18 +179,20 @@ async function adjustStock(
   const wh = await require('./warehouseService').getWarehouseById(warehouse);
 
   const level = await StockLevel.findOne({ product: product._id, warehouse: wh._id });
-  const currentQty = level ? level.quantity : 0;
+  const currentQty = level ? normalizeQuantity(level.quantity) : 0;
 
   // Resolve the signed change from either a typed quantity or an explicit delta.
   let signedDelta;
   if (type) {
     if (!(type in ADJUST_SIGN)) throw ApiError.badRequest('Invalid adjustment type');
-    const qty = Number(quantity);
+    const qty = normalizeQuantity(quantity);
     if (!Number.isFinite(qty) || qty < 0)
       throw ApiError.badRequest('Quantity must be non-negative');
-    signedDelta = type === 'ADJUSTMENT' ? qty - currentQty : ADJUST_SIGN[type] * qty;
+    signedDelta = normalizeQuantity(
+      type === 'ADJUSTMENT' ? qty - currentQty : ADJUST_SIGN[type] * qty,
+    );
   } else if (delta !== undefined) {
-    signedDelta = Number(delta);
+    signedDelta = normalizeQuantity(delta);
   } else {
     throw ApiError.badRequest('An adjustment type (+ quantity) or a delta is required');
   }
@@ -226,7 +233,10 @@ async function adjustStock(
     });
   }
 
-  return { product: await getProductById(id), newQty: currentQty + signedDelta };
+  return {
+    product: await getProductById(id),
+    newQty: normalizeQuantity(currentQty + signedDelta),
+  };
 }
 
 module.exports = {

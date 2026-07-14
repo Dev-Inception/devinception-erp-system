@@ -10,6 +10,7 @@ const {
   payVendorValidator,
   receiveCustomerValidator,
   cashEntryValidator,
+  expenseValidator,
   statementParamValidator,
   idParamValidator,
 } = require('../validators/financeValidator');
@@ -54,6 +55,7 @@ router.get(
 /* Cash book */
 router.get('/cash-ledger', READ, financeController.cashLedger);
 router.post('/cash-entry', MANAGE, cashEntryValidator, validate, financeController.cashEntry);
+router.post('/expenses', MANAGE, expenseValidator, validate, financeController.recordExpense);
 
 /* Payments */
 router.post('/payments/vendor', MANAGE, payVendorValidator, validate, financeController.payVendor);

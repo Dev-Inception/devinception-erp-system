@@ -119,6 +119,7 @@ async function summary({ warehouse } = {}) {
     totalRevenue,
     stockVal,
     cogs,
+    operatingExpenses,
     receivables,
     payables,
     trend,
@@ -128,11 +129,12 @@ async function summary({ warehouse } = {}) {
     salesTotal({ ...whMatch, date: { $gte: startOfMonth } }),
     salesTotal({ ...whMatch }),
     stockService.valuation({ warehouse }).then((v) => v.total),
-    // No operating-expense accounts are modelled yet, so Cost of Goods Sold is
-    // used as the "Expenses" figure. Replace when expense accounts land.
     journalService
       .accountTotals(ACCOUNT.COGS)
       .then((t) => naturalBalance(ACCOUNT.COGS, t.debit, t.credit)),
+    journalService
+      .accountTotals(ACCOUNT.OPERATING_EXPENSE)
+      .then((t) => naturalBalance(ACCOUNT.OPERATING_EXPENSE, t.debit, t.credit)),
     outstanding(ACCOUNT.AR),
     outstanding(ACCOUNT.AP),
     salesTrend(whMatch, trendStart),
@@ -145,7 +147,7 @@ async function summary({ warehouse } = {}) {
       monthSales,
       totalRevenue,
       stockValue: stockVal,
-      expenses: cogs,
+      expenses: cogs + operatingExpenses,
       receivables,
       payables,
     },

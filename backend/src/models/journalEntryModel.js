@@ -35,6 +35,12 @@ const journalEntrySchema = new mongoose.Schema(
     refType: { type: String, enum: Object.values(REF), required: true, index: true },
     refId: { type: mongoose.Schema.Types.ObjectId, default: null },
     refNo: { type: String, trim: true, default: '', index: true },
+    warehouse: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Warehouse',
+      default: null,
+      index: true,
+    },
 
     lines: {
       type: [lineSchema],

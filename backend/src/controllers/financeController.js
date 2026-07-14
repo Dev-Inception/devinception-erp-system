@@ -60,6 +60,14 @@ const cashEntry = asyncHandler(async (req, res) => {
   return sendSuccess(res, 201, 'Cash entry recorded', { id: entry._id });
 });
 
+const recordExpense = asyncHandler(async (req, res) => {
+  const entry = await paymentService.recordExpense(req.user, req.body);
+  return sendSuccess(res, 201, 'Operating expense recorded', {
+    id: entry._id,
+    refNo: entry.refNo,
+  });
+});
+
 /* -------------------------------- Ledgers -------------------------------- */
 
 const customerLedgers = asyncHandler(async (_req, res) => {
@@ -111,6 +119,7 @@ module.exports = {
   payVendor,
   receiveFromCustomer,
   cashEntry,
+  recordExpense,
   customerLedgers,
   vendorLedgers,
   partyStatement,

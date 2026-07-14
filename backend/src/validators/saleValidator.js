@@ -11,7 +11,7 @@ const createSaleValidator = [
   body('items.*.product').isMongoId().withMessage('Each item needs a valid product'),
   body('items.*.quantity').isFloat({ gt: 0 }).withMessage('Each item quantity must be positive'),
   body('items.*.unitPrice')
-    .optional({ values: 'falsy' })
+    .optional()
     .isFloat({ min: 0 })
     .withMessage('Unit price must be non-negative'),
   body('discount')

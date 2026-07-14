@@ -128,4 +128,42 @@ async function cashEntry(actor, { direction, amount, date, note }) {
   });
 }
 
-module.exports = { payVendor, receiveFromCustomer, cashEntry, settlementAccount };
+// Record an operating expense: Dr Operating Expense / Cr Cash|Bank. A
+// warehouse is attached to the journal entry so warehouse-scoped P&L reports
+// include only expenses attributable to that location.
+async function recordExpense(
+  actor,
+  { warehouse, amount, method = PAYMENT_METHOD.CASH, bankAccount, date, note },
+) {
+  const wh = warehouse
+    ? await require('./warehouseService').getWarehouseById(warehouse)
+    : await require('./stockService').ensureDefaultWarehouse();
+  const amt = toPaisa(amount);
+  if (amt <= 0) throw ApiError.badRequest('Amount must be positive');
+
+  const settle = await settlementAccount(method, bankAccount);
+  await assertSufficientFunds(settle.account, settle.ref, amt);
+  const when = date ? new Date(date) : new Date();
+  const number = await counterService.nextDocNumber('EXP', when.getFullYear(), 6);
+
+  return journalService.post({
+    date: when,
+    description: note || `Operating expense ${number}`,
+    refType: REF.EXPENSE,
+    refNo: number,
+    warehouse: wh._id,
+    createdBy: actor ? actor._id : null,
+    lines: [
+      journalService.line(ACCOUNT.OPERATING_EXPENSE, { debit: amt }),
+      journalService.line(settle.account, { credit: amt, ref: settle.ref }),
+    ],
+  });
+}
+
+module.exports = {
+  payVendor,
+  receiveFromCustomer,
+  cashEntry,
+  recordExpense,
+  settlementAccount,
+};

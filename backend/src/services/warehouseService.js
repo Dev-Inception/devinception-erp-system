@@ -1,6 +1,11 @@
 const Warehouse = require('../models/warehouseModel');
 const StockLevel = require('../models/stockLevelModel');
+const Sale = require('../models/saleModel');
+const Invoice = require('../models/invoiceModel');
+const GoodsPurchase = require('../models/goodsPurchaseModel');
+const JournalEntry = require('../models/journalEntryModel');
 const ApiError = require('../utils/ApiError');
+const { QUANTITY_DECIMALS } = require('../utils/quantity');
 
 /**
  * Warehouse CRUD. Exactly one warehouse carries isDefault=true; setting it on
@@ -18,7 +23,14 @@ async function listWarehouses() {
         $group: {
           _id: '$warehouse',
           itemsInStock: { $sum: 1 },
-          stockValue: { $sum: { $round: [{ $multiply: ['$quantity', '$avgCost'] }, 0] } },
+          stockValue: {
+            $sum: {
+              $round: [
+                { $multiply: [{ $round: ['$quantity', QUANTITY_DECIMALS] }, '$avgCost'] },
+                0,
+              ],
+            },
+          },
         },
       },
     ]),
@@ -68,6 +80,18 @@ async function deleteWarehouse(id) {
 
   const hasStock = await StockLevel.exists({ warehouse: id, quantity: { $ne: 0 } });
   if (hasStock) throw ApiError.badRequest('Warehouse still holds stock and cannot be deleted');
+
+  const history = await Promise.all([
+    Sale.exists({ warehouse: id }),
+    Invoice.exists({ warehouse: id }),
+    GoodsPurchase.exists({ warehouse: id }),
+    JournalEntry.exists({ warehouse: id }),
+  ]);
+  if (history.some(Boolean)) {
+    throw ApiError.badRequest(
+      'Warehouse has transaction history and cannot be deleted; deactivate it instead',
+    );
+  }
 
   // Drop leftover zero-quantity stock rows so no orphans linger.
   await StockLevel.deleteMany({ warehouse: id });

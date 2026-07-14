@@ -24,6 +24,7 @@ async function post({
   refType,
   refId = null,
   refNo = '',
+  warehouse = null,
   lines,
   createdBy = null,
 }) {
@@ -45,6 +46,7 @@ async function post({
     refType,
     refId,
     refNo,
+    warehouse,
     lines: clean,
     createdBy,
   });
@@ -65,13 +67,16 @@ async function accountBalance(account, ref = null) {
 }
 
 // Raw debit/credit totals (paisa) for an account over an optional date range.
-async function accountTotals(account, ref = null, { from, to } = {}) {
+async function accountTotals(account, ref = null, { from, to, refType, refIds, warehouse } = {}) {
   const entryMatch = {};
   if (from || to) {
     entryMatch.date = {};
     if (from) entryMatch.date.$gte = from;
     if (to) entryMatch.date.$lte = to;
   }
+  if (refType) entryMatch.refType = refType;
+  if (Array.isArray(refIds)) entryMatch.refId = { $in: refIds };
+  if (warehouse) entryMatch.warehouse = warehouse;
 
   const rows = await JournalEntry.aggregate([
     ...(Object.keys(entryMatch).length ? [{ $match: entryMatch }] : []),
