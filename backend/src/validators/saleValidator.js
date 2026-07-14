@@ -14,6 +14,8 @@ const createSaleValidator = [
     .optional({ values: 'falsy' })
     .isFloat({ min: 0 })
     .withMessage('Unit price must be non-negative'),
+  body('labour').optional({ values: 'falsy' }).isArray().withMessage('Labour must be an array'),
+  body('labour.*').isMongoId().withMessage('Each labour entry must be a valid labour id'),
   body('discount')
     .optional({ values: 'falsy' })
     .isFloat({ min: 0 })
