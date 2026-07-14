@@ -7,9 +7,11 @@ const { toPaisa } = require('../utils/money');
 const { ACCOUNT, REF, PAYMENT_METHOD, BANK_METHODS } = require('../utils/finance');
 const journalService = require('./journalService');
 const stockService = require('./stockService');
+const paymentService = require('./paymentService');
 const counterService = require('./counterService');
 const { parsePagination } = require('../utils/query');
 const { requirePositiveQuantity } = require('../utils/quantity');
+const { assertProductWarehouse } = require('../utils/productWarehouse');
 
 /**
  * Goods purchase flow. Validates everything up front, then: raises stock,
@@ -88,6 +90,7 @@ async function createPurchase(actor, input) {
   for (const it of items) {
     const product = await Product.findById(it.product);
     if (!product) throw ApiError.notFound(`Product not found: ${it.product}`);
+    assertProductWarehouse(product, wh);
     const quantity = requirePositiveQuantity(it.quantity, 'Item quantity must be positive');
     const enteredUnitCost = toPaisa(it.unitCost);
     if (enteredUnitCost < 0) throw ApiError.badRequest('Item unit cost must be non-negative');
@@ -143,6 +146,7 @@ async function createPurchase(actor, input) {
   if (paidPaisa > 0) {
     method = method || PAYMENT_METHOD.CASH;
     settle = await settlementAccount(method, bankAccount);
+    await paymentService.assertSufficientFunds(settle.account, settle.ref, paidPaisa);
   }
 
   const when = date ? new Date(date) : new Date();

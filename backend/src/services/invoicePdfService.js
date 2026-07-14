@@ -2,9 +2,9 @@ const PDFDocument = require('pdfkit');
 const { toRupees } = require('../utils/money');
 
 /**
- * Render an invoice document to a PDF and stream it into `res`. Everything on
- * the invoice is paisa; we convert to rupees only for display here. The caller
- * (controller) sets the HTTP headers; this just pipes the PDF bytes.
+ * Render a GoodsPurchase as a purchase-invoice PDF. Everything on the purchase
+ * is paisa; we convert to rupees only for display here. The controller sets the
+ * HTTP headers; this service only renders and streams the document.
  */
 
 const PAGE_MARGIN = 50;
@@ -87,8 +87,10 @@ function drawFooters(doc) {
 // Draw the whole invoice onto an open PDFKit document. Kept separate from the
 // streaming lifecycle so streamInvoicePdf can wrap it in error handling.
 function renderInvoice(doc, invoice, company = {}) {
-  const customerName =
-    invoice.customerName || (invoice.customer && invoice.customer.name) || 'Customer';
+  const vendor = invoice.vendor;
+  const vendorName = invoice.vendorName || (vendor && vendor.name) || 'Vendor';
+  const paid = invoice.paid || 0;
+  const status = invoice.balance <= 0 ? 'PAID' : paid > 0 ? 'PARTIAL' : 'UNPAID';
   const currency = company.currency || 'PKR';
 
   // ---- Header: company (left) + INVOICE meta (right) ----
@@ -103,12 +105,20 @@ function renderInvoice(doc, invoice, company = {}) {
   if (company.taxNumber) doc.text(`Tax No: ${company.taxNumber}`);
   doc.fillColor('#000');
 
-  doc.font('Helvetica-Bold').fontSize(18).text('INVOICE', 0, PAGE_MARGIN, { align: 'right' });
+  doc
+    .font('Helvetica-Bold')
+    .fontSize(18)
+    .text('PURCHASE INVOICE', 0, PAGE_MARGIN, { align: 'right' });
   doc.font('Helvetica').fontSize(10).fillColor('#555');
-  doc.text(`# ${invoice.number}`, { align: 'right' });
+  doc.text(`# ${invoice.vendorInvoiceNo || invoice.number}`, {
+    align: 'right',
+  });
+  if (invoice.vendorInvoiceNo) {
+    doc.text(`Purchase: ${invoice.number}`, { align: 'right' });
+  }
   doc.text(`Date: ${formatDate(invoice.date)}`, { align: 'right' });
   if (invoice.dueDate) doc.text(`Due: ${formatDate(invoice.dueDate)}`, { align: 'right' });
-  doc.text(`Status: ${invoice.status}`, { align: 'right' });
+  doc.text(`Status: ${status}`, { align: 'right' });
   if (invoice.warehouse && invoice.warehouse.name) {
     doc.text(`Warehouse: ${invoice.warehouse.name}`, { align: 'right' });
     if (invoice.warehouse.location) {
@@ -120,15 +130,15 @@ function renderInvoice(doc, invoice, company = {}) {
   }
   doc.fillColor('#000');
 
-  // ---- Bill-to ----
+  // ---- Vendor ----
   let y = Math.max(150, doc.y + 12);
-  doc.font('Helvetica-Bold').fontSize(11).text('Bill To', PAGE_MARGIN, y);
+  doc.font('Helvetica-Bold').fontSize(11).text('Vendor', PAGE_MARGIN, y);
   doc.font('Helvetica').fontSize(10).fillColor('#333');
   y += 16;
-  doc.text(customerName, PAGE_MARGIN, y);
-  if (invoice.customer && invoice.customer.phone) doc.text(invoice.customer.phone);
-  if (invoice.customer && invoice.customer.email) doc.text(invoice.customer.email);
-  if (invoice.customer && invoice.customer.address) doc.text(invoice.customer.address);
+  doc.text(vendorName, PAGE_MARGIN, y);
+  if (vendor && vendor.phone) doc.text(vendor.phone);
+  if (vendor && vendor.email) doc.text(vendor.email);
+  if (vendor && vendor.address) doc.text(vendor.address);
   doc.fillColor('#000');
 
   // ---- Items table ----
@@ -148,7 +158,7 @@ function renderInvoice(doc, invoice, company = {}) {
       {
         name: it.name,
         qty: String(it.quantity),
-        rate: money(it.unitPrice, currency),
+        rate: money(it.unitCost, currency),
         amount: money(it.lineTotal, currency),
       },
       { height: rowHeight },
@@ -162,7 +172,7 @@ function renderInvoice(doc, invoice, company = {}) {
     (invoice.discount > 0 ? 36 : 0) +
     (invoice.tax > 0 ? 18 : 0) +
     22 +
-    (invoice.amountPaid > 0 ? 40 : 0);
+    (paid > 0 ? 40 : 0);
   if (y + totalsHeight > contentBottom(doc)) y = addContentPage(doc);
   doc.moveTo(300, y).lineTo(545, y).strokeColor('#ccc').stroke();
   y += 10;
@@ -177,10 +187,10 @@ function renderInvoice(doc, invoice, company = {}) {
     totalLine('Discount', `- ${money(invoice.discount, currency)}`);
     totalLine('Taxable amount', money(invoice.subtotal - invoice.discount, currency));
   }
-  if (invoice.tax > 0) totalLine(`Tax (${invoice.taxPercent || 0}%)`, money(invoice.tax, currency));
+  if (invoice.tax > 0) totalLine('Tax', money(invoice.tax, currency));
   totalLine('Total', money(invoice.total, currency), true);
-  if (invoice.amountPaid > 0) {
-    totalLine('Paid', money(invoice.amountPaid, currency));
+  if (paid > 0) {
+    totalLine('Paid', money(paid, currency));
     totalLine('Balance', money(invoice.balance, currency), true);
   }
 
@@ -201,14 +211,13 @@ function renderInvoice(doc, invoice, company = {}) {
 }
 
 /**
- * Render an invoice to a PDF and stream it into `res`. Resolves once the PDF
+ * Render a purchase invoice to a PDF and stream it into `res`. Resolves once the PDF
  * has finished streaming and rejects if generation fails before any bytes were
  * sent (so the caller can still return a clean error). Once streaming has
  * started the headers are already committed, so a later failure just tears the
  * response down rather than corrupting it.
  *
- * @param {object} invoice  Mongoose invoice doc, ideally with `customer`
- *                          populated (name/phone/email) and `warehouse` (name).
+ * @param {object} invoice  GoodsPurchase doc with `vendor` and `warehouse` populated.
  * @param {Writable} res    The HTTP response (or any writable stream).
  * @param {object} company  Backend company settings used by the template.
  */

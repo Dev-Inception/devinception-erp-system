@@ -1,10 +1,8 @@
 const mongoose = require('mongoose');
 
 /**
- * A sellable product. `salePrice` is the default selling price in paisa.
- * Cost is NOT stored here — it is tracked per warehouse as a moving-average
- * (StockLevel.avgCost) because the same product can be received at different
- * costs over time.
+ * A sellable product owned by one warehouse. `salePrice` is the default
+ * selling price in paisa. Cost is tracked as a moving average in StockLevel.
  */
 const productSchema = new mongoose.Schema(
   {
@@ -23,6 +21,15 @@ const productSchema = new mongoose.Schema(
       default: '',
     },
     barcode: { type: String, trim: true, maxlength: 60, default: '' },
+
+    // Optional only for compatibility with products created before warehouse
+    // ownership existed. The service requires it for every new product.
+    warehouse: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Warehouse',
+      default: null,
+      index: true,
+    },
 
     // Catalog classification, referenced by id (see Category/Brand/Unit models).
     category: { type: mongoose.Schema.Types.ObjectId, ref: 'Category', default: null },

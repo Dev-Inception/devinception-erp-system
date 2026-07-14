@@ -126,7 +126,7 @@ async function issueStock(product, warehouse, qty, ref = {}) {
         },
       },
     ],
-    { new: true, updatePipeline: true },
+    { returnDocument: 'after', updatePipeline: true },
   );
   if (!level) {
     throw ApiError.badRequest('Insufficient stock for one or more items');
@@ -180,14 +180,18 @@ async function valuation({ warehouse } = {}) {
   const levels = await StockLevel.find(filter)
     .populate({
       path: 'product',
-      select: 'name sku unit minStock',
+      select: 'name sku unit minStock warehouse',
       populate: { path: 'unit', select: 'name abbreviation' },
     })
     .populate('warehouse', 'name location address isDefault')
     .lean();
 
   const rows = levels
-    .filter((l) => l.product)
+    .filter(
+      (l) =>
+        l.product &&
+        (!warehouse || !l.product.warehouse || String(l.product.warehouse) === String(warehouse)),
+    )
     .map((l) => {
       const quantity = normalizeQuantity(l.quantity);
       return {
@@ -205,6 +209,7 @@ async function valuation({ warehouse } = {}) {
   const represented = rows.map((row) => row.product._id);
   const missingProducts = await Product.find({
     isActive: true,
+    ...(warehouse ? { warehouse } : {}),
     ...(represented.length ? { _id: { $nin: represented } } : {}),
   })
     .select('name sku unit minStock')

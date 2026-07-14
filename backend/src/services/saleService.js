@@ -12,6 +12,7 @@ const counterService = require('./counterService');
 const { calculateInvoiceTotals, resolveUnitPrice } = require('./invoiceCalculationService');
 const { parsePagination } = require('../utils/query');
 const { normalizeQuantity, requirePositiveQuantity } = require('../utils/quantity');
+const { assertProductWarehouse } = require('../utils/productWarehouse');
 
 /**
  * POS sale flow. Resolves how the sale is settled (cash / bank / on account),
@@ -75,6 +76,7 @@ async function createSale(actor, input) {
   for (const it of items) {
     const product = await Product.findById(it.product);
     if (!product) throw ApiError.notFound(`Product not found: ${it.product}`);
+    assertProductWarehouse(product, wh);
     const quantity = requirePositiveQuantity(it.quantity, 'Item quantity must be positive');
 
     const unitPrice = resolveUnitPrice(it.unitPrice, product.salePrice);
@@ -93,8 +95,8 @@ async function createSale(actor, input) {
     unresolvedLines.push({ product: product._id, name: product.name, quantity, unitPrice });
   }
 
-  // Use the same authoritative totals engine as stand-alone invoices. This is
-  // important because sale-derived invoices copy these persisted sale totals.
+  // Use the shared authoritative totals engine so persisted sale amounts apply
+  // discounts before tax and remain consistent across reports and receipts.
   const calculated = calculateInvoiceTotals(unresolvedLines, { discount, taxPercent });
   const lineItems = calculated.items;
   const {

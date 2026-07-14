@@ -1,33 +1,35 @@
 const { view } = require('../utils/money');
 
-const STATUS_VIEW = { PAID: 'PAID', PARTIAL: 'PARTIALLY_PAID', UNPAID: 'ISSUED' };
-
+// Serialize a GoodsPurchase through the purchase-invoice API contract.
 function serializeInvoice(invoice) {
   const raw = invoice && invoice.toJSON ? invoice.toJSON() : invoice;
-  const i = view(raw, ['subtotal', 'discount', 'tax', 'total', 'cost', 'amountPaid', 'balance']);
-  if (Array.isArray(i.items)) {
-    i.items = i.items.map((item) => view(item, ['unitPrice', 'lineTotal', 'cost']));
-  }
+  const i = view(raw, ['subtotal', 'discount', 'tax', 'total', 'paid', 'balance']);
+  i.items = (i.items || []).map((item) => {
+    const line = view(item, ['unitCost', 'tax', 'lineTotal']);
+    return { ...line, unitPrice: line.unitCost };
+  });
 
-  const customer = i.customer;
-  const populated = customer && typeof customer === 'object' && customer.name !== undefined;
-  if (populated) {
-    i.customerId = String(customer._id ?? customer.id);
-    i.customer = { ...customer, name: customer.name || i.customerName };
-  } else {
-    i.customerId = customer ? String(customer._id ?? customer) : undefined;
-    i.customer = { name: i.customerName };
-  }
-
-  i.invoiceNumber = i.number;
+  const vendor = i.vendor;
+  const populated = vendor && typeof vendor === 'object' && vendor.name !== undefined;
+  i.vendorId = vendor
+    ? String(populated ? (vendor._id ?? vendor.id) : (vendor._id ?? vendor))
+    : undefined;
+  i.vendor = populated ? { ...vendor, name: vendor.name || i.vendorName } : { name: i.vendorName };
+  // Compatibility alias for clients that previously rendered customer.name.
+  i.customer = i.vendor;
+  i.partyType = 'VENDOR';
+  i.invoiceType = 'PURCHASE';
+  i.purchaseId = String(i._id);
+  i.purchaseNumber = i.number;
+  i.invoiceNumber = i.vendorInvoiceNo || i.number;
   i.issueDate = i.date;
-  i.paidAmount = i.amountPaid;
+  i.paidAmount = i.paid;
   i.taxableAmount = Math.round((i.subtotal - i.discount) * 100) / 100;
   i.netSubtotal = i.taxableAmount;
   i.grandTotal = i.total;
   i.taxTotal = i.tax;
   i.discountTotal = i.discount;
-  i.saleId = i.sale ? String(i.sale._id ?? i.sale) : undefined;
+  i.status = i.balance <= 0 ? 'PAID' : i.paid > 0 ? 'PARTIALLY_PAID' : 'ISSUED';
   i.pdfUrl = `/invoices/${i._id}/pdf`;
   i.download = {
     format: 'pdf',
@@ -37,7 +39,6 @@ function serializeInvoice(invoice) {
     contentType: 'application/pdf',
     requiresAuthentication: true,
   };
-  i.status = STATUS_VIEW[i.status] || i.status;
   return i;
 }
 

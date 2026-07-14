@@ -1,3 +1,4 @@
+const mongoose = require('mongoose');
 const { body, param, query } = require('express-validator');
 
 const idParam = param('id').isMongoId().withMessage('Invalid product id');
@@ -33,6 +34,19 @@ const optionalFields = [
 const createProductValidator = [
   body('name').trim().notEmpty().withMessage('Name is required').isLength({ max: 160 }),
   body('sku').trim().notEmpty().withMessage('SKU is required').isLength({ max: 60 }),
+  body('warehouse').custom((value, { req }) => {
+    const warehouse =
+      value ||
+      req.body.warehouseId ||
+      req.query.warehouse ||
+      req.query.warehouseId ||
+      req.headers['x-warehouse-id'] ||
+      req.cookies?.activeWarehouse;
+    if (!mongoose.isValidObjectId(warehouse)) {
+      throw new Error('A valid warehouse is required');
+    }
+    return true;
+  }),
   ...optionalFields,
 ];
 

@@ -882,6 +882,136 @@ const swaggerSpec = {
     },
 
     /* --------------------------- Inventory --------------------------- */
+    '/catalog': {
+      get: {
+        tags: ['Inventory'],
+        summary: 'List active categories, brands, and units (inventory:read)',
+        security: [{ bearerAuth: [] }],
+        responses: { 200: { description: 'Catalog' }, 403: errorResponse },
+      },
+    },
+    '/catalog/categories': {
+      get: {
+        tags: ['Inventory'],
+        summary: 'List categories (inventory:read)',
+        security: [{ bearerAuth: [] }],
+        responses: { 200: { description: 'Categories' }, 403: errorResponse },
+      },
+      post: {
+        tags: ['Inventory'],
+        summary: 'Create a category (inventory:manage)',
+        security: [{ bearerAuth: [] }],
+        requestBody: jsonBody(['name'], {
+          name: { type: 'string', example: 'Electronics' },
+          description: { type: 'string', example: 'Electronic products and accessories' },
+        }),
+        responses: {
+          201: { description: 'Category created' },
+          400: errorResponse,
+          403: errorResponse,
+          409: errorResponse,
+        },
+      },
+    },
+    '/catalog/categories/{id}': {
+      get: {
+        tags: ['Inventory'],
+        summary: 'Get a category (inventory:read)',
+        security: [{ bearerAuth: [] }],
+        parameters: [pathId],
+        responses: { 200: { description: 'Category' }, 403: errorResponse, 404: errorResponse },
+      },
+      patch: {
+        tags: ['Inventory'],
+        summary: 'Update a category (inventory:manage)',
+        security: [{ bearerAuth: [] }],
+        parameters: [pathId],
+        requestBody: jsonBody([], {
+          name: { type: 'string' },
+          description: { type: 'string' },
+        }),
+        responses: {
+          200: { description: 'Category updated' },
+          400: errorResponse,
+          403: errorResponse,
+          404: errorResponse,
+          409: errorResponse,
+        },
+      },
+      delete: {
+        tags: ['Inventory'],
+        summary: 'Delete an unused category (inventory:manage)',
+        security: [{ bearerAuth: [] }],
+        parameters: [pathId],
+        responses: {
+          200: { description: 'Category deleted' },
+          400: errorResponse,
+          403: errorResponse,
+          404: errorResponse,
+        },
+      },
+    },
+    '/catalog/units': {
+      get: {
+        tags: ['Inventory'],
+        summary: 'List units (inventory:read)',
+        security: [{ bearerAuth: [] }],
+        responses: { 200: { description: 'Units' }, 403: errorResponse },
+      },
+      post: {
+        tags: ['Inventory'],
+        summary: 'Create a unit (inventory:manage)',
+        security: [{ bearerAuth: [] }],
+        requestBody: jsonBody(['name', 'unit'], {
+          name: { type: 'string', example: 'Piece' },
+          unit: { type: 'string', example: 'pcs' },
+        }),
+        responses: {
+          201: { description: 'Unit created' },
+          400: errorResponse,
+          403: errorResponse,
+          409: errorResponse,
+        },
+      },
+    },
+    '/catalog/units/{id}': {
+      get: {
+        tags: ['Inventory'],
+        summary: 'Get a unit (inventory:read)',
+        security: [{ bearerAuth: [] }],
+        parameters: [pathId],
+        responses: { 200: { description: 'Unit' }, 403: errorResponse, 404: errorResponse },
+      },
+      patch: {
+        tags: ['Inventory'],
+        summary: 'Update a unit (inventory:manage)',
+        security: [{ bearerAuth: [] }],
+        parameters: [pathId],
+        requestBody: jsonBody([], {
+          name: { type: 'string' },
+          unit: { type: 'string' },
+        }),
+        responses: {
+          200: { description: 'Unit updated' },
+          400: errorResponse,
+          403: errorResponse,
+          404: errorResponse,
+          409: errorResponse,
+        },
+      },
+      delete: {
+        tags: ['Inventory'],
+        summary: 'Delete an unused unit (inventory:manage)',
+        security: [{ bearerAuth: [] }],
+        parameters: [pathId],
+        responses: {
+          200: { description: 'Unit deleted' },
+          400: errorResponse,
+          403: errorResponse,
+          404: errorResponse,
+        },
+      },
+    },
     '/warehouses': {
       get: {
         tags: ['Inventory'],
@@ -933,16 +1063,36 @@ const swaggerSpec = {
         tags: ['Inventory'],
         summary: 'List products with on-hand stock (inventory:read)',
         security: [{ bearerAuth: [] }],
-        parameters: [qPage, qLimit, qSearch],
-        responses: { 200: { description: 'Products' }, 403: errorResponse },
+        parameters: [
+          qPage,
+          qLimit,
+          qSearch,
+          {
+            in: 'query',
+            name: 'warehouse',
+            schema: { type: 'string' },
+            description:
+              'Return products owned by this warehouse; owned zero-stock products remain visible',
+          },
+        ],
+        responses: {
+          200: { description: 'Products' },
+          400: errorResponse,
+          403: errorResponse,
+        },
       },
       post: {
         tags: ['Inventory'],
         summary: 'Create a product (inventory:manage). Prices are rupees.',
         security: [{ bearerAuth: [] }],
-        requestBody: jsonBody(['name'], {
+        requestBody: jsonBody(['name', 'sku', 'warehouse'], {
           name: { type: 'string', example: 'Widget' },
           sku: { type: 'string', example: 'WIDG-1' },
+          warehouse: {
+            type: 'string',
+            description:
+              'Owning warehouse; warehouseId, X-Warehouse-Id, or the active warehouse context is also accepted',
+          },
           unit: { type: 'string', example: 'pcs' },
           salePrice: { type: 'number', example: 100 },
         }),
@@ -1128,12 +1278,12 @@ const swaggerSpec = {
     '/invoices': {
       get: {
         tags: ['Invoices'],
-        summary: 'List invoices (invoices:read)',
+        summary: 'List goods-purchase invoices (invoices:read)',
         security: [{ bearerAuth: [] }],
         parameters: [
           qPage,
           qLimit,
-          { name: 'customer', in: 'query', schema: { type: 'string' } },
+          { name: 'vendor', in: 'query', schema: { type: 'string' } },
           {
             name: 'status',
             in: 'query',
@@ -1142,71 +1292,31 @@ const swaggerSpec = {
           qFrom,
           qTo,
         ],
-        responses: { 200: { description: 'Invoices' }, 403: errorResponse },
+        responses: { 200: { description: 'Purchase invoices' }, 403: errorResponse },
       },
       post: {
         tags: ['Invoices'],
-        summary:
-          'Create a customer invoice (invoices:create). Lowers stock, posts Dr A-R / Cr Sales (+Tax).',
+        summary: 'Fetch a goods purchase as an invoice (invoices:create)',
         security: [{ bearerAuth: [] }],
         requestBody: {
           required: true,
           content: {
             'application/json': {
               schema: {
-                oneOf: [
-                  {
-                    type: 'object',
-                    required: ['saleId'],
-                    properties: {
-                      saleId: {
-                        type: 'string',
-                        description: 'Existing sale to turn into an idempotent printable invoice.',
-                      },
-                    },
+                type: 'object',
+                required: ['purchaseId'],
+                properties: {
+                  purchaseId: {
+                    type: 'string',
+                    description: 'Existing goods purchase to return as a purchase invoice.',
                   },
-                  {
-                    type: 'object',
-                    required: ['customer', 'items'],
-                    properties: {
-                      customer: { type: 'string' },
-                      warehouse: { type: 'string' },
-                      dueDate: { type: 'string', format: 'date' },
-                      items: {
-                        type: 'array',
-                        minItems: 1,
-                        items: {
-                          type: 'object',
-                          required: ['product', 'quantity'],
-                          properties: {
-                            product: { type: 'string' },
-                            quantity: { type: 'number', exclusiveMinimum: 0 },
-                            unitPrice: { type: 'number', minimum: 0 },
-                          },
-                        },
-                      },
-                      discount: {
-                        type: 'number',
-                        minimum: 0,
-                        description:
-                          'Fixed invoice-level discount in currency units. Applied to subtotal before tax.',
-                      },
-                      taxPercent: {
-                        type: 'number',
-                        minimum: 0,
-                        maximum: 100,
-                        example: 1,
-                        description: 'Tax percentage applied to subtotal minus discount.',
-                      },
-                    },
-                  },
-                ],
+                },
               },
             },
           },
         },
         responses: {
-          201: { description: 'Created' },
+          200: { description: 'Purchase invoice' },
           400: errorResponse,
           403: errorResponse,
           404: errorResponse,
@@ -1216,9 +1326,9 @@ const swaggerSpec = {
     '/invoices/{id}': {
       get: {
         tags: ['Invoices'],
-        summary: 'Get an invoice (invoices:read)',
+        summary: 'Get a goods-purchase invoice (invoices:read)',
         description:
-          'Returns backend-calculated invoice lines/totals and a pdfUrl for the backend-rendered document.',
+          'Returns purchase lines/totals and a pdfUrl for the backend-rendered document.',
         security: [{ bearerAuth: [] }],
         parameters: [pathId],
         responses: { 200: { description: 'Invoice' }, 403: errorResponse, 404: errorResponse },
@@ -1227,7 +1337,7 @@ const swaggerSpec = {
     '/invoices/{id}/pdf': {
       get: {
         tags: ['Invoices'],
-        summary: 'Download an invoice as a PDF (invoices:read)',
+        summary: 'Download a purchase invoice as a PDF (invoices:read)',
         description: 'Returns a PDF binary (application/pdf), not the JSON envelope.',
         security: [{ bearerAuth: [] }],
         parameters: [pathId],
@@ -1245,7 +1355,7 @@ const swaggerSpec = {
       post: {
         tags: ['Invoices'],
         summary:
-          'Record a payment against an invoice (invoices:create). Updates status UNPAID→PARTIAL→PAID.',
+          'Pay a purchase invoice (invoices:create). Posts Dr Accounts Payable / Cr Cash or Bank.',
         security: [{ bearerAuth: [] }],
         parameters: [pathId],
         requestBody: jsonBody(['amount'], {

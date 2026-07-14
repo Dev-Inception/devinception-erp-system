@@ -1,5 +1,4 @@
 const Sale = require('../models/saleModel');
-const Invoice = require('../models/invoiceModel');
 const GoodsPurchase = require('../models/goodsPurchaseModel');
 const Warehouse = require('../models/warehouseModel');
 const ApiError = require('../utils/ApiError');
@@ -59,23 +58,16 @@ function warehouseInfo(warehouse) {
   };
 }
 
-// Sales report: POS sales plus stand-alone invoices (sale-derived invoices are
-// excluded because their originating Sale already represents the revenue).
+// Sales report: Sale is the sole sales source. Purchase invoices are backed by
+// GoodsPurchase and never participate in revenue reporting.
 async function salesReport({ from, to, warehouse }) {
   const filter = requireRange({ from, to });
   if (warehouse) filter.warehouse = warehouse;
-  const [sales, invoices] = await Promise.all([
-    Sale.find(filter)
-      .populate('customer', 'name phone email address')
-      .populate('warehouse', 'name location address isDefault')
-      .sort({ date: -1, createdAt: -1 })
-      .lean(),
-    Invoice.find({ ...filter, sale: null })
-      .populate('customer', 'name phone email address')
-      .populate('warehouse', 'name location address isDefault')
-      .sort({ date: -1, createdAt: -1 })
-      .lean(),
-  ]);
+  const sales = await Sale.find(filter)
+    .populate('customer', 'name phone email address')
+    .populate('warehouse', 'name location address isDefault')
+    .sort({ date: -1, createdAt: -1 })
+    .lean();
 
   const saleRows = sales.map((s) => {
     const wh = warehouseInfo(s.warehouse);
@@ -121,56 +113,7 @@ async function salesReport({ from, to, warehouse }) {
     };
   });
 
-  const invoiceRows = invoices.map((invoice) => {
-    const wh = warehouseInfo(invoice.warehouse);
-    const customer = invoice.customer && invoice.customer._id ? invoice.customer : null;
-    return {
-      id: String(invoice._id),
-      documentType: 'INVOICE',
-      number: invoice.number,
-      date: invoice.date,
-      customerId: customer ? String(customer._id) : null,
-      customer: invoice.customerName,
-      customerDetails: customer
-        ? {
-            id: String(customer._id),
-            name: customer.name || invoice.customerName,
-            phone: customer.phone || '',
-            email: customer.email || '',
-            address: customer.address || '',
-          }
-        : null,
-      customerPhone: customer ? customer.phone || '' : '',
-      customerEmail: customer ? customer.email || '' : '',
-      customerAddress: customer ? customer.address || '' : '',
-      warehouse: wh ? wh.name : '—',
-      warehouseLocation: wh ? wh.location : '',
-      warehouseAddress: wh ? wh.address : '',
-      warehouseIsDefault: wh ? wh.isDefault : false,
-      warehouseDetails: wh,
-      itemCount: (invoice.items || []).length,
-      quantity: normalizeQuantity(
-        (invoice.items || []).reduce((sum, item) => sum + item.quantity, 0),
-      ),
-      subtotal: invoice.subtotal,
-      discount: invoice.discount,
-      taxableAmount: invoice.subtotal - invoice.discount,
-      tax: invoice.tax,
-      taxPercent: invoice.taxPercent || 0,
-      paymentMethod: 'ACCOUNT',
-      cash: 0,
-      online: 0,
-      credit: invoice.total,
-      paid: invoice.amountPaid || 0,
-      balance: invoice.balance || 0,
-      status: invoice.status,
-      total: invoice.total,
-    };
-  });
-
-  const rows = [...saleRows, ...invoiceRows].sort(
-    (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
-  );
+  const rows = saleRows;
 
   const summary = rows.reduce(
     (acc, r) => {
@@ -209,7 +152,7 @@ async function salesReport({ from, to, warehouse }) {
   return {
     title: 'Sales Report',
     columns: [
-      { key: 'number', label: 'Sale / Invoice #' },
+      { key: 'number', label: 'Sale #' },
       { key: 'documentType', label: 'Type' },
       { key: 'date', label: 'Date' },
       { key: 'warehouse', label: 'Warehouse' },
@@ -383,12 +326,9 @@ async function profitAndLossReport({ from, to, warehouse }) {
   if (warehouse) {
     const sourceFilter = { warehouse };
     if (normalized) sourceFilter.date = { $gte: normalized.from, $lte: normalized.to };
-    const [saleIds, invoiceIds] = await Promise.all([
-      Sale.find(sourceFilter).distinct('_id'),
-      Invoice.find({ ...sourceFilter, sale: null }).distinct('_id'),
-    ]);
+    const saleIds = await Sale.find(sourceFilter).distinct('_id');
     range.refType = REF.SALE;
-    range.refIds = [...saleIds, ...invoiceIds];
+    range.refIds = saleIds;
     expenseRange.warehouse = warehouse;
   }
   const [sales, cogs, expenses] = await Promise.all([

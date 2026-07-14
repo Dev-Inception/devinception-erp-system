@@ -8,6 +8,7 @@ const catalogService = require('./catalogService');
 const { ACCOUNT, REF } = require('../utils/finance');
 const { parsePagination, escapeRegex } = require('../utils/query');
 const { QUANTITY_DECIMALS, normalizeQuantity } = require('../utils/quantity');
+const { assertProductWarehouse } = require('../utils/productWarehouse');
 
 /**
  * Product catalog CRUD plus stock visibility. Prices/costs are paisa. Stock
@@ -21,9 +22,10 @@ const { QUANTITY_DECIMALS, normalizeQuantity } = require('../utils/quantity');
 async function attachStock(products, warehouse) {
   const ids = products.map((p) => p._id);
   const match = { product: { $in: ids } };
-  // A malformed ?warehouse= would throw inside ObjectId(); ignore it and fall
-  // back to all-warehouse totals rather than 500-ing the inventory list.
-  if (warehouse && mongoose.isValidObjectId(warehouse)) {
+  // listProducts validates a supplied id before reaching this point. Always
+  // apply it here so a warehouse-scoped response can never mix stock levels
+  // from other locations.
+  if (warehouse) {
     match.warehouse = new mongoose.Types.ObjectId(warehouse);
   }
 
@@ -55,8 +57,7 @@ async function attachStock(products, warehouse) {
 }
 
 async function listProducts({ search, warehouse, includeInactive = false, ...query } = {}) {
-  // The inventory list, the POS/GP product pickers and the stock-adjust lookup
-  // all consume the full catalog (the client has no pagination UI), so this
+  // The inventory list and product pickers have no pagination UI, so this
   // endpoint allows a far larger page size than the default 100-row cap.
   const { page, limit, skip } = parsePagination(query, { defaultLimit: 1000, maxLimit: 100000 });
   const filter = {};
@@ -68,6 +69,26 @@ async function listProducts({ search, warehouse, includeInactive = false, ...que
       { name: { $regex: term, $options: 'i' } },
       { sku: { $regex: term, $options: 'i' } },
       { barcode: { $regex: term, $options: 'i' } },
+    ];
+  }
+
+  // Keep zero-stock products visible so inventory can be initialized from the
+  // warehouse screen. The selected warehouse still scopes the quantities in
+  // attachStock; validating it here prevents a malformed id from accidentally
+  // falling back to business-wide stock totals.
+  if (warehouse && !mongoose.isValidObjectId(warehouse)) {
+    throw ApiError.badRequest('Invalid warehouse');
+  }
+  if (warehouse) {
+    const warehouseId = new mongoose.Types.ObjectId(warehouse);
+    // Owned products remain visible even before their first stock adjustment.
+    // Legacy products have no owner, so their existing StockLevel row acts as
+    // the compatibility assignment to a warehouse (including quantity zero).
+    const legacyProductIds = await StockLevel.distinct('product', { warehouse: warehouseId });
+    filter.$and = [
+      {
+        $or: [{ warehouse: warehouseId }, { warehouse: null, _id: { $in: legacyProductIds } }],
+      },
     ];
   }
 
@@ -105,12 +126,17 @@ const WRITABLE = [
 ];
 
 async function createProduct(data) {
+  if (!mongoose.isValidObjectId(data.warehouse)) {
+    throw ApiError.badRequest('A valid warehouse is required');
+  }
+  const warehouse = await require('./warehouseService').getWarehouseById(data.warehouse);
   if (data.sku) {
     const existing = await Product.findOne({ sku: data.sku.toUpperCase() });
     if (existing) throw ApiError.conflict('A product with that SKU already exists');
   }
   const fields = {};
   for (const k of WRITABLE) if (data[k] !== undefined) fields[k] = data[k];
+  fields.warehouse = warehouse._id;
   // Resolve category/brand/unit to catalog ids (from an id or a free-text name).
   Object.assign(fields, await catalogService.resolveProductRefs(data));
   const product = await Product.create(fields);
@@ -177,6 +203,7 @@ async function adjustStock(
   // no warehouse would still create stock + a journal entry against a ghost
   // location. Confirm it actually exists (throws 404 otherwise).
   const wh = await require('./warehouseService').getWarehouseById(warehouse);
+  assertProductWarehouse(product, wh);
 
   const level = await StockLevel.findOne({ product: product._id, warehouse: wh._id });
   const currentQty = level ? normalizeQuantity(level.quantity) : 0;

@@ -2,7 +2,7 @@ const Vendor = require('../models/vendorModel');
 const Customer = require('../models/customerModel');
 const BankAccount = require('../models/bankAccountModel');
 const ApiError = require('../utils/ApiError');
-const { toPaisa } = require('../utils/money');
+const { toPaisa, toRupees } = require('../utils/money');
 const { ACCOUNT, REF, PAYMENT_METHOD, BANK_METHODS } = require('../utils/finance');
 const journalService = require('./journalService');
 const counterService = require('./counterService');
@@ -33,7 +33,9 @@ async function assertSufficientFunds(account, ref, amount) {
   const balance = await journalService.accountBalance(account, ref);
   if (balance < amount) {
     const where = account === ACCOUNT.BANK ? 'bank account' : 'cash drawer';
-    throw ApiError.badRequest(`Insufficient funds in the ${where} for this payment`);
+    throw ApiError.badRequest(
+      `Insufficient funds in the ${where}. Available: Rs ${toRupees(balance)}; required: Rs ${toRupees(amount)}`,
+    );
   }
 }
 
@@ -166,4 +168,5 @@ module.exports = {
   cashEntry,
   recordExpense,
   settlementAccount,
+  assertSufficientFunds,
 };

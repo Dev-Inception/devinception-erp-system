@@ -2,6 +2,20 @@ const productService = require('../services/productService');
 const asyncHandler = require('../utils/asyncHandler');
 const { sendSuccess } = require('../utils/ApiResponse');
 const { toPaisa, view } = require('../utils/money');
+const env = require('../config/env');
+
+const ACTIVE_WAREHOUSE_COOKIE = 'activeWarehouse';
+
+function warehouseFromRequest(req) {
+  return (
+    req.body?.warehouse ||
+    req.body?.warehouseId ||
+    req.query?.warehouse ||
+    req.query?.warehouseId ||
+    req.headers['x-warehouse-id'] ||
+    req.cookies?.[ACTIVE_WAREHOUSE_COOKIE]
+  );
+}
 
 // paisa -> rupees for the wire.
 const out = (p) => (p && p.toJSON ? p.toJSON() : p);
@@ -25,6 +39,7 @@ function refObject(ref, withAbbrev) {
 
 function serialize(product) {
   const p = view(out(product), ['purchasePrice', 'salePrice', 'stockValue']);
+  p.warehouseId = p.warehouse ? String(p.warehouse._id || p.warehouse) : undefined;
   const c = refObject(p.category);
   const b = refObject(p.brand);
   const u = refObject(p.unit, true);
@@ -38,14 +53,27 @@ function serialize(product) {
 }
 
 const listProducts = asyncHandler(async (req, res) => {
-  const { page, limit, search, warehouse, includeInactive } = req.query;
+  const { page, limit, search, warehouse, warehouseId, includeInactive } = req.query;
+  const selectedWarehouse = warehouse || warehouseId;
   const result = await productService.listProducts({
     page,
     limit,
     search,
-    warehouse,
+    // `warehouse` is the canonical API parameter. Accept `warehouseId` as an
+    // alias so clients using the UI field name are still correctly scoped.
+    warehouse: selectedWarehouse,
     includeInactive: includeInactive === 'true',
   });
+  if (selectedWarehouse) {
+    // The current UI sends its selected warehouse on the list request but not
+    // on product creation. Preserve that context server-side so the following
+    // POST can still create the product under the correct warehouse.
+    res.cookie(ACTIVE_WAREHOUSE_COOKIE, selectedWarehouse, {
+      httpOnly: true,
+      secure: env.nodeEnv === 'production',
+      sameSite: 'strict',
+    });
+  }
   return sendSuccess(res, 200, 'Products fetched', {
     ...result,
     products: result.products.map(serialize),
@@ -66,7 +94,12 @@ function pricesToPaisa(data) {
 }
 
 const createProduct = asyncHandler(async (req, res) => {
-  const product = await productService.createProduct(pricesToPaisa(req.body));
+  const product = await productService.createProduct(
+    pricesToPaisa({
+      ...req.body,
+      warehouse: warehouseFromRequest(req),
+    }),
+  );
   return sendSuccess(res, 201, 'Product created', { product: serialize(product) });
 });
 

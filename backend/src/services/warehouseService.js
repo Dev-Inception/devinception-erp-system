@@ -1,7 +1,7 @@
 const Warehouse = require('../models/warehouseModel');
+const Product = require('../models/productModel');
 const StockLevel = require('../models/stockLevelModel');
 const Sale = require('../models/saleModel');
-const Invoice = require('../models/invoiceModel');
 const GoodsPurchase = require('../models/goodsPurchaseModel');
 const JournalEntry = require('../models/journalEntryModel');
 const ApiError = require('../utils/ApiError');
@@ -18,7 +18,11 @@ async function listWarehouses() {
   const [warehouses, stock] = await Promise.all([
     Warehouse.find().sort({ createdAt: 1 }).lean(),
     StockLevel.aggregate([
-      { $match: { quantity: { $gt: 0 } } },
+      {
+        $match: {
+          $expr: { $gt: [{ $round: ['$quantity', QUANTITY_DECIMALS] }, 0] },
+        },
+      },
       {
         $group: {
           _id: '$warehouse',
@@ -78,12 +82,16 @@ async function deleteWarehouse(id) {
   const wh = await getWarehouseById(id);
   if (wh.isDefault) throw ApiError.badRequest('The default warehouse cannot be deleted');
 
+  const hasProducts = await Product.exists({ warehouse: id });
+  if (hasProducts) {
+    throw ApiError.badRequest('Warehouse still owns products and cannot be deleted');
+  }
+
   const hasStock = await StockLevel.exists({ warehouse: id, quantity: { $ne: 0 } });
   if (hasStock) throw ApiError.badRequest('Warehouse still holds stock and cannot be deleted');
 
   const history = await Promise.all([
     Sale.exists({ warehouse: id }),
-    Invoice.exists({ warehouse: id }),
     GoodsPurchase.exists({ warehouse: id }),
     JournalEntry.exists({ warehouse: id }),
   ]);
