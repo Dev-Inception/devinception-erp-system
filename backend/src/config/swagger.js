@@ -192,7 +192,8 @@ const swaggerSpec = {
     { name: 'Inventory', description: 'Warehouses, products and stock' },
     { name: 'Purchases', description: 'Goods purchases from vendors' },
     { name: 'Sales', description: 'POS sales' },
-    { name: 'Invoices', description: 'Customer billing documents (A/R)' },
+    { name: 'Invoices', description: 'Persisted vendor purchase invoices (A/P)' },
+    { name: 'Gate Passes', description: 'QR gate passes for purchase and sale stock movements' },
     { name: 'Finance', description: 'Bank accounts, payments, ledgers and cash book' },
     { name: 'Reports', description: 'Sales, purchases, stock valuation and P&L' },
   ],
@@ -1471,7 +1472,7 @@ const swaggerSpec = {
       },
       post: {
         tags: ['Invoices'],
-        summary: 'Fetch a goods purchase as an invoice (invoices:create)',
+        summary: 'Store a goods purchase as an invoice (invoices:create)',
         security: [{ bearerAuth: [] }],
         requestBody: {
           required: true,
@@ -1483,7 +1484,7 @@ const swaggerSpec = {
                 properties: {
                   purchaseId: {
                     type: 'string',
-                    description: 'Existing goods purchase to return as a purchase invoice.',
+                    description: 'Existing goods purchase to persist as a purchase invoice.',
                   },
                 },
               },
@@ -1543,6 +1544,96 @@ const swaggerSpec = {
           400: errorResponse,
           403: errorResponse,
           404: errorResponse,
+        },
+      },
+    },
+
+    /* -------------------------- Gate passes ------------------------- */
+    '/gate-passes': {
+      get: {
+        tags: ['Gate Passes'],
+        summary: 'List gate passes (inventory:read)',
+        security: [{ bearerAuth: [] }],
+        parameters: [
+          qPage,
+          qLimit,
+          {
+            name: 'sourceType',
+            in: 'query',
+            schema: { type: 'string', enum: ['PURCHASE', 'SALE'] },
+          },
+          { name: 'warehouse', in: 'query', schema: { type: 'string' } },
+          {
+            name: 'status',
+            in: 'query',
+            schema: { type: 'string', enum: ['ACTIVE', 'USED', 'CANCELLED'] },
+          },
+        ],
+        responses: { 200: { description: 'Gate passes' }, 403: errorResponse },
+      },
+    },
+    '/gate-passes/source/{sourceType}/{sourceId}': {
+      get: {
+        tags: ['Gate Passes'],
+        summary: 'Get or backfill the gate pass for a purchase or sale (inventory:read)',
+        security: [{ bearerAuth: [] }],
+        parameters: [
+          {
+            name: 'sourceType',
+            in: 'path',
+            required: true,
+            schema: { type: 'string', enum: ['PURCHASE', 'SALE'] },
+          },
+          { name: 'sourceId', in: 'path', required: true, schema: { type: 'string' } },
+        ],
+        responses: {
+          200: { description: 'Gate pass' },
+          403: errorResponse,
+          404: errorResponse,
+        },
+      },
+    },
+    '/gate-passes/{id}': {
+      get: {
+        tags: ['Gate Passes'],
+        summary: 'Get a gate pass (inventory:read)',
+        security: [{ bearerAuth: [] }],
+        parameters: [pathId],
+        responses: { 200: { description: 'Gate pass' }, 403: errorResponse, 404: errorResponse },
+      },
+    },
+    '/gate-passes/{id}/qr': {
+      get: {
+        tags: ['Gate Passes'],
+        summary: 'Get a gate pass QR as a PNG image (inventory:read)',
+        security: [{ bearerAuth: [] }],
+        parameters: [pathId],
+        responses: {
+          200: {
+            description: 'QR image',
+            content: { 'image/png': { schema: { type: 'string', format: 'binary' } } },
+          },
+          403: errorResponse,
+          404: errorResponse,
+        },
+      },
+    },
+    '/gate-passes/scan': {
+      post: {
+        tags: ['Gate Passes'],
+        summary: 'Verify and consume a gate pass QR (inventory:manage)',
+        description:
+          'Accepts either the raw token or the full ERP_GATE_PASS value decoded from the QR. An ACTIVE pass becomes USED and cannot be consumed again.',
+        security: [{ bearerAuth: [] }],
+        requestBody: jsonBody(['token'], {
+          token: { type: 'string', example: 'ERP_GATE_PASS:decoded-token' },
+        }),
+        responses: {
+          200: { description: 'Gate pass verified and marked used' },
+          400: errorResponse,
+          403: errorResponse,
+          404: errorResponse,
+          409: errorResponse,
         },
       },
     },

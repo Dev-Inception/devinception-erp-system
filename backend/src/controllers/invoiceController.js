@@ -7,7 +7,7 @@ const { sendSuccess } = require('../utils/ApiResponse');
 
 const createInvoice = asyncHandler(async (req, res) => {
   const invoice = await invoiceService.createFromPurchase(req.body.purchaseId);
-  return sendSuccess(res, 200, 'Purchase invoice fetched', { invoice: serializeInvoice(invoice) });
+  return sendSuccess(res, 200, 'Purchase invoice stored', { invoice: serializeInvoice(invoice) });
 });
 
 const payInvoice = asyncHandler(async (req, res) => {

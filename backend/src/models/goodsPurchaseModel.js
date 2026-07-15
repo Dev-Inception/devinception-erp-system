@@ -44,6 +44,7 @@ const goodsPurchaseSchema = new mongoose.Schema(
     bankAccount: { type: mongoose.Schema.Types.ObjectId, ref: 'BankAccount', default: null },
 
     notes: { type: String, trim: true, default: '' },
+    gatePass: { type: mongoose.Schema.Types.ObjectId, ref: 'GatePass', default: null },
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
   },
   { timestamps: true },
