@@ -15,6 +15,7 @@ const dashboardRoutes = require('./dashboardRoutes');
 const reportRoutes = require('./reportRoutes');
 const settingsRoutes = require('./settingsRoutes');
 const uploadRoutes = require('./uploadRoutes');
+const labourRoutes = require('./labourRoutes');
 
 const router = express.Router();
 
@@ -36,5 +37,6 @@ router.use('/dashboard', dashboardRoutes);
 router.use('/reports', reportRoutes);
 router.use('/settings', settingsRoutes);
 router.use('/uploads', uploadRoutes);
+router.use('/labour', labourRoutes);
 
 module.exports = router;

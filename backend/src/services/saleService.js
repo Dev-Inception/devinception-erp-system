@@ -1,5 +1,6 @@
 const Sale = require('../models/saleModel');
 const Customer = require('../models/customerModel');
+const Labour = require('../models/labourModel');
 const Product = require('../models/productModel');
 const StockLevel = require('../models/stockLevelModel');
 const BankAccount = require('../models/bankAccountModel');
@@ -55,7 +56,16 @@ function resolveSettlement({ method, total, cashReceived, onlineReceived }) {
 }
 
 async function createSale(actor, input) {
-  const { customer, warehouse, date, items, discount = 0, taxPercent = 0, payment = {} } = input;
+  const {
+    customer,
+    warehouse,
+    date,
+    items,
+    labour = [],
+    discount = 0,
+    taxPercent = 0,
+    payment = {},
+  } = input;
 
   if (!Array.isArray(items) || items.length === 0) {
     throw ApiError.badRequest('At least one item is required');
@@ -69,6 +79,17 @@ async function createSale(actor, input) {
   const wh = warehouse
     ? await require('./warehouseService').getWarehouseById(warehouse)
     : await stockService.ensureDefaultWarehouse();
+
+  const labourIds = Array.from(new Set((labour || []).map(String).filter(Boolean)));
+  const labourDocs = labourIds.length ? await Labour.find({ _id: { $in: labourIds } }) : [];
+  if (labourDocs.length !== labourIds.length) {
+    throw ApiError.badRequest('One or more labour entries are invalid');
+  }
+  const saleLabour = labourDocs.map((doc) => ({
+    labour: doc._id,
+    name: doc.name,
+    phoneNumber: doc.phoneNumber,
+  }));
 
   // Build line items (paisa) and pre-check stock so we never half-sell.
   const unresolvedLines = [];
@@ -159,6 +180,7 @@ async function createSale(actor, input) {
     warehouse: wh._id,
     date: when,
     items: lineItems,
+    labour: saleLabour,
     subtotal,
     discount: discountPaisa,
     taxPercent: taxPct,
