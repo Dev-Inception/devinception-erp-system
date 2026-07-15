@@ -1,9 +1,9 @@
 function serializeGatePass(gatePass) {
   const g = gatePass && gatePass.toJSON ? gatePass.toJSON() : { ...gatePass };
-  const sourceId = g.sourceType === 'PURCHASE' ? g.purchase : g.sale;
+  const sourceId = g.sale;
   g.sourceId = sourceId ? String(sourceId._id ?? sourceId) : undefined;
   g.source = {
-    type: g.sourceType,
+    type: 'SALE',
     id: g.sourceId,
     number: g.documentNumber,
   };

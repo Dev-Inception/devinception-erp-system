@@ -193,7 +193,7 @@ const swaggerSpec = {
     { name: 'Purchases', description: 'Goods purchases from vendors' },
     { name: 'Sales', description: 'POS sales' },
     { name: 'Invoices', description: 'Persisted vendor purchase invoices (A/P)' },
-    { name: 'Gate Passes', description: 'QR gate passes for purchase and sale stock movements' },
+    { name: 'Gate Passes', description: 'QR gate passes for sold products leaving a warehouse' },
     { name: 'Finance', description: 'Bank accounts, payments, ledgers and cash book' },
     { name: 'Reports', description: 'Sales, purchases, stock valuation and P&L' },
   ],
@@ -1557,11 +1557,6 @@ const swaggerSpec = {
         parameters: [
           qPage,
           qLimit,
-          {
-            name: 'sourceType',
-            in: 'query',
-            schema: { type: 'string', enum: ['PURCHASE', 'SALE'] },
-          },
           { name: 'warehouse', in: 'query', schema: { type: 'string' } },
           {
             name: 'status',
@@ -1572,20 +1567,12 @@ const swaggerSpec = {
         responses: { 200: { description: 'Gate passes' }, 403: errorResponse },
       },
     },
-    '/gate-passes/source/{sourceType}/{sourceId}': {
+    '/gate-passes/sale/{saleId}': {
       get: {
         tags: ['Gate Passes'],
-        summary: 'Get or backfill the gate pass for a purchase or sale (inventory:read)',
+        summary: 'Get or backfill the gate pass for a sale (inventory:read)',
         security: [{ bearerAuth: [] }],
-        parameters: [
-          {
-            name: 'sourceType',
-            in: 'path',
-            required: true,
-            schema: { type: 'string', enum: ['PURCHASE', 'SALE'] },
-          },
-          { name: 'sourceId', in: 'path', required: true, schema: { type: 'string' } },
-        ],
+        parameters: [{ name: 'saleId', in: 'path', required: true, schema: { type: 'string' } }],
         responses: {
           200: { description: 'Gate pass' },
           403: errorResponse,

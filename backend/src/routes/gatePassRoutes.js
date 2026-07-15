@@ -6,7 +6,7 @@ const { validate } = require('../middlewares/validateMiddleware');
 const { PERMISSIONS } = require('../utils/permissions');
 const {
   idParamValidator,
-  sourceParamValidator,
+  saleParamValidator,
   listGatePassValidator,
   scanGatePassValidator,
 } = require('../validators/gatePassValidator');
@@ -29,11 +29,11 @@ router.post(
   gatePassController.scanGatePass,
 );
 router.get(
-  '/source/:sourceType/:sourceId',
+  '/sale/:saleId',
   requirePermission(PERMISSIONS.INVENTORY_READ),
-  sourceParamValidator,
+  saleParamValidator,
   validate,
-  gatePassController.getGatePassBySource,
+  gatePassController.getGatePassBySale,
 );
 router.get(
   '/:id/qr',

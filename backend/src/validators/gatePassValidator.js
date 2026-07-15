@@ -2,20 +2,9 @@ const { body, param, query } = require('express-validator');
 
 const idParamValidator = [param('id').isMongoId().withMessage('Invalid gate pass id')];
 
-const sourceParamValidator = [
-  param('sourceType')
-    .toUpperCase()
-    .isIn(['PURCHASE', 'SALE'])
-    .withMessage('Source type must be PURCHASE or SALE'),
-  param('sourceId').isMongoId().withMessage('Invalid source id'),
-];
+const saleParamValidator = [param('saleId').isMongoId().withMessage('Invalid sale id')];
 
 const listGatePassValidator = [
-  query('sourceType')
-    .optional({ values: 'falsy' })
-    .toUpperCase()
-    .isIn(['PURCHASE', 'SALE'])
-    .withMessage('Source type must be PURCHASE or SALE'),
   query('warehouse').optional({ values: 'falsy' }).isMongoId().withMessage('Invalid warehouse'),
   query('status')
     .optional({ values: 'falsy' })
@@ -36,7 +25,7 @@ const scanGatePassValidator = [
 
 module.exports = {
   idParamValidator,
-  sourceParamValidator,
+  saleParamValidator,
   listGatePassValidator,
   scanGatePassValidator,
 };

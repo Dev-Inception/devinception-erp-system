@@ -239,7 +239,7 @@ async function createSale(actor, input) {
     });
   }
 
-  const gatePass = await gatePassService.createForSale(sale);
+  const gatePass = await gatePassService.createForSale(sale, customerDoc);
   sale.gatePass = gatePass._id;
 
   return sale;
