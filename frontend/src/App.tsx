@@ -9,6 +9,8 @@ import { LoginPage } from '@/pages/login';
 import { DashboardPage } from '@/pages/dashboard';
 import { PosPage } from '@/pages/pos';
 import { ProductsPage } from '@/pages/products';
+import { CategoriesPage } from '@/pages/categories';
+import { UnitsPage } from '@/pages/units';
 import { PurchasesPage } from '@/pages/purchases';
 import { VendorsPage } from '@/pages/vendors';
 import { CustomersPage } from '@/pages/customers';
@@ -55,6 +57,8 @@ function ModuleGuard({ moduleKey, children }: { moduleKey: string; children: Rea
 const MODULE_ROUTES: { path: string; element: React.ReactElement }[] = [
   { path: 'pos', element: <PosPage /> },
   { path: 'products', element: <ProductsPage /> },
+  { path: 'categories', element: <CategoriesPage /> },
+  { path: 'units', element: <UnitsPage /> },
   { path: 'warehouses', element: <WarehousesPage /> },
   { path: 'sales', element: <SalesPage /> },
   { path: 'purchases', element: <PurchasesPage /> },

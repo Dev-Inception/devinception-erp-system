@@ -573,6 +573,8 @@ async function handle(
     if (url === '/products') return ok(listProducts(params.search, params.warehouseId));
     if (url === '/catalog')
       return ok({ categories: db.categories, brands: db.brands, units: db.units });
+    if (url === '/categories') return ok(db.categories);
+    if (url === '/units') return ok(db.units);
     if (url === '/customers') return ok(listCustomers(params.search));
     if (url === '/vendors') return ok(listVendors(params.search));
     if (url === '/sales') return ok(listSales());
@@ -619,6 +621,16 @@ async function handle(
       const w = { id: uid('wh'), name: body.name, location: body.location, isDefault: makeDefault };
       db.warehouses.push(w);
       return ok(w);
+    }
+    if (url === '/categories') {
+      const c = { id: uid('cat'), name: body.name, description: body.description || undefined };
+      db.categories.push(c);
+      return ok(c);
+    }
+    if (url === '/units') {
+      const u = { id: uid('unit'), name: body.name, abbreviation: body.abbreviation || body.name };
+      db.units.push(u);
+      return ok(u);
     }
     if (url === '/cash') {
       const t = {
@@ -709,7 +721,7 @@ async function handle(
  * not matched here falls through to the in-memory mock above. Migrate a module
  * by adding its routes to `tryReal`.
  *
- * Migrated so far: Inventory — Warehouses, Products, Catalog, Stock adjust.
+ * Migrated so far: Inventory — Warehouses, Products, Catalog (Categories, Units), Stock adjust.
  * ══════════════════════════════════════════════════════════════════════ */
 const wrap = <T>(data: T) => ({ data });
 
@@ -822,6 +834,64 @@ async function realUpdateProduct(id: string, body: any) {
 async function realCatalog() {
   // { categories:[{id,name}], brands:[{id,name}], units:[{id,name,abbreviation}] }
   return (await http.get('/catalog')).data;
+}
+
+/* ── Categories (catalog entries used to classify products) ── */
+function mapCategory(c: any) {
+  return { id: String(c._id ?? c.id), name: c.name, description: c.description || undefined };
+}
+async function realCategories() {
+  const res = await http.get('/catalog/categories');
+  return (res.data.categories as any[]).map(mapCategory);
+}
+async function realCreateCategory(body: any) {
+  const res = await http.post('/catalog/categories', {
+    name: body.name,
+    description: body.description,
+  });
+  return mapCategory(res.data.category);
+}
+async function realUpdateCategory(id: string, body: any) {
+  const res = await http.patch(`/catalog/categories/${id}`, {
+    name: body.name,
+    description: body.description,
+  });
+  return mapCategory(res.data.category);
+}
+async function realDeleteCategory(id: string) {
+  await http.delete(`/catalog/categories/${id}`);
+  return { success: true };
+}
+
+/* ── Units (of measurement, used to classify products) ── */
+function mapUnitEntry(u: any) {
+  return {
+    id: String(u._id ?? u.id),
+    name: u.name,
+    abbreviation: u.abbreviation || u.name,
+  };
+}
+async function realUnits() {
+  const res = await http.get('/catalog/units');
+  return (res.data.units as any[]).map(mapUnitEntry);
+}
+async function realCreateUnit(body: any) {
+  const res = await http.post('/catalog/units', {
+    name: body.name,
+    abbreviation: body.abbreviation,
+  });
+  return mapUnitEntry(res.data.unit);
+}
+async function realUpdateUnit(id: string, body: any) {
+  const res = await http.patch(`/catalog/units/${id}`, {
+    name: body.name,
+    abbreviation: body.abbreviation,
+  });
+  return mapUnitEntry(res.data.unit);
+}
+async function realDeleteUnit(id: string) {
+  await http.delete(`/catalog/units/${id}`);
+  return { success: true };
 }
 
 /* ── Stock adjust: FE type/quantity → backend signed delta + unit cost ── */
@@ -1421,6 +1491,8 @@ async function tryReal(
     if (url === '/warehouses') return wrap(await realWarehouses());
     if (url === '/products') return wrap(await realProductsList(params));
     if (url === '/catalog') return wrap(await realCatalog());
+    if (url === '/categories') return wrap(await realCategories());
+    if (url === '/units') return wrap(await realUnits());
     if (url === '/customers') return wrap(await realCustomers(params));
     if (url === '/vendors') return wrap(await realVendors(params));
     if (url === '/sales') return wrap(await realSales());
@@ -1441,6 +1513,8 @@ async function tryReal(
   if (method === 'post') {
     if (url === '/warehouses') return wrap(await realCreateWarehouse(body));
     if (url === '/products') return wrap(await realCreateProduct(body));
+    if (url === '/categories') return wrap(await realCreateCategory(body));
+    if (url === '/units') return wrap(await realCreateUnit(body));
     if (url === '/stock/adjust') return wrap(await realAdjustStock(body));
     if (url === '/customers') return wrap(await realCreateCustomer(body));
     if (url === '/vendors') return wrap(await realCreateVendor(body));
@@ -1467,6 +1541,8 @@ async function tryReal(
       return wrap(await realUpdateCustomer(seg[1], body));
     if (seg[0] === 'warehouses' && seg[1] && !seg[2])
       return wrap(await realUpdateWarehouse(seg[1], body));
+    if (seg[0] === 'categories' && seg[1]) return wrap(await realUpdateCategory(seg[1], body));
+    if (seg[0] === 'units' && seg[1]) return wrap(await realUpdateUnit(seg[1], body));
     if (seg[0] === 'users' && seg[1] && !seg[2]) return wrap(await realUpdateUser(seg[1], body));
     if (seg[0] === 'users' && seg[2] === 'role')
       return wrap(await realUpdateUserRole(seg[1], body));
@@ -1483,6 +1559,8 @@ async function tryReal(
     if (seg[0] === 'customers' && seg[1] && !seg[2]) return wrap(await realDeleteCustomer(seg[1]));
     if (seg[0] === 'warehouses' && seg[1] && !seg[2])
       return wrap(await realDeleteWarehouse(seg[1]));
+    if (seg[0] === 'categories' && seg[1]) return wrap(await realDeleteCategory(seg[1]));
+    if (seg[0] === 'units' && seg[1]) return wrap(await realDeleteUnit(seg[1]));
   }
   return undefined;
 }

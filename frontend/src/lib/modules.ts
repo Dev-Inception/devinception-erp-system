@@ -14,6 +14,8 @@ import {
   Boxes,
   Warehouse,
   ShieldCheck,
+  Tags,
+  Ruler,
 } from 'lucide-react';
 import type { Role } from '@/store/auth';
 
@@ -67,6 +69,22 @@ export const MODULES: ModuleDef[] = [
   },
   { key: 'invoices', to: '/invoices', label: 'Invoices', section: 'Operations', icon: FileText },
   { key: 'products', to: '/products', label: 'Inventory', section: 'Catalog', icon: Package },
+  {
+    key: 'categories',
+    to: '/categories',
+    label: 'Categories',
+    section: 'Catalog',
+    icon: Tags,
+    defaultRoles: ['MANAGER', 'ADMIN'],
+  },
+  {
+    key: 'units',
+    to: '/units',
+    label: 'Units',
+    section: 'Catalog',
+    icon: Ruler,
+    defaultRoles: ['MANAGER', 'ADMIN'],
+  },
   {
     key: 'warehouses',
     to: '/warehouses',
@@ -136,6 +154,8 @@ export const MODULE_PERMISSION: Record<string, string> = {
   purchases: 'purchases:read',
   invoices: 'invoices:read',
   products: 'inventory:read',
+  categories: 'inventory:manage',
+  units: 'inventory:manage',
   warehouses: 'inventory:manage',
   customers: 'customers:read',
   vendors: 'vendors:read',
