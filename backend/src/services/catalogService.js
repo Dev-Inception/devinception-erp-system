@@ -2,6 +2,7 @@ const mongoose = require('mongoose');
 const Category = require('../models/categoryModel');
 const Brand = require('../models/brandModel');
 const Unit = require('../models/unitModel');
+const Product = require('../models/productModel');
 const ApiError = require('../utils/ApiError');
 const { escapeRegex } = require('../utils/query');
 
@@ -86,12 +87,65 @@ async function resolveProductRefs(data = {}) {
 }
 
 // Create (or return existing) a catalog entry of the given kind.
-async function createEntry(kind, { name, abbreviation } = {}) {
+async function createEntry(kind, { name, description, abbreviation, unit } = {}) {
   const Model = KIND_MODEL[kind];
   if (!Model) throw ApiError.badRequest('Unknown catalog type');
   if (!name || !String(name).trim()) throw ApiError.badRequest('A name is required');
-  const extra = kind === 'unit' ? { abbreviation: (abbreviation || '').trim() } : {};
+  let extra = {};
+  if (kind === 'unit') extra = { abbreviation: String(unit || abbreviation || '').trim() };
+  if (kind === 'category') extra = { description: String(description || '').trim() };
   return findOrCreateByName(Model, name, extra);
 }
 
-module.exports = { listCatalog, findOrCreateByName, resolveRef, resolveProductRefs, createEntry };
+function modelFor(kind) {
+  const Model = KIND_MODEL[kind];
+  if (!Model) throw ApiError.badRequest('Unknown catalog type');
+  return Model;
+}
+
+async function listEntries(kind) {
+  return modelFor(kind).find({ isActive: true }).sort({ name: 1 }).lean();
+}
+
+async function getEntryById(kind, id) {
+  const entry = await modelFor(kind).findById(id);
+  if (!entry) throw ApiError.notFound(`${kind === 'unit' ? 'Unit' : 'Category'} not found`);
+  return entry;
+}
+
+async function updateEntry(kind, id, data = {}) {
+  const entry = await getEntryById(kind, id);
+  if (data.name !== undefined) entry.name = data.name;
+  if (kind === 'category' && data.description !== undefined) {
+    entry.description = data.description;
+  }
+  if (kind === 'unit') {
+    const abbreviation = data.unit !== undefined ? data.unit : data.abbreviation;
+    if (abbreviation !== undefined) entry.abbreviation = abbreviation;
+  }
+  await entry.save();
+  return entry;
+}
+
+async function deleteEntry(kind, id) {
+  const entry = await getEntryById(kind, id);
+  const productField = kind === 'unit' ? 'unit' : 'category';
+  if (await Product.exists({ [productField]: entry._id })) {
+    throw ApiError.badRequest(
+      `${kind === 'unit' ? 'Unit' : 'Category'} is used by products and cannot be deleted`,
+    );
+  }
+  await entry.deleteOne();
+}
+
+module.exports = {
+  listCatalog,
+  findOrCreateByName,
+  resolveRef,
+  resolveProductRefs,
+  createEntry,
+  listEntries,
+  getEntryById,
+  updateEntry,
+  deleteEntry,
+};

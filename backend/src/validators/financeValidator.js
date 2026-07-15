@@ -59,6 +59,18 @@ const cashEntryValidator = [
   body('note').optional({ values: 'falsy' }).trim().isLength({ max: 200 }),
 ];
 
+const expenseValidator = [
+  body('warehouse').optional({ values: 'falsy' }).isMongoId().withMessage('Invalid warehouse'),
+  body('amount').isFloat({ gt: 0 }).withMessage('Amount must be positive'),
+  body('method')
+    .optional({ values: 'falsy' })
+    .isIn(['CASH', 'CARD', 'BANK_TRANSFER', 'ONLINE'])
+    .withMessage('Invalid expense payment method'),
+  body('bankAccount').optional({ values: 'falsy' }).isMongoId().withMessage('Invalid bank account'),
+  body('date').optional({ values: 'falsy' }).isISO8601().withMessage('Invalid date'),
+  body('note').optional({ values: 'falsy' }).trim().isLength({ max: 200 }),
+];
+
 /* Ledger statement params */
 const statementParamValidator = [
   param('kind').isIn(['customer', 'vendor']).withMessage("kind must be 'customer' or 'vendor'"),
@@ -73,6 +85,7 @@ module.exports = {
   payVendorValidator,
   receiveCustomerValidator,
   cashEntryValidator,
+  expenseValidator,
   statementParamValidator,
   idParamValidator,
 };

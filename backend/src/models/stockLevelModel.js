@@ -2,16 +2,17 @@ const mongoose = require('mongoose');
 
 /**
  * Current stock of a product in a warehouse. `avgCost` is the moving-average
- * unit cost in paisa, recomputed on every receipt; `quantity * avgCost` is the
- * inventory value used by the Stock Valuation report. One row per
- * (product, warehouse).
+ * unit cost in paisa, recomputed on every receipt. It may contain sub-paisa
+ * precision so rounding `quantity * avgCost` preserves the exact integer-paisa
+ * inventory value used by Stock Valuation and COGS. One row per warehouse and
+ * product.
  */
 const stockLevelSchema = new mongoose.Schema(
   {
     product: { type: mongoose.Schema.Types.ObjectId, ref: 'Product', required: true },
     warehouse: { type: mongoose.Schema.Types.ObjectId, ref: 'Warehouse', required: true },
     quantity: { type: Number, default: 0 },
-    avgCost: { type: Number, default: 0, min: 0 }, // paisa per unit
+    avgCost: { type: Number, default: 0, min: 0 }, // precise paisa per unit
   },
   { timestamps: true },
 );

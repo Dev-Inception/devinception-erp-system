@@ -1,21 +1,33 @@
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
-import { ShoppingCart } from 'lucide-react';
+import { ShoppingCart, FileText } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { api } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
+import { printDocument } from '@/lib/printing';
+
+interface SaleItem {
+  name: string;
+  quantity: number;
+  unitPrice: string | number;
+  amount: string | number;
+}
 
 interface Sale {
   id: string;
   saleNumber: string;
   date: string;
   grandTotal: string;
+  subtotal: string;
+  taxTotal: string;
+  discountTotal: string;
   paidCash: string;
   paidBank: string;
   paymentMethod: string;
   status: string;
   customer?: { name: string };
+  items: SaleItem[];
 }
 
 const PAYMENT_LABEL: Record<string, string> = {
@@ -31,6 +43,24 @@ export function SalesPage() {
     queryKey: ['sales'],
     queryFn: async () => (await api.get('/sales')).data,
   });
+
+  const handleViewInvoice = (s: Sale) =>
+    printDocument('INVOICE_A4', {
+      company: { name: 'DevInception Retail', address: 'HQ, Lahore', phone: '+92 300 1234567' },
+      number: s.saleNumber,
+      date: new Date(s.date).toLocaleString(),
+      partyName: s.customer?.name ?? 'Walk-in Customer',
+      items: s.items.map((i) => ({
+        name: i.name,
+        qty: Number(i.quantity),
+        price: Number(i.unitPrice),
+        amount: Number(i.amount),
+      })),
+      subtotal: Number(s.subtotal),
+      tax: Number(s.taxTotal),
+      discount: Number(s.discountTotal),
+      total: Number(s.grandTotal),
+    });
 
   return (
     <div className="space-y-4">
@@ -54,12 +84,13 @@ export function SalesPage() {
               <th className="px-4 py-3 text-right font-medium">Cash</th>
               <th className="px-4 py-3 text-right font-medium">Online</th>
               <th className="px-4 py-3 text-right font-medium">Total</th>
+              <th className="px-4 py-3 text-right font-medium">Invoice</th>
             </tr>
           </thead>
           <tbody>
             {isLoading && (
               <tr>
-                <td colSpan={7} className="px-4 py-10 text-center text-muted-foreground">
+                <td colSpan={8} className="px-4 py-10 text-center text-muted-foreground">
                   Loading…
                 </td>
               </tr>
@@ -86,11 +117,22 @@ export function SalesPage() {
                   <td className="px-4 py-3 text-right font-medium">
                     {formatCurrency(Number(s.grandTotal))}
                   </td>
+                  <td className="px-4 py-3 text-right">
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="h-8 w-8"
+                      title="View invoice"
+                      onClick={() => handleViewInvoice(s)}
+                    >
+                      <FileText className="h-4 w-4" />
+                    </Button>
+                  </td>
                 </tr>
               ))}
             {!isLoading && sales.length === 0 && (
               <tr>
-                <td colSpan={7} className="px-4 py-10 text-center text-muted-foreground">
+                <td colSpan={8} className="px-4 py-10 text-center text-muted-foreground">
                   No sales yet — ring one up in the POS.
                 </td>
               </tr>

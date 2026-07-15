@@ -1,19 +1,23 @@
 const PDFDocument = require('pdfkit');
-const env = require('../config/env');
 const { toRupees } = require('../utils/money');
 
 /**
- * Render an invoice document to a PDF and stream it into `res`. Everything on
- * the invoice is paisa; we convert to rupees only for display here. The caller
- * (controller) sets the HTTP headers; this just pipes the PDF bytes.
+ * Render a GoodsPurchase as a purchase-invoice PDF. Everything on the purchase
+ * is paisa; we convert to rupees only for display here. The controller sets the
+ * HTTP headers; this service only renders and streams the document.
  */
 
 const PAGE_MARGIN = 50;
+const CONTENT_BOTTOM_MARGIN = 80;
 
-// "Rs 1,200.00" from paisa.
-function money(paisa) {
+// "PKR 1,200.00" (or the configured currency) from paisa.
+function money(paisa, currency) {
   const rupees = toRupees(paisa);
-  return `Rs ${rupees.toLocaleString('en-PK', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const amount = rupees.toLocaleString('en-PK', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+  return `${currency || 'PKR'} ${amount}`;
 }
 
 function formatDate(d) {
@@ -24,75 +28,152 @@ function formatDate(d) {
 }
 
 // Draw one row of the items table at vertical position `y`; returns the next y.
-function drawRow(doc, y, cols, { bold = false } = {}) {
+function drawRow(doc, y, cols, { bold = false, height = 22 } = {}) {
   doc.font(bold ? 'Helvetica-Bold' : 'Helvetica').fontSize(10);
-  doc.text(cols.name, PAGE_MARGIN, y, { width: 230 });
+  doc.text(cols.name, PAGE_MARGIN, y, { width: 230, height: height - 4, ellipsis: true });
   doc.text(cols.qty, 290, y, { width: 50, align: 'right' });
   doc.text(cols.rate, 350, y, { width: 90, align: 'right' });
   doc.text(cols.amount, 450, y, { width: 95, align: 'right' });
-  return y + 22;
+  return y + height;
 }
 
-// Draw the whole invoice onto an open PDFKit document. Kept separate from the
-// streaming lifecycle so streamInvoicePdf can wrap it in error handling.
-function renderInvoice(doc, invoice) {
-  const customerName =
-    invoice.customerName || (invoice.customer && invoice.customer.name) || 'Customer';
+function contentBottom(doc) {
+  return doc.page.height - CONTENT_BOTTOM_MARGIN;
+}
 
-  // ---- Header: company (left) + INVOICE meta (right) ----
-  doc.font('Helvetica-Bold').fontSize(20).text(env.company.name, PAGE_MARGIN, PAGE_MARGIN);
-  doc.font('Helvetica').fontSize(9).fillColor('#555');
-  if (env.company.address) doc.text(env.company.address);
-  if (env.company.phone) doc.text(env.company.phone);
-  doc.fillColor('#000');
-
-  doc.font('Helvetica-Bold').fontSize(18).text('INVOICE', 0, PAGE_MARGIN, { align: 'right' });
-  doc.font('Helvetica').fontSize(10).fillColor('#555');
-  doc.text(`# ${invoice.number}`, { align: 'right' });
-  doc.text(`Date: ${formatDate(invoice.date)}`, { align: 'right' });
-  if (invoice.dueDate) doc.text(`Due: ${formatDate(invoice.dueDate)}`, { align: 'right' });
-  doc.text(`Status: ${invoice.status}`, { align: 'right' });
-  doc.fillColor('#000');
-
-  // ---- Bill-to ----
-  let y = 150;
-  doc.font('Helvetica-Bold').fontSize(11).text('Bill To', PAGE_MARGIN, y);
-  doc.font('Helvetica').fontSize(10).fillColor('#333');
-  y += 16;
-  doc.text(customerName, PAGE_MARGIN, y);
-  if (invoice.customer && invoice.customer.phone) doc.text(invoice.customer.phone);
-  if (invoice.customer && invoice.customer.email) doc.text(invoice.customer.email);
-  doc.fillColor('#000');
-
-  // ---- Items table ----
-  y = 235;
+function drawTableHeader(doc, y) {
   doc
     .moveTo(PAGE_MARGIN, y - 6)
     .lineTo(545, y - 6)
     .strokeColor('#ccc')
     .stroke();
-  y = drawRow(doc, y, { name: 'Item', qty: 'Qty', rate: 'Rate', amount: 'Amount' }, { bold: true });
+  const nextY = drawRow(
+    doc,
+    y,
+    { name: 'Item', qty: 'Qty', rate: 'Rate', amount: 'Amount' },
+    { bold: true },
+  );
   doc
-    .moveTo(PAGE_MARGIN, y - 4)
-    .lineTo(545, y - 4)
+    .moveTo(PAGE_MARGIN, nextY - 4)
+    .lineTo(545, nextY - 4)
     .strokeColor('#ccc')
     .stroke();
+  return nextY;
+}
+
+function addContentPage(doc, { tableHeader = false } = {}) {
+  doc.addPage();
+  return tableHeader ? drawTableHeader(doc, PAGE_MARGIN) : PAGE_MARGIN;
+}
+
+function drawFooters(doc) {
+  const range = doc.bufferedPageRange();
+  for (let offset = 0; offset < range.count; offset += 1) {
+    doc.switchToPage(range.start + offset);
+    doc
+      .font('Helvetica')
+      .fontSize(8)
+      .fillColor('#999')
+      .text(
+        `Thank you for your business.  •  Page ${offset + 1} of ${range.count}`,
+        PAGE_MARGIN,
+        doc.page.height - 65,
+        { align: 'center', width: 495, lineBreak: false },
+      );
+  }
+  doc.fillColor('#000');
+}
+
+// Draw the whole invoice onto an open PDFKit document. Kept separate from the
+// streaming lifecycle so streamInvoicePdf can wrap it in error handling.
+function renderInvoice(doc, invoice, company = {}) {
+  const vendor = invoice.vendor;
+  const vendorName = invoice.vendorName || (vendor && vendor.name) || 'Vendor';
+  const paid = invoice.paid || 0;
+  const status = invoice.balance <= 0 ? 'PAID' : paid > 0 ? 'PARTIAL' : 'UNPAID';
+  const currency = company.currency || 'PKR';
+
+  // ---- Header: company (left) + INVOICE meta (right) ----
+  doc
+    .font('Helvetica-Bold')
+    .fontSize(20)
+    .text(company.companyName || 'Company', PAGE_MARGIN, PAGE_MARGIN);
+  doc.font('Helvetica').fontSize(9).fillColor('#555');
+  if (company.address) doc.text(company.address);
+  if (company.phone) doc.text(company.phone);
+  if (company.email) doc.text(company.email);
+  if (company.taxNumber) doc.text(`Tax No: ${company.taxNumber}`);
+  doc.fillColor('#000');
+
+  doc
+    .font('Helvetica-Bold')
+    .fontSize(18)
+    .text('PURCHASE INVOICE', 0, PAGE_MARGIN, { align: 'right' });
+  doc.font('Helvetica').fontSize(10).fillColor('#555');
+  doc.text(`# ${invoice.vendorInvoiceNo || invoice.number}`, {
+    align: 'right',
+  });
+  if (invoice.vendorInvoiceNo) {
+    doc.text(`Purchase: ${invoice.number}`, { align: 'right' });
+  }
+  doc.text(`Date: ${formatDate(invoice.date)}`, { align: 'right' });
+  if (invoice.dueDate) doc.text(`Due: ${formatDate(invoice.dueDate)}`, { align: 'right' });
+  doc.text(`Status: ${status}`, { align: 'right' });
+  if (invoice.warehouse && invoice.warehouse.name) {
+    doc.text(`Warehouse: ${invoice.warehouse.name}`, { align: 'right' });
+    if (invoice.warehouse.location) {
+      doc.text(`Location: ${invoice.warehouse.location}`, { align: 'right' });
+    }
+    if (invoice.warehouse.address) {
+      doc.text(`Address: ${invoice.warehouse.address}`, { align: 'right' });
+    }
+  }
+  doc.fillColor('#000');
+
+  // ---- Vendor ----
+  let y = Math.max(150, doc.y + 12);
+  doc.font('Helvetica-Bold').fontSize(11).text('Vendor', PAGE_MARGIN, y);
+  doc.font('Helvetica').fontSize(10).fillColor('#333');
+  y += 16;
+  doc.text(vendorName, PAGE_MARGIN, y);
+  if (vendor && vendor.phone) doc.text(vendor.phone);
+  if (vendor && vendor.email) doc.text(vendor.email);
+  if (vendor && vendor.address) doc.text(vendor.address);
+  doc.fillColor('#000');
+
+  // ---- Items table ----
+  y = Math.max(235, doc.y + 24);
+  y = drawTableHeader(doc, y);
 
   for (const it of invoice.items || []) {
-    y = drawRow(doc, y, {
-      name: it.name,
-      qty: String(it.quantity),
-      rate: money(it.unitPrice),
-      amount: money(it.lineTotal),
-    });
-    // Simple page-break guard for long invoices.
-    if (y > 720) {
-      doc.addPage();
-      y = PAGE_MARGIN;
-    }
+    doc.font('Helvetica').fontSize(10);
+    const rowHeight = Math.max(
+      22,
+      Math.ceil(doc.heightOfString(it.name || '', { width: 230 })) + 6,
+    );
+    if (y + rowHeight > contentBottom(doc)) y = addContentPage(doc, { tableHeader: true });
+    y = drawRow(
+      doc,
+      y,
+      {
+        name: it.name,
+        qty: String(it.quantity),
+        rate: money(it.unitCost, currency),
+        amount: money(it.lineTotal, currency),
+      },
+      { height: rowHeight },
+    );
   }
 
   // ---- Totals ----
+  const totalsHeight =
+    10 +
+    18 +
+    (invoice.discount > 0 ? 36 : 0) +
+    (invoice.tax > 0 ? 18 : 0) +
+    22 +
+    (paid > 0 ? 40 : 0);
+  if (y + totalsHeight > contentBottom(doc)) y = addContentPage(doc);
   doc.moveTo(300, y).lineTo(545, y).strokeColor('#ccc').stroke();
   y += 10;
   const totalLine = (label, value, bold = false) => {
@@ -101,17 +182,23 @@ function renderInvoice(doc, invoice) {
     doc.text(value, 450, y, { width: 95, align: 'right' });
     y += bold ? 22 : 18;
   };
-  totalLine('Subtotal', money(invoice.subtotal));
-  if (invoice.discount > 0) totalLine('Discount', `- ${money(invoice.discount)}`);
-  if (invoice.tax > 0) totalLine(`Tax (${invoice.taxPercent || 0}%)`, money(invoice.tax));
-  totalLine('Total', money(invoice.total), true);
-  if (invoice.amountPaid > 0) {
-    totalLine('Paid', money(invoice.amountPaid));
-    totalLine('Balance', money(invoice.balance), true);
+  totalLine('Subtotal', money(invoice.subtotal, currency));
+  if (invoice.discount > 0) {
+    totalLine('Discount', `- ${money(invoice.discount, currency)}`);
+    totalLine('Taxable amount', money(invoice.subtotal - invoice.discount, currency));
+  }
+  if (invoice.tax > 0) totalLine('Tax', money(invoice.tax, currency));
+  totalLine('Total', money(invoice.total, currency), true);
+  if (paid > 0) {
+    totalLine('Paid', money(paid, currency));
+    totalLine('Balance', money(invoice.balance, currency), true);
   }
 
   // ---- Notes / footer ----
   if (invoice.notes) {
+    doc.font('Helvetica').fontSize(9);
+    const notesHeight = Math.ceil(doc.heightOfString(invoice.notes, { width: 480 }));
+    if (y + 28 + notesHeight > contentBottom(doc)) y = addContentPage(doc);
     y += 14;
     doc.font('Helvetica-Bold').fontSize(10).text('Notes', PAGE_MARGIN, y);
     doc
@@ -121,28 +208,33 @@ function renderInvoice(doc, invoice) {
       .text(invoice.notes, PAGE_MARGIN, y + 14, { width: 480 });
     doc.fillColor('#000');
   }
-
-  doc
-    .font('Helvetica')
-    .fontSize(8)
-    .fillColor('#999')
-    .text('Thank you for your business.', PAGE_MARGIN, 790, { align: 'center', width: 495 });
 }
 
 /**
- * Render an invoice to a PDF and stream it into `res`. Resolves once the PDF
+ * Render a purchase invoice to a PDF and stream it into `res`. Resolves once the PDF
  * has finished streaming and rejects if generation fails before any bytes were
  * sent (so the caller can still return a clean error). Once streaming has
  * started the headers are already committed, so a later failure just tears the
  * response down rather than corrupting it.
  *
- * @param {object} invoice  Mongoose invoice doc, ideally with `customer`
- *                          populated (name/phone/email) and `warehouse` (name).
+ * @param {object} invoice  GoodsPurchase doc with `vendor` and `warehouse` populated.
  * @param {Writable} res    The HTTP response (or any writable stream).
+ * @param {object} company  Backend company settings used by the template.
  */
-function streamInvoicePdf(invoice, res) {
+function streamInvoicePdf(invoice, res, company) {
   return new Promise((resolve, reject) => {
-    const doc = new PDFDocument({ size: 'A4', margin: PAGE_MARGIN });
+    const doc = new PDFDocument({
+      size: 'A4',
+      bufferPages: true,
+      margins: {
+        top: PAGE_MARGIN,
+        right: PAGE_MARGIN,
+        // Content uses the larger manual bottom reserve above; PDFKit keeps a
+        // normal margin so buffered footer text can be placed inside the page.
+        bottom: PAGE_MARGIN,
+        left: PAGE_MARGIN,
+      },
+    });
     let started = false; // have any PDF bytes been written to the response yet?
 
     doc.on('data', () => {
@@ -164,7 +256,8 @@ function streamInvoicePdf(invoice, res) {
     doc.pipe(res);
 
     try {
-      renderInvoice(doc, invoice);
+      renderInvoice(doc, invoice, company);
+      drawFooters(doc);
       doc.end();
     } catch (err) {
       doc.destroy();

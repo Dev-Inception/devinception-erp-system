@@ -27,6 +27,7 @@ const goodsPurchaseSchema = new mongoose.Schema(
     number: { type: String, required: true, unique: true, index: true }, // GP-2026-0002
     vendorInvoiceNo: { type: String, trim: true, default: '' }, // supplier's invoice number
     vendor: { type: mongoose.Schema.Types.ObjectId, ref: 'Vendor', required: true, index: true },
+    vendorName: { type: String, trim: true, default: '' }, // historical snapshot for reports
     warehouse: { type: mongoose.Schema.Types.ObjectId, ref: 'Warehouse', required: true },
     date: { type: Date, default: Date.now, index: true },
 

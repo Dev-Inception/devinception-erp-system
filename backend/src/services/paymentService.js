@@ -2,7 +2,7 @@ const Vendor = require('../models/vendorModel');
 const Customer = require('../models/customerModel');
 const BankAccount = require('../models/bankAccountModel');
 const ApiError = require('../utils/ApiError');
-const { toPaisa } = require('../utils/money');
+const { toPaisa, toRupees } = require('../utils/money');
 const { ACCOUNT, REF, PAYMENT_METHOD, BANK_METHODS } = require('../utils/finance');
 const journalService = require('./journalService');
 const counterService = require('./counterService');
@@ -33,7 +33,9 @@ async function assertSufficientFunds(account, ref, amount) {
   const balance = await journalService.accountBalance(account, ref);
   if (balance < amount) {
     const where = account === ACCOUNT.BANK ? 'bank account' : 'cash drawer';
-    throw ApiError.badRequest(`Insufficient funds in the ${where} for this payment`);
+    throw ApiError.badRequest(
+      `Insufficient funds in the ${where}. Available: Rs ${toRupees(balance)}; required: Rs ${toRupees(amount)}`,
+    );
   }
 }
 
@@ -128,4 +130,43 @@ async function cashEntry(actor, { direction, amount, date, note }) {
   });
 }
 
-module.exports = { payVendor, receiveFromCustomer, cashEntry, settlementAccount };
+// Record an operating expense: Dr Operating Expense / Cr Cash|Bank. A
+// warehouse is attached to the journal entry so warehouse-scoped P&L reports
+// include only expenses attributable to that location.
+async function recordExpense(
+  actor,
+  { warehouse, amount, method = PAYMENT_METHOD.CASH, bankAccount, date, note },
+) {
+  const wh = warehouse
+    ? await require('./warehouseService').getWarehouseById(warehouse)
+    : await require('./stockService').ensureDefaultWarehouse();
+  const amt = toPaisa(amount);
+  if (amt <= 0) throw ApiError.badRequest('Amount must be positive');
+
+  const settle = await settlementAccount(method, bankAccount);
+  await assertSufficientFunds(settle.account, settle.ref, amt);
+  const when = date ? new Date(date) : new Date();
+  const number = await counterService.nextDocNumber('EXP', when.getFullYear(), 6);
+
+  return journalService.post({
+    date: when,
+    description: note || `Operating expense ${number}`,
+    refType: REF.EXPENSE,
+    refNo: number,
+    warehouse: wh._id,
+    createdBy: actor ? actor._id : null,
+    lines: [
+      journalService.line(ACCOUNT.OPERATING_EXPENSE, { debit: amt }),
+      journalService.line(settle.account, { credit: amt, ref: settle.ref }),
+    ],
+  });
+}
+
+module.exports = {
+  payVendor,
+  receiveFromCustomer,
+  cashEntry,
+  recordExpense,
+  settlementAccount,
+  assertSufficientFunds,
+};

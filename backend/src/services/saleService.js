@@ -10,7 +10,10 @@ const { ACCOUNT, REF, PAYMENT_METHOD, BANK_METHODS } = require('../utils/finance
 const journalService = require('./journalService');
 const stockService = require('./stockService');
 const counterService = require('./counterService');
+const { calculateInvoiceTotals, resolveUnitPrice } = require('./invoiceCalculationService');
 const { parsePagination } = require('../utils/query');
+const { normalizeQuantity, requirePositiveQuantity } = require('../utils/quantity');
+const { assertProductWarehouse } = require('../utils/productWarehouse');
 
 /**
  * POS sale flow. Resolves how the sale is settled (cash / bank / on account),
@@ -89,31 +92,42 @@ async function createSale(actor, input) {
   }));
 
   // Build line items (paisa) and pre-check stock so we never half-sell.
-  let subtotal = 0;
-  const lineItems = [];
+  const unresolvedLines = [];
+  const requestedByProduct = new Map();
   for (const it of items) {
     const product = await Product.findById(it.product);
     if (!product) throw ApiError.notFound(`Product not found: ${it.product}`);
-    const quantity = Number(it.quantity);
-    if (!(quantity > 0)) throw ApiError.badRequest('Item quantity must be positive');
+    assertProductWarehouse(product, wh);
+    const quantity = requirePositiveQuantity(it.quantity, 'Item quantity must be positive');
 
-    const unitPrice = it.unitPrice !== undefined ? toPaisa(it.unitPrice) : product.salePrice;
-    const lineTotal = Math.round(quantity * unitPrice);
-    subtotal += lineTotal;
+    const unitPrice = resolveUnitPrice(it.unitPrice, product.salePrice);
 
+    const productKey = String(product._id);
+    const requested = requirePositiveQuantity(
+      (requestedByProduct.get(productKey) || 0) + quantity,
+      'Requested item quantity is too large',
+    );
+    requestedByProduct.set(productKey, requested);
     const level = await StockLevel.findOne({ product: product._id, warehouse: wh._id });
-    if (!level || level.quantity < quantity) {
+    const available = level ? normalizeQuantity(level.quantity) : Number.NaN;
+    if (!Number.isFinite(available) || available < requested) {
       throw ApiError.badRequest(`Insufficient stock for ${product.name}`);
     }
-    lineItems.push({ product: product._id, name: product.name, quantity, unitPrice, lineTotal });
+    unresolvedLines.push({ product: product._id, name: product.name, quantity, unitPrice });
   }
 
-  const discountPaisa = toPaisa(discount);
-  if (discountPaisa > subtotal) throw ApiError.badRequest('Discount cannot exceed the subtotal');
-  const net = subtotal - discountPaisa; // taxable amount
-  const taxPct = Number(taxPercent) || 0;
-  const tax = Math.round((net * taxPct) / 100);
-  const total = net + tax;
+  // Use the shared authoritative totals engine so persisted sale amounts apply
+  // discounts before tax and remain consistent across reports and receipts.
+  const calculated = calculateInvoiceTotals(unresolvedLines, { discount, taxPercent });
+  const lineItems = calculated.items;
+  const {
+    subtotal,
+    discount: discountPaisa,
+    taxableAmount: net,
+    taxPercent: taxPct,
+    tax,
+    total,
+  } = calculated;
 
   const { cash, online, credit } = resolveSettlement({
     method,
@@ -189,18 +203,23 @@ async function createSale(actor, input) {
     revenueLines.push(journalService.line(ACCOUNT.BANK, { debit: online, ref: bankRef }));
   if (credit > 0)
     revenueLines.push(journalService.line(ACCOUNT.AR, { debit: credit, ref: customerDoc._id }));
-  revenueLines.push(journalService.line(ACCOUNT.SALES, { credit: net }));
+  if (net > 0) revenueLines.push(journalService.line(ACCOUNT.SALES, { credit: net }));
   if (tax > 0) revenueLines.push(journalService.line(ACCOUNT.TAX, { credit: tax }));
 
-  await journalService.post({
-    date: when,
-    description: `POS sale ${number}`,
-    refType: REF.SALE,
-    refId: sale._id,
-    refNo: number,
-    createdBy: actor ? actor._id : null,
-    lines: revenueLines,
-  });
+  // A fully discounted sale has no revenue/payment entry, but still records
+  // its inventory/COGS movement below. Avoid posting an invalid all-zero entry.
+  if (revenueLines.length > 0) {
+    await journalService.post({
+      date: when,
+      description: `POS sale ${number}`,
+      refType: REF.SALE,
+      refId: sale._id,
+      refNo: number,
+      warehouse: wh._id,
+      createdBy: actor ? actor._id : null,
+      lines: revenueLines,
+    });
+  }
 
   // Cost of goods sold: Dr COGS / Cr Inventory.
   if (cost > 0) {
@@ -210,6 +229,7 @@ async function createSale(actor, input) {
       refType: REF.SALE,
       refId: sale._id,
       refNo: number,
+      warehouse: wh._id,
       createdBy: actor ? actor._id : null,
       lines: [
         journalService.line(ACCOUNT.COGS, { debit: cost }),

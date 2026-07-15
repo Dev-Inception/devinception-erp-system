@@ -17,6 +17,7 @@ export interface Warehouse {
 export interface Category {
   id: string;
   name: string;
+  description?: string;
 }
 export interface Brand {
   id: string;
