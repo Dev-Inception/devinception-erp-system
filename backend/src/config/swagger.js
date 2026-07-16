@@ -1214,8 +1214,7 @@ const swaggerSpec = {
             in: 'query',
             name: 'warehouse',
             schema: { type: 'string' },
-            description:
-              'Return products owned by this warehouse; owned zero-stock products remain visible',
+            description: 'Return only products currently in stock in this warehouse',
           },
         ],
         responses: {
@@ -1233,8 +1232,7 @@ const swaggerSpec = {
           sku: { type: 'string', example: 'WIDG-1' },
           warehouse: {
             type: 'string',
-            description:
-              'Owning warehouse; warehouseId, X-Warehouse-Id, or the active warehouse context is also accepted',
+            description: 'Required owning warehouse. The warehouseId body alias is also accepted.',
           },
           unit: { type: 'string', example: 'pcs' },
           salePrice: { type: 'number', example: 100 },
@@ -1580,21 +1578,37 @@ const swaggerSpec = {
         },
       },
     },
-    '/gate-passes/{id}': {
+    '/gate-passes/{gatePassId}': {
       get: {
         tags: ['Gate Passes'],
         summary: 'Get a gate pass (inventory:read)',
         security: [{ bearerAuth: [] }],
-        parameters: [pathId],
+        parameters: [
+          {
+            name: 'gatePassId',
+            in: 'path',
+            required: true,
+            description: 'Gate pass _id (not the sale _id)',
+            schema: { type: 'string' },
+          },
+        ],
         responses: { 200: { description: 'Gate pass' }, 403: errorResponse, 404: errorResponse },
       },
     },
-    '/gate-passes/{id}/qr': {
+    '/gate-passes/{gatePassId}/qr': {
       get: {
         tags: ['Gate Passes'],
         summary: 'Get a gate pass QR as a PNG image (inventory:read)',
         security: [{ bearerAuth: [] }],
-        parameters: [pathId],
+        parameters: [
+          {
+            name: 'gatePassId',
+            in: 'path',
+            required: true,
+            description: 'Gate pass _id (not the sale _id)',
+            schema: { type: 'string' },
+          },
+        ],
         responses: {
           200: {
             description: 'QR image',

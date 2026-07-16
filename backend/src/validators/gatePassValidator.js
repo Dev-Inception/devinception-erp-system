@@ -1,6 +1,8 @@
 const { body, param, query } = require('express-validator');
 
-const idParamValidator = [param('id').isMongoId().withMessage('Invalid gate pass id')];
+const gatePassIdParamValidator = [
+  param('gatePassId').isMongoId().withMessage('Invalid gate pass id'),
+];
 
 const saleParamValidator = [param('saleId').isMongoId().withMessage('Invalid sale id')];
 
@@ -24,7 +26,7 @@ const scanGatePassValidator = [
 ];
 
 module.exports = {
-  idParamValidator,
+  gatePassIdParamValidator,
   saleParamValidator,
   listGatePassValidator,
   scanGatePassValidator,

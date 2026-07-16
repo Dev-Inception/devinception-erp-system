@@ -18,7 +18,7 @@ const listGatePasses = asyncHandler(async (req, res) => {
 });
 
 const getGatePass = asyncHandler(async (req, res) => {
-  const gatePass = await gatePassService.getGatePassById(req.params.id);
+  const gatePass = await gatePassService.getGatePassById(req.params.gatePassId);
   return sendSuccess(res, 200, 'Gate pass fetched', {
     gatePass: serializeGatePass(gatePass),
   });
@@ -32,7 +32,7 @@ const getGatePassBySale = asyncHandler(async (req, res) => {
 });
 
 const downloadQr = asyncHandler(async (req, res) => {
-  const { gatePass, png } = await gatePassService.generateQrPng(req.params.id);
+  const { gatePass, png } = await gatePassService.generateQrPng(req.params.gatePassId);
   res.setHeader('Content-Type', 'image/png');
   res.setHeader('Content-Disposition', `inline; filename="${gatePass.number}.png"`);
   res.setHeader('Cache-Control', 'private, no-store');

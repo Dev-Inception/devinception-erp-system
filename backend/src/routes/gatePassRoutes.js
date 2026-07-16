@@ -5,7 +5,7 @@ const { requirePermission } = require('../middlewares/roleMiddleware');
 const { validate } = require('../middlewares/validateMiddleware');
 const { PERMISSIONS } = require('../utils/permissions');
 const {
-  idParamValidator,
+  gatePassIdParamValidator,
   saleParamValidator,
   listGatePassValidator,
   scanGatePassValidator,
@@ -36,16 +36,16 @@ router.get(
   gatePassController.getGatePassBySale,
 );
 router.get(
-  '/:id/qr',
+  '/:gatePassId/qr',
   requirePermission(PERMISSIONS.INVENTORY_READ),
-  idParamValidator,
+  gatePassIdParamValidator,
   validate,
   gatePassController.downloadQr,
 );
 router.get(
-  '/:id',
+  '/:gatePassId',
   requirePermission(PERMISSIONS.INVENTORY_READ),
-  idParamValidator,
+  gatePassIdParamValidator,
   validate,
   gatePassController.getGatePass,
 );
