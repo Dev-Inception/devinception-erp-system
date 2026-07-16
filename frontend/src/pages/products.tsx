@@ -30,6 +30,7 @@ interface Product {
   isLowStock: boolean;
   categoryId?: string;
   unitId?: string;
+  warehouseId?: string;
   category?: { name: string };
   unit?: { abbreviation: string };
 }
@@ -264,12 +265,10 @@ const ADJUST_TYPES = [
 function StockDialog({
   product,
   warehouseId,
-  warehouseName,
   onClose,
 }: {
   product: Product;
   warehouseId: string;
-  warehouseName: string;
   onClose: () => void;
 }) {
   const qc = useQueryClient();
@@ -302,10 +301,7 @@ function StockDialog({
       <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle>Adjust Stock — {product.name}</DialogTitle>
-          <DialogDescription>
-            Warehouse: <span className="font-medium text-foreground">{warehouseName}</span> ·
-            Current on-hand: {product.currentStock}
-          </DialogDescription>
+          <DialogDescription>Current on-hand: {product.currentStock}</DialogDescription>
         </DialogHeader>
         <form
           className="space-y-3"
@@ -366,8 +362,9 @@ export function ProductsPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<Product | null>(null);
   const [stockFor, setStockFor] = useState<Product | null>(null);
-  const { currentId, warehouses } = useWarehouses();
-  const warehouseName = warehouses.find((w) => w.id === currentId)?.name ?? '—';
+  // Resolved silently in the background (no picker) — Stock Adjustment still
+  // needs a warehouse id server-side, but the user never has to think about it.
+  const { currentId } = useWarehouses();
 
   const { data: products = [], isLoading } = useQuery<Product[]>({
     queryKey: ['products', search],
@@ -478,11 +475,14 @@ export function ProductsPage() {
           editing={editing}
         />
       )}
-      {stockFor && currentId && (
+      {stockFor && (
         <StockDialog
           product={stockFor}
-          warehouseId={currentId}
-          warehouseName={warehouseName}
+          // Adjustments must target the product's own owning warehouse, not
+          // whatever is globally "current" — otherwise the backend rejects it
+          // as belonging to another warehouse. Only legacy owner-less products
+          // fall back to the global default.
+          warehouseId={stockFor.warehouseId ?? currentId ?? ''}
           onClose={() => setStockFor(null)}
         />
       )}

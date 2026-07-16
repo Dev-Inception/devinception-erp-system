@@ -36,6 +36,7 @@ interface Product {
   salePrice: string;
   currentStock: number;
   taxRate: string;
+  warehouseId?: string;
 }
 interface CartLine {
   product: Product;
@@ -199,7 +200,7 @@ export function PosPage() {
   const [customerPickerOpen, setCustomerPickerOpen] = useState(false);
   // Checkout still deducts from one warehouse (below), but the catalog itself
   // is business-wide — no warehouse filter when browsing/searching products.
-  const warehouseId = useWarehouseStore((s) => s.currentId);
+  const defaultWarehouseId = useWarehouseStore((s) => s.currentId);
 
   const { data: products = [] } = useQuery<Product[]>({
     queryKey: ['pos-products', search],
@@ -210,6 +211,16 @@ export function PosPage() {
     setCart((c) => {
       const found = c.find((l) => l.product.id === product.id);
       if (found) return c.map((l) => (l.product.id === product.id ? { ...l, qty: l.qty + 1 } : l));
+      // A sale can only come from one warehouse — block mixing in a product
+      // owned by a different one than what's already in the cart (would
+      // otherwise only surface as a confusing error at checkout).
+      const cartWarehouse = c[0]?.product.warehouseId;
+      if (cartWarehouse && product.warehouseId && product.warehouseId !== cartWarehouse) {
+        toast.error(
+          `${product.name} is stocked at a different warehouse — start a new sale for it.`,
+        );
+        return c;
+      }
       return [...c, { product, qty: 1 }];
     });
 
@@ -217,6 +228,13 @@ export function PosPage() {
     setCart((c) =>
       c.flatMap((l) => (l.product.id === id ? (qty <= 0 ? [] : [{ ...l, qty }]) : [l])),
     );
+
+  // A sale deducts from one warehouse. Target the cart's own owning warehouse
+  // (they should all match — a single register sale really is one location)
+  // rather than whatever is globally "current", so checkout never rejects a
+  // product as belonging to another warehouse. Legacy owner-less products (or
+  // an empty cart) fall back to the global default.
+  const saleWarehouseId = cart[0]?.product.warehouseId ?? defaultWarehouseId;
 
   const subtotal = cart.reduce((s, l) => s + Number(l.product.salePrice) * l.qty, 0);
   const discountAmount = Math.min(
@@ -261,7 +279,7 @@ export function PosPage() {
       return (
         await api.post('/sales', {
           paymentMethod: METHOD_MAP[method],
-          warehouseId,
+          warehouseId: saleWarehouseId,
           customerId: customer?.id,
           paidCash,
           paidBank,

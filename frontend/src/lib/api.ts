@@ -791,6 +791,10 @@ function mapProduct(p: any) {
     // dropdowns round-trip on the catalog id.
     categoryId: p.categoryId || undefined,
     unitId: p.unitId || undefined,
+    // The product's own owning warehouse (set once at creation) — stock
+    // adjustments must target this exact warehouse, not whatever is globally
+    // "current", or the backend rejects with "belongs to another warehouse".
+    warehouseId: p.warehouseId || undefined,
     category: p.category ? { id: p.category.id, name: p.category.name } : null,
     unit: p.unit
       ? { id: p.unit.id, name: p.unit.name, abbreviation: p.unit.abbreviation || p.unit.name }
