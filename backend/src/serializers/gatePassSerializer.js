@@ -48,6 +48,14 @@ function serializeGatePass(gatePass) {
       tax: toRupees(g.pricing?.tax),
       total: toRupees(g.pricing?.total),
     },
+    ...(g.createdBy
+      ? {
+          createdBy: withoutEmptyValues({
+            id: idOf(g.createdBy),
+            name: g.createdBy?.name,
+          }),
+        }
+      : {}),
     status: g.status,
     ...(g.scannedAt ? { scannedAt: g.scannedAt } : {}),
     qrUrl: `/api/gate-passes/${gatePassId}/qr`,

@@ -135,13 +135,13 @@ async function refreshLegacySaleGatePasses() {
 }
 
 async function getGatePassById(id) {
-  let gatePass = await GatePass.findOne({ _id: id, ...SALE_FILTER });
+  let gatePass = await GatePass.findOne({ _id: id, ...SALE_FILTER }).populate('createdBy', 'name');
   if (!gatePass) throw ApiError.notFound('Sale gate pass not found');
   if (needsSnapshotRefresh(gatePass)) {
     const sale = await Sale.findById(gatePass.sale);
     if (sale) {
       await createForSale(sale);
-      gatePass = await GatePass.findById(gatePass._id);
+      gatePass = await GatePass.findById(gatePass._id).populate('createdBy', 'name');
     }
   }
   return gatePass;
@@ -162,7 +162,11 @@ async function listGatePasses({ warehouse, status, ...query } = {}) {
   if (status) filter.status = status;
 
   const [gatePasses, total] = await Promise.all([
-    GatePass.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit),
+    GatePass.find(filter)
+      .populate('createdBy', 'name')
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit),
     GatePass.countDocuments(filter),
   ]);
   return { gatePasses, total, page, limit };
@@ -193,7 +197,7 @@ async function scanGatePass(actor, encodedValue) {
     { token, status: 'ACTIVE', ...SALE_FILTER },
     { $set: { status: 'USED', scannedAt: new Date(), scannedBy: actor ? actor._id : null } },
     { returnDocument: 'after' },
-  );
+  ).populate('createdBy', 'name');
   if (gatePass) {
     if (needsSnapshotRefresh(gatePass)) {
       const sale = await Sale.findById(gatePass.sale);
