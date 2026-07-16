@@ -1,10 +1,8 @@
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Bell, Moon, Sun, LogOut, Search } from 'lucide-react';
+import { Bell, Moon, Sun, LogOut } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { useTheme } from '@/components/theme-provider';
 import { useAuthStore } from '@/store/auth';
-import { WarehouseSwitcher } from '@/components/layout/warehouse-switcher';
 
 const TITLES: Record<string, string> = {
   '/': 'Dashboard',
@@ -18,6 +16,7 @@ const TITLES: Record<string, string> = {
   '/warehouses': 'Warehouses',
   '/customers': 'Customers',
   '/vendors': 'Vendors',
+  '/labour': 'Labour',
   '/ledgers': 'Ledgers',
   '/reports': 'Reports',
   '/cash': 'Cash & Bank',
@@ -42,12 +41,6 @@ export function Header() {
       </div>
 
       <div className="flex items-center gap-2">
-        <WarehouseSwitcher />
-        <div className="relative hidden lg:block">
-          <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input placeholder="Search…" className="w-56 pl-8" />
-        </div>
-
         <Button variant="ghost" size="icon" onClick={toggle} aria-label="Toggle theme">
           <Sun className="h-4 w-4 dark:hidden" />
           <Moon className="hidden h-4 w-4 dark:block" />

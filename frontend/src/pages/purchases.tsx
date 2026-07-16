@@ -30,6 +30,11 @@ interface Line {
   taxRate: number;
   discount: number;
 }
+interface Labour {
+  id: string;
+  name: string;
+  phoneNumber: string;
+}
 
 const GP_FORMATS: { label: string; type: TemplateType }[] = [
   { label: 'Divider Paper', type: 'GP_DIVIDER' },
@@ -50,6 +55,7 @@ export function PurchasesPage() {
   const [invoiceNumber, setInvoiceNumber] = useState(genVendorInvoiceNo);
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [lines, setLines] = useState<Line[]>([]);
+  const [labourIds, setLabourIds] = useState<string[]>([]);
   const [paidAmount, setPaidAmount] = useState(0);
   const [search, setSearch] = useState('');
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -61,6 +67,12 @@ export function PurchasesPage() {
     queryKey: ['vendors-select'],
     queryFn: async () => (await api.get('/vendors')).data,
   });
+  const { data: labourList = [] } = useQuery<Labour[]>({
+    queryKey: ['labour'],
+    queryFn: async () => (await api.get('/labour')).data,
+  });
+  const toggleLabour = (id: string) =>
+    setLabourIds((ids) => (ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]));
   // Always load products (empty search returns the catalog); the dropdown is
   // toggled by focus so you can browse the full list without typing.
   const { data: products = [] } = useQuery<Product[]>({
@@ -105,14 +117,18 @@ export function PurchasesPage() {
   }, [lines]);
 
   const save = useMutation({
-    mutationFn: async () =>
-      (
+    mutationFn: async () => {
+      // Labour has no dedicated field on Goods Purchase — the selected names are
+      // folded into the free-text notes instead.
+      const labourNames = labourList.filter((l) => labourIds.includes(l.id)).map((l) => l.name);
+      return (
         await api.post('/purchases', {
           vendorId,
           warehouseId,
           invoiceNumber: invoiceNumber || undefined,
           date,
           paidAmount,
+          notes: labourNames.length ? `Labour: ${labourNames.join(', ')}` : undefined,
           items: lines.map((l) => ({
             productId: l.productId,
             quantity: l.quantity,
@@ -121,11 +137,13 @@ export function PurchasesPage() {
             discount: l.discount,
           })),
         })
-      ).data,
+      ).data;
+    },
     onSuccess: (gp) => {
       toast.success(`Saved ${gp.gpNumber}`);
       setLastGp(gp);
       setLines([]);
+      setLabourIds([]);
       setPaidAmount(0);
       setInvoiceNumber(genVendorInvoiceNo()); // fresh number for the next GP
       qc.invalidateQueries({ queryKey: ['purchases'] });
@@ -206,6 +224,25 @@ export function PurchasesPage() {
             <div className="space-y-1.5">
               <Label>Date</Label>
               <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+            </div>
+            <div className="col-span-full space-y-1.5">
+              <Label>Labour (optional)</Label>
+              {labourList.length === 0 ? (
+                <p className="text-xs text-muted-foreground">No labour records yet.</p>
+              ) : (
+                <div className="flex flex-wrap gap-3 rounded-md border p-2.5">
+                  {labourList.map((l) => (
+                    <label key={l.id} className="flex items-center gap-1.5 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={labourIds.includes(l.id)}
+                        onChange={() => toggleLabour(l.id)}
+                      />
+                      {l.name}
+                    </label>
+                  ))}
+                </div>
+              )}
             </div>
           </CardContent>
         </Card>
