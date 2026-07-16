@@ -7,6 +7,19 @@ const gatePassItemSchema = new mongoose.Schema(
     sku: { type: String, trim: true, default: '' },
     barcode: { type: String, trim: true, default: '' },
     quantity: { type: Number, required: true, min: 0 },
+    unitPrice: { type: Number, min: 0 }, // paisa snapshot from the sale
+    lineTotal: { type: Number, min: 0 }, // paisa snapshot from the sale
+  },
+  { _id: false },
+);
+
+const gatePassPricingSchema = new mongoose.Schema(
+  {
+    subtotal: { type: Number, required: true, min: 0 },
+    discount: { type: Number, required: true, min: 0 },
+    taxPercent: { type: Number, required: true, min: 0 },
+    tax: { type: Number, required: true, min: 0 },
+    total: { type: Number, required: true, min: 0 },
   },
   { _id: false },
 );
@@ -40,6 +53,7 @@ const gatePassSchema = new mongoose.Schema(
     saleDate: { type: Date, required: true },
     customerInfo: { type: gatePassCustomerSchema, required: true },
     items: { type: [gatePassItemSchema], required: true },
+    pricing: { type: gatePassPricingSchema, default: null },
     status: {
       type: String,
       enum: ['ACTIVE', 'USED', 'CANCELLED'],

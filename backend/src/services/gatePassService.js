@@ -49,10 +49,30 @@ async function saleSnapshot(sale, suppliedCustomer = null) {
         sku: (product && product.sku) || '',
         barcode: (product && product.barcode) || '',
         quantity: item.quantity,
+        unitPrice: item.unitPrice,
+        lineTotal: item.lineTotal,
       };
     }),
+    pricing: {
+      subtotal: sale.subtotal,
+      discount: sale.discount || 0,
+      taxPercent: sale.taxPercent || 0,
+      tax: sale.tax || 0,
+      total: sale.total,
+    },
     createdBy: refId(sale.createdBy) || null,
   };
+}
+
+function needsSnapshotRefresh(gatePass) {
+  return (
+    !gatePass.customerInfo ||
+    !gatePass.saleDate ||
+    !gatePass.pricing ||
+    (gatePass.items || []).some(
+      (item) => typeof item.unitPrice !== 'number' || typeof item.lineTotal !== 'number',
+    )
+  );
 }
 
 async function linkSale(saleId, gatePassId) {
@@ -98,7 +118,13 @@ async function createForSale(sale, customer = null) {
 async function refreshLegacySaleGatePasses() {
   const stalePasses = await GatePass.find({
     ...SALE_FILTER,
-    $or: [{ customerInfo: { $exists: false } }, { saleDate: { $exists: false } }],
+    $or: [
+      { customerInfo: { $exists: false } },
+      { saleDate: { $exists: false } },
+      { pricing: { $in: [null] } },
+      { 'items.unitPrice': { $exists: false } },
+      { 'items.lineTotal': { $exists: false } },
+    ],
   }).select('sale');
 
   for (const stalePass of stalePasses) {
@@ -111,7 +137,7 @@ async function refreshLegacySaleGatePasses() {
 async function getGatePassById(id) {
   let gatePass = await GatePass.findOne({ _id: id, ...SALE_FILTER });
   if (!gatePass) throw ApiError.notFound('Sale gate pass not found');
-  if (!gatePass.customerInfo || !gatePass.saleDate) {
+  if (needsSnapshotRefresh(gatePass)) {
     const sale = await Sale.findById(gatePass.sale);
     if (sale) {
       await createForSale(sale);
@@ -169,7 +195,7 @@ async function scanGatePass(actor, encodedValue) {
     { returnDocument: 'after' },
   );
   if (gatePass) {
-    if (!gatePass.customerInfo || !gatePass.saleDate) {
+    if (needsSnapshotRefresh(gatePass)) {
       const sale = await Sale.findById(gatePass.sale);
       if (sale) {
         await createForSale(sale);

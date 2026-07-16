@@ -1,3 +1,5 @@
+const { toRupees } = require('../utils/money');
+
 function idOf(value) {
   if (!value) return null;
   return String(value._id ?? value);
@@ -35,8 +37,17 @@ function serializeGatePass(gatePass) {
         sku: item.sku,
         barcode: item.barcode,
         quantity: item.quantity,
+        unitPrice: toRupees(item.unitPrice),
+        lineTotal: toRupees(item.lineTotal),
       }),
     ),
+    pricing: {
+      subtotal: toRupees(g.pricing?.subtotal),
+      discount: toRupees(g.pricing?.discount),
+      taxPercent: g.pricing?.taxPercent || 0,
+      tax: toRupees(g.pricing?.tax),
+      total: toRupees(g.pricing?.total),
+    },
     status: g.status,
     ...(g.scannedAt ? { scannedAt: g.scannedAt } : {}),
     qrUrl: `/api/gate-passes/${gatePassId}/qr`,
