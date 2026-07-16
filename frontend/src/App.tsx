@@ -13,6 +13,7 @@ import { CategoriesPage } from '@/pages/categories';
 import { UnitsPage } from '@/pages/units';
 import { PurchasesPage } from '@/pages/purchases';
 import { VendorsPage } from '@/pages/vendors';
+import { LabourPage } from '@/pages/labour';
 import { CustomersPage } from '@/pages/customers';
 import { SalesPage } from '@/pages/sales';
 import { SettingsPage } from '@/pages/settings';
@@ -65,6 +66,7 @@ const MODULE_ROUTES: { path: string; element: React.ReactElement }[] = [
   { path: 'invoices', element: <InvoicesPage /> },
   { path: 'customers', element: <CustomersPage /> },
   { path: 'vendors', element: <VendorsPage /> },
+  { path: 'labour', element: <LabourPage /> },
   { path: 'ledgers', element: <LedgersPage /> },
   { path: 'reports', element: <ReportsPage /> },
   { path: 'cash', element: <CashPage /> },

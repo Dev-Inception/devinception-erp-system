@@ -16,6 +16,7 @@ import {
   ShieldCheck,
   Tags,
   Ruler,
+  HardHat,
 } from 'lucide-react';
 import type { Role } from '@/store/auth';
 
@@ -96,6 +97,14 @@ export const MODULES: ModuleDef[] = [
   { key: 'customers', to: '/customers', label: 'Customers', section: 'Partners', icon: Users },
   { key: 'vendors', to: '/vendors', label: 'Vendors', section: 'Partners', icon: Truck },
   {
+    key: 'labour',
+    to: '/labour',
+    label: 'Labour',
+    section: 'Partners',
+    icon: HardHat,
+    defaultRoles: ['CASHIER', 'MANAGER', 'ADMIN'],
+  },
+  {
     key: 'ledgers',
     to: '/ledgers',
     label: 'Ledgers',
@@ -159,6 +168,9 @@ export const MODULE_PERMISSION: Record<string, string> = {
   warehouses: 'inventory:manage',
   customers: 'customers:read',
   vendors: 'vendors:read',
+  // Matches the backend's /labour read routes, which require sales:create
+  // (not a dedicated labour permission) — see labourRoutes.js.
+  labour: 'sales:create',
   ledgers: 'finance:read',
   reports: 'reports:read',
   cash: 'finance:manage',

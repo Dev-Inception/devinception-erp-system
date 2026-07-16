@@ -197,12 +197,13 @@ export function PosPage() {
   const [taxPct, setTaxPct] = useState<number>(0);
   const [customer, setCustomer] = useState<CustomerLite | null>(null);
   const [customerPickerOpen, setCustomerPickerOpen] = useState(false);
+  // Checkout still deducts from one warehouse (below), but the catalog itself
+  // is business-wide — no warehouse filter when browsing/searching products.
   const warehouseId = useWarehouseStore((s) => s.currentId);
 
   const { data: products = [] } = useQuery<Product[]>({
-    queryKey: ['pos-products', search, warehouseId],
-    queryFn: async () => (await api.get('/products', { params: { search, warehouseId } })).data,
-    enabled: !!warehouseId,
+    queryKey: ['pos-products', search],
+    queryFn: async () => (await api.get('/products', { params: { search } })).data,
   });
 
   const addToCart = (product: Product) =>

@@ -61,6 +61,11 @@ export interface Vendor {
   ntn?: string;
   openingBalance: number;
 }
+export interface Labour {
+  id: string;
+  name: string;
+  phoneNumber: string;
+}
 export interface SaleItem {
   productId: string;
   name: string;
@@ -191,6 +196,11 @@ export const db = {
     { id: 'u1', name: 'Piece', abbreviation: 'pc' },
     { id: 'u2', name: 'Box', abbreviation: 'box' },
   ] as Unit[],
+
+  labour: [
+    { id: 'lb1', name: 'Imran Khan', phoneNumber: '0300-1234567' },
+    { id: 'lb2', name: 'Bilal Ahmed', phoneNumber: '0321-9876543' },
+  ] as Labour[],
 
   products: [
     {

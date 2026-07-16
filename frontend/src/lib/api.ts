@@ -488,6 +488,7 @@ function createPurchase(body: any) {
     discountTotal,
     grandTotal,
     paidAmount,
+    note: body.notes || undefined,
     items,
   };
   db.purchases.push(gp);
@@ -575,6 +576,7 @@ async function handle(
       return ok({ categories: db.categories, brands: db.brands, units: db.units });
     if (url === '/categories') return ok(db.categories);
     if (url === '/units') return ok(db.units);
+    if (url === '/labour') return ok(db.labour);
     if (url === '/customers') return ok(listCustomers(params.search));
     if (url === '/vendors') return ok(listVendors(params.search));
     if (url === '/sales') return ok(listSales());
@@ -631,6 +633,11 @@ async function handle(
       const u = { id: uid('unit'), name: body.name, abbreviation: body.abbreviation || body.name };
       db.units.push(u);
       return ok(u);
+    }
+    if (url === '/labour') {
+      const l = { id: uid('lb'), name: body.name, phoneNumber: body.phoneNumber };
+      db.labour.push(l);
+      return ok(l);
     }
     if (url === '/cash') {
       const t = {
@@ -721,7 +728,8 @@ async function handle(
  * not matched here falls through to the in-memory mock above. Migrate a module
  * by adding its routes to `tryReal`.
  *
- * Migrated so far: Inventory — Warehouses, Products, Catalog (Categories, Units), Stock adjust.
+ * Migrated so far: Inventory — Warehouses, Products, Catalog (Categories, Units), Stock adjust;
+ * Partners — Labour.
  * ══════════════════════════════════════════════════════════════════════ */
 const wrap = <T>(data: T) => ({ data });
 
@@ -809,12 +817,15 @@ async function realProductsList(params: any) {
 function productPayload(body: any) {
   // FE → backend field mapping. Catalog refs are real catalog ids, so send them
   // as *Id fields (the backend resolves refs by id); taxRate→taxPercent.
+  // warehouseId is required on create (a product belongs to one warehouse) and
+  // unused on update, so it's simply omitted there (undefined).
   return {
     name: body.name,
     sku: body.sku,
     barcode: body.barcode,
     categoryId: body.categoryId || undefined,
     unitId: body.unitId || undefined,
+    warehouseId: body.warehouseId || undefined,
     purchasePrice: body.purchasePrice,
     salePrice: body.salePrice,
     taxPercent: body.taxRate,
@@ -891,6 +902,30 @@ async function realUpdateUnit(id: string, body: any) {
 }
 async function realDeleteUnit(id: string) {
   await http.delete(`/catalog/units/${id}`);
+  return { success: true };
+}
+
+/* ── Labour (a standalone /labour master, not nested under /catalog) ── */
+function mapLabour(l: any) {
+  return { id: String(l._id ?? l.id), name: l.name, phoneNumber: l.phoneNumber };
+}
+async function realLabourList() {
+  const res = await http.get('/labour');
+  return (res.data.labour as any[]).map(mapLabour);
+}
+async function realCreateLabour(body: any) {
+  const res = await http.post('/labour', { name: body.name, phoneNumber: body.phoneNumber });
+  return mapLabour(res.data.labour);
+}
+async function realUpdateLabour(id: string, body: any) {
+  const res = await http.patch(`/labour/${id}`, {
+    name: body.name,
+    phoneNumber: body.phoneNumber,
+  });
+  return mapLabour(res.data.labour);
+}
+async function realDeleteLabour(id: string) {
+  await http.delete(`/labour/${id}`);
   return { success: true };
 }
 
@@ -1125,6 +1160,7 @@ async function realCreatePurchase(body: any) {
     // FE captures no payment method; default to cash when something is paid.
     paymentMethod: paid > 0 ? 'CASH' : undefined,
     items,
+    notes: body.notes || undefined,
   });
   // The create response doesn't populate the vendor name (the print needs it).
   let vendorName: string | undefined;
@@ -1493,6 +1529,7 @@ async function tryReal(
     if (url === '/catalog') return wrap(await realCatalog());
     if (url === '/categories') return wrap(await realCategories());
     if (url === '/units') return wrap(await realUnits());
+    if (url === '/labour') return wrap(await realLabourList());
     if (url === '/customers') return wrap(await realCustomers(params));
     if (url === '/vendors') return wrap(await realVendors(params));
     if (url === '/sales') return wrap(await realSales());
@@ -1515,6 +1552,7 @@ async function tryReal(
     if (url === '/products') return wrap(await realCreateProduct(body));
     if (url === '/categories') return wrap(await realCreateCategory(body));
     if (url === '/units') return wrap(await realCreateUnit(body));
+    if (url === '/labour') return wrap(await realCreateLabour(body));
     if (url === '/stock/adjust') return wrap(await realAdjustStock(body));
     if (url === '/customers') return wrap(await realCreateCustomer(body));
     if (url === '/vendors') return wrap(await realCreateVendor(body));
@@ -1543,6 +1581,7 @@ async function tryReal(
       return wrap(await realUpdateWarehouse(seg[1], body));
     if (seg[0] === 'categories' && seg[1]) return wrap(await realUpdateCategory(seg[1], body));
     if (seg[0] === 'units' && seg[1]) return wrap(await realUpdateUnit(seg[1], body));
+    if (seg[0] === 'labour' && seg[1]) return wrap(await realUpdateLabour(seg[1], body));
     if (seg[0] === 'users' && seg[1] && !seg[2]) return wrap(await realUpdateUser(seg[1], body));
     if (seg[0] === 'users' && seg[2] === 'role')
       return wrap(await realUpdateUserRole(seg[1], body));
@@ -1561,6 +1600,7 @@ async function tryReal(
       return wrap(await realDeleteWarehouse(seg[1]));
     if (seg[0] === 'categories' && seg[1]) return wrap(await realDeleteCategory(seg[1]));
     if (seg[0] === 'units' && seg[1]) return wrap(await realDeleteUnit(seg[1]));
+    if (seg[0] === 'labour' && seg[1]) return wrap(await realDeleteLabour(seg[1]));
   }
   return undefined;
 }

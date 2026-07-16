@@ -1,6 +1,5 @@
 import { useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Warehouse } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useWarehouseStore } from '@/store/warehouse';
 
@@ -31,29 +30,4 @@ export function useWarehouses() {
   }, [query.data, currentId, setCurrent]);
 
   return { warehouses: query.data ?? [], currentId };
-}
-
-export function WarehouseSwitcher() {
-  const { setCurrent } = useWarehouseStore();
-  const { warehouses, currentId } = useWarehouses();
-
-  if (warehouses.length === 0) return null;
-
-  return (
-    <div className="flex items-center gap-2 rounded-md border bg-card px-2.5 py-1.5">
-      <Warehouse className="h-4 w-4 text-muted-foreground" />
-      <select
-        value={currentId ?? ''}
-        onChange={(e) => setCurrent(e.target.value)}
-        className="bg-transparent text-sm font-medium focus-visible:outline-none"
-        aria-label="Active warehouse"
-      >
-        {warehouses.map((w) => (
-          <option key={w.id} value={w.id}>
-            {w.name}
-          </option>
-        ))}
-      </select>
-    </div>
-  );
 }
