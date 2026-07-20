@@ -198,6 +198,9 @@ export function PosPage() {
   const [taxPct, setTaxPct] = useState<number>(0);
   const [customer, setCustomer] = useState<CustomerLite | null>(null);
   const [customerPickerOpen, setCustomerPickerOpen] = useState(false);
+  const [completedSale, setCompletedSale] = useState<any | null>(null);
+  const [qrImageUrl, setQrImageUrl] = useState<string | null>(null);
+  const [qrLoading, setQrLoading] = useState(false);
   // Checkout still deducts from one warehouse (below), but the catalog itself
   // is business-wide — no warehouse filter when browsing/searching products.
   const defaultWarehouseId = useWarehouseStore((s) => s.currentId);
@@ -300,13 +303,31 @@ export function PosPage() {
         })
       ).data;
     },
-    onSuccess: (sale) => {
+    onSuccess: async (sale) => {
       toast.success(`Sale ${sale.saleNumber} completed`);
-      reset();
       qc.invalidateQueries({ queryKey: ['pos-products'] });
+      setCompletedSale(sale);
+      if (sale.gatePassQrUrl) {
+        setQrLoading(true);
+        try {
+          const res = await api.get(sale.gatePassQrUrl, { responseType: 'blob' });
+          setQrImageUrl(URL.createObjectURL(res.data));
+        } catch {
+          toast.error('Sale completed, but the gate pass QR could not be loaded');
+        } finally {
+          setQrLoading(false);
+        }
+      }
     },
     onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Checkout failed'),
   });
+
+  const closeReceipt = () => {
+    if (qrImageUrl) URL.revokeObjectURL(qrImageUrl);
+    setQrImageUrl(null);
+    setCompletedSale(null);
+    reset();
+  };
 
   // guard: require a receipt for online payments; mixed split must cover the total
   const mixedShort = method === 'MIXED' && cashAmount + onlineAmount + 0.001 < grandTotal;
@@ -628,6 +649,36 @@ export function PosPage() {
         onOpenChange={setCustomerPickerOpen}
         onSelect={setCustomer}
       />
+
+      <Dialog open={!!completedSale} onOpenChange={(open) => !open && closeReceipt()}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Sale {completedSale?.saleNumber} completed</DialogTitle>
+            <DialogDescription>
+              Total {formatCurrency(completedSale?.grandTotal ?? 0)} — show this gate pass QR code
+              at the warehouse exit.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col items-center gap-3 py-2">
+            {qrLoading && <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />}
+            {!qrLoading && qrImageUrl && (
+              <img
+                src={qrImageUrl}
+                alt="Gate pass QR code"
+                className="h-56 w-56 rounded-md border"
+              />
+            )}
+            {!qrLoading && !qrImageUrl && (
+              <p className="text-sm text-muted-foreground">
+                No gate pass QR available for this sale.
+              </p>
+            )}
+          </div>
+          <Button className="w-full" onClick={closeReceipt}>
+            New Sale
+          </Button>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

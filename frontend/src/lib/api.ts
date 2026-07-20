@@ -1079,6 +1079,9 @@ function mapSale(s: any) {
       amount: it.lineTotal,
     })),
     customer: cname ? { name: cname } : undefined,
+    gatePassId: s.gatePassId,
+    gatePassUrl: s.gatePassUrl,
+    gatePassQrUrl: s.gatePassQrUrl,
   };
 }
 async function realSales() {
@@ -1107,6 +1110,10 @@ async function realCreateSale(body: any) {
     },
   });
   return mapSale(res.data.sale);
+}
+async function realGatePassQr(id: string) {
+  const res = await http.get(`/gate-passes/${id}/qr`, { responseType: 'blob' });
+  return res.data as Blob;
 }
 
 /* ── Purchases (GP) ── */
@@ -1543,6 +1550,7 @@ async function tryReal(
     if (url === '/roles') return wrap(await realRoles());
     if (url === '/invoices') return wrap(await realInvoices());
     if (seg[0] === 'invoices' && seg[2] === 'pdf') return wrap(await realInvoicePdf(seg[1]));
+    if (seg[0] === 'gate-passes' && seg[2] === 'qr') return wrap(await realGatePassQr(seg[1]));
     if (url === '/settings') return wrap(await realSettings());
     if (url === '/dashboard/kpis') return wrap(await realDashKpis());
     if (url === '/dashboard/sales-trend') return wrap(await realDashTrend());
