@@ -1,11 +1,12 @@
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { ShoppingCart, FileText } from 'lucide-react';
+import { toast } from 'sonner';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { api } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
-import { printDocument } from '@/lib/printing';
+import { openSaleInvoicePopup } from '@/lib/invoicePopup';
 
 interface SaleItem {
   name: string;
@@ -28,6 +29,7 @@ interface Sale {
   status: string;
   customer?: { name: string };
   items: SaleItem[];
+  gatePassQrUrl?: string;
 }
 
 const PAYMENT_LABEL: Record<string, string> = {
@@ -44,23 +46,19 @@ export function SalesPage() {
     queryFn: async () => (await api.get('/sales')).data,
   });
 
-  const handleViewInvoice = (s: Sale) =>
-    printDocument('INVOICE_A4', {
-      company: { name: 'DevInception Retail', address: 'HQ, Lahore', phone: '+92 300 1234567' },
-      number: s.saleNumber,
-      date: new Date(s.date).toLocaleString(),
-      partyName: s.customer?.name ?? 'Walk-in Customer',
-      items: s.items.map((i) => ({
-        name: i.name,
-        qty: Number(i.quantity),
-        price: Number(i.unitPrice),
-        amount: Number(i.amount),
-      })),
-      subtotal: Number(s.subtotal),
-      tax: Number(s.taxTotal),
-      discount: Number(s.discountTotal),
-      total: Number(s.grandTotal),
-    });
+  const handleViewInvoice = async (s: Sale) => {
+    // Open synchronously so the browser ties the popup to this click, not to
+    // the async gate-pass QR fetch that happens before it's filled in.
+    const win = window.open('', '_blank', 'width=850,height=1000');
+    win?.document.write(
+      '<p style="font-family:sans-serif;padding:24px;color:#666">Preparing invoice…</p>',
+    );
+    try {
+      await openSaleInvoicePopup(s, win);
+    } catch {
+      toast.error('Enable popups to view the printable invoice');
+    }
+  };
 
   return (
     <div className="space-y-4">

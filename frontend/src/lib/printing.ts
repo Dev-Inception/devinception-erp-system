@@ -26,6 +26,9 @@ interface DocData {
   discount?: number;
   total: number;
   notes?: string;
+  // Gate pass QR, as a data: URL (INVOICE_A4 only) — shown so the customer can
+  // take the printed/saved invoice straight to the warehouse exit.
+  qrDataUrl?: string;
 }
 
 const thermalStyles = `
@@ -96,6 +99,11 @@ export function renderTemplate(type: TemplateType, d: DocData): string {
     <div class="head">
       <div><h1>${heading}</h1><p>${d.company.name}<br/>${d.company.address ?? ''}<br/>${d.company.phone ?? ''}</p></div>
       <div class="r"><strong>${d.number}</strong><br/>${d.date}${d.partyName ? `<br/>${d.partyName}` : ''}</div>
+      ${
+        d.qrDataUrl
+          ? `<div class="r" style="margin-left:16px"><img src="${d.qrDataUrl}" width="90" height="90" /><p style="font-size:10px;color:#666;margin:2px 0 0">Gate pass QR</p></div>`
+          : ''
+      }
     </div>
     <table>
       <thead><tr><th>Item</th><th class="r">Qty</th><th class="r">Rate</th><th class="r">Amount</th></tr></thead>

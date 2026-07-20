@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Search,
@@ -28,6 +28,7 @@ import {
 import { api } from '@/lib/api';
 import { formatCurrency, cn } from '@/lib/utils';
 import { useWarehouseStore } from '@/store/warehouse';
+import { openSaleInvoicePopup } from '@/lib/invoicePopup';
 
 interface Product {
   id: string;
@@ -198,9 +199,10 @@ export function PosPage() {
   const [taxPct, setTaxPct] = useState<number>(0);
   const [customer, setCustomer] = useState<CustomerLite | null>(null);
   const [customerPickerOpen, setCustomerPickerOpen] = useState(false);
-  const [completedSale, setCompletedSale] = useState<any | null>(null);
-  const [qrImageUrl, setQrImageUrl] = useState<string | null>(null);
-  const [qrLoading, setQrLoading] = useState(false);
+  // Opened synchronously on "Charge" (a direct user gesture) so the browser
+  // doesn't treat it as a blocked popup once we fill it in later, after the
+  // async sale-creation + QR fetch complete.
+  const invoiceWindowRef = useRef<Window | null>(null);
   // Checkout still deducts from one warehouse (below), but the catalog itself
   // is business-wide — no warehouse filter when browsing/searching products.
   const defaultWarehouseId = useWarehouseStore((s) => s.currentId);
@@ -306,28 +308,19 @@ export function PosPage() {
     onSuccess: async (sale) => {
       toast.success(`Sale ${sale.saleNumber} completed`);
       qc.invalidateQueries({ queryKey: ['pos-products'] });
-      setCompletedSale(sale);
-      if (sale.gatePassQrUrl) {
-        setQrLoading(true);
-        try {
-          const res = await api.get(sale.gatePassQrUrl, { responseType: 'blob' });
-          setQrImageUrl(URL.createObjectURL(res.data));
-        } catch {
-          toast.error('Sale completed, but the gate pass QR could not be loaded');
-        } finally {
-          setQrLoading(false);
-        }
+      try {
+        await openSaleInvoicePopup(sale, invoiceWindowRef.current);
+      } catch {
+        toast.error('Enable popups to view the printable invoice');
       }
+      reset();
     },
-    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Checkout failed'),
+    onError: (e: any) => {
+      toast.error(e?.response?.data?.message ?? 'Checkout failed');
+      invoiceWindowRef.current?.close();
+      invoiceWindowRef.current = null;
+    },
   });
-
-  const closeReceipt = () => {
-    if (qrImageUrl) URL.revokeObjectURL(qrImageUrl);
-    setQrImageUrl(null);
-    setCompletedSale(null);
-    reset();
-  };
 
   // guard: require a receipt for online payments; mixed split must cover the total
   const mixedShort = method === 'MIXED' && cashAmount + onlineAmount + 0.001 < grandTotal;
@@ -636,7 +629,15 @@ export function PosPage() {
           <Button
             className="h-11 w-full text-base"
             disabled={!canCharge}
-            onClick={() => checkout.mutate()}
+            onClick={() => {
+              // Open the popup now, synchronously, so it's tied to this click
+              // and not blocked once we fill it in after the async checkout.
+              invoiceWindowRef.current = window.open('', '_blank', 'width=850,height=1000');
+              invoiceWindowRef.current?.document.write(
+                '<p style="font-family:sans-serif;padding:24px;color:#666">Preparing invoice…</p>',
+              );
+              checkout.mutate();
+            }}
           >
             {checkout.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
             Charge {formatCurrency(grandTotal)}
@@ -649,36 +650,6 @@ export function PosPage() {
         onOpenChange={setCustomerPickerOpen}
         onSelect={setCustomer}
       />
-
-      <Dialog open={!!completedSale} onOpenChange={(open) => !open && closeReceipt()}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle>Sale {completedSale?.saleNumber} completed</DialogTitle>
-            <DialogDescription>
-              Total {formatCurrency(completedSale?.grandTotal ?? 0)} — show this gate pass QR code
-              at the warehouse exit.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="flex flex-col items-center gap-3 py-2">
-            {qrLoading && <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />}
-            {!qrLoading && qrImageUrl && (
-              <img
-                src={qrImageUrl}
-                alt="Gate pass QR code"
-                className="h-56 w-56 rounded-md border"
-              />
-            )}
-            {!qrLoading && !qrImageUrl && (
-              <p className="text-sm text-muted-foreground">
-                No gate pass QR available for this sale.
-              </p>
-            )}
-          </div>
-          <Button className="w-full" onClick={closeReceipt}>
-            New Sale
-          </Button>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

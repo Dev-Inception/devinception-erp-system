@@ -1371,7 +1371,8 @@ async function realCreateBankAccount(body: any) {
 /* ── Invoices ── */
 function mapInvoice(i: any) {
   // Backend already serializes to the FE field names (invoiceNumber, issueDate,
-  // grandTotal, paidAmount, status, customer.name); we just pin a stable id.
+  // grandTotal, paidAmount, status); `customer` is the backend's compatibility
+  // alias for the vendor these purchase invoices actually belong to.
   return {
     id: String(i._id ?? i.id),
     invoiceNumber: i.invoiceNumber,
@@ -1379,11 +1380,27 @@ function mapInvoice(i: any) {
     status: i.status,
     grandTotal: i.grandTotal,
     paidAmount: i.paidAmount,
-    customer: i.customer ? { name: i.customer.name } : undefined,
+    vendor: i.customer ? { name: i.customer.name } : undefined,
   };
 }
-async function realInvoices() {
-  const res = await http.get('/invoices', { params: { limit: 100 } });
+// The backend filters `?status=` against the invoice's raw stored enum
+// (UNPAID/PARTIAL/PAID), but the response's `status` field is a different,
+// serializer-computed display vocabulary (ISSUED/PARTIALLY_PAID/PAID) — so a
+// filter built from what the UI shows has to be translated back before it's sent.
+const INVOICE_STATUS_TO_RAW: Record<string, string> = {
+  ISSUED: 'UNPAID',
+  PARTIALLY_PAID: 'PARTIAL',
+  PAID: 'PAID',
+};
+async function realInvoices(params: any = {}) {
+  const res = await http.get('/invoices', {
+    params: {
+      limit: 100,
+      status: params.status ? INVOICE_STATUS_TO_RAW[params.status] : undefined,
+      from: params.from || undefined,
+      to: params.to || undefined,
+    },
+  });
   return (res.data.invoices as any[]).map(mapInvoice);
 }
 async function realCreateInvoice(body: any) {
@@ -1548,7 +1565,7 @@ async function tryReal(
     if (url === '/bank/accounts') return wrap(await realBankAccounts());
     if (url === '/users') return wrap(await realUsers());
     if (url === '/roles') return wrap(await realRoles());
-    if (url === '/invoices') return wrap(await realInvoices());
+    if (url === '/invoices') return wrap(await realInvoices(params));
     if (seg[0] === 'invoices' && seg[2] === 'pdf') return wrap(await realInvoicePdf(seg[1]));
     if (seg[0] === 'gate-passes' && seg[2] === 'qr') return wrap(await realGatePassQr(seg[1]));
     if (url === '/settings') return wrap(await realSettings());
