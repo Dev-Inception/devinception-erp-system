@@ -2,6 +2,8 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { cn, formatCurrency } from '@/lib/utils';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { api } from '@/lib/api';
 
 type Kind = 'customers' | 'vendors';
@@ -21,15 +23,22 @@ interface LedgerRow {
 export function LedgersPage() {
   const [kind, setKind] = useState<Kind>('customers');
   const [selected, setSelected] = useState<Party | null>(null);
+  const [from, setFrom] = useState('');
+  const [to, setTo] = useState('');
 
   const { data: parties = [] } = useQuery<Party[]>({
     queryKey: [kind],
     queryFn: async () => (await api.get(`/${kind}`)).data,
   });
 
-  const { data: ledger } = useQuery<{ balance: number; entries: LedgerRow[] }>({
-    queryKey: ['ledger', kind, selected?.id],
-    queryFn: async () => (await api.get(`/${kind}/${selected!.id}/ledger`)).data,
+  const { data: ledger } = useQuery<{ balance: number; opening: number; entries: LedgerRow[] }>({
+    queryKey: ['ledger', kind, selected?.id, from, to],
+    queryFn: async () =>
+      (
+        await api.get(`/${kind}/${selected!.id}/ledger`, {
+          params: { from: from || undefined, to: to || undefined },
+        })
+      ).data,
     enabled: !!selected,
   });
 
@@ -76,15 +85,48 @@ export function LedgersPage() {
       </Card>
 
       <Card>
-        <CardHeader>
-          <CardTitle>{selected ? `${selected.name} — Statement` : 'Select an account'}</CardTitle>
+        <CardHeader className="flex flex-row flex-wrap items-end justify-between gap-4 space-y-0">
+          <div>
+            <CardTitle>{selected ? `${selected.name} — Statement` : 'Select an account'}</CardTitle>
+            {selected && (
+              <p className="text-sm text-muted-foreground">
+                {from && (
+                  <>
+                    Opening balance:{' '}
+                    <span className="font-medium text-foreground">
+                      {formatCurrency(ledger?.opening ?? 0)}
+                    </span>
+                    {' · '}
+                  </>
+                )}
+                {from || to ? 'Closing balance' : 'Current balance'}:{' '}
+                <span className="font-semibold text-foreground">
+                  {formatCurrency(ledger?.balance ?? 0)}
+                </span>
+              </p>
+            )}
+          </div>
           {selected && (
-            <p className="text-sm text-muted-foreground">
-              Current balance:{' '}
-              <span className="font-semibold text-foreground">
-                {formatCurrency(ledger?.balance ?? 0)}
-              </span>
-            </p>
+            <div className="flex items-end gap-2">
+              <div className="space-y-1.5">
+                <Label className="text-xs">From</Label>
+                <Input
+                  type="date"
+                  value={from}
+                  onChange={(e) => setFrom(e.target.value)}
+                  className="h-8 w-36 text-sm"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs">To</Label>
+                <Input
+                  type="date"
+                  value={to}
+                  onChange={(e) => setTo(e.target.value)}
+                  className="h-8 w-36 text-sm"
+                />
+              </div>
+            </div>
           )}
         </CardHeader>
         <CardContent className="p-0">

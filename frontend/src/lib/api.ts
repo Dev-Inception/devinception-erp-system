@@ -1482,11 +1482,16 @@ async function realUpdateRole(id: string, body: any) {
 }
 
 /* ── Party ledger (customer/vendor statement) ── */
-async function realPartyLedger(kindPlural: string, id: string) {
+async function realPartyLedger(kindPlural: string, id: string, params: any = {}) {
   const kind = kindPlural === 'customers' ? 'customer' : 'vendor';
-  const stmt = (await http.get(`/finance/ledgers/${kind}/${id}`)).data; // { party, opening, closing, rows }
+  const stmt = (
+    await http.get(`/finance/ledgers/${kind}/${id}`, {
+      params: { from: params.from || undefined, to: params.to || undefined },
+    })
+  ).data; // { party, opening, closing, rows }
   return {
     balance: stmt.closing ?? 0,
+    opening: stmt.opening ?? 0,
     entries: (stmt.rows as any[]).map((r) => ({
       date: r.date,
       description: r.description || undefined,
@@ -1574,7 +1579,7 @@ async function tryReal(
     if (url === '/dashboard/top-products') return wrap(await realDashTop());
     if (seg[0] === 'reports' && seg[1]) return wrap(await realReport(seg[1], params));
     if ((seg[0] === 'customers' || seg[0] === 'vendors') && seg[2] === 'ledger')
-      return wrap(await realPartyLedger(seg[0], seg[1]));
+      return wrap(await realPartyLedger(seg[0], seg[1], params));
   }
   if (method === 'post') {
     if (url === '/warehouses') return wrap(await realCreateWarehouse(body));
