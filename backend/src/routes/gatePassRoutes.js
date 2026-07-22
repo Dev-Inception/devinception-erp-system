@@ -7,7 +7,6 @@ const { PERMISSIONS } = require('../utils/permissions');
 const {
   gatePassIdParamValidator,
   saleParamValidator,
-  purchaseParamValidator,
   listGatePassValidator,
   scanGatePassValidator,
 } = require('../validators/gatePassValidator');
@@ -35,13 +34,6 @@ router.get(
   saleParamValidator,
   validate,
   gatePassController.getGatePassBySale,
-);
-router.get(
-  '/purchase/:purchaseId',
-  requirePermission(PERMISSIONS.INVENTORY_READ),
-  purchaseParamValidator,
-  validate,
-  gatePassController.getGatePassByPurchase,
 );
 router.get(
   '/:gatePassId/qr',

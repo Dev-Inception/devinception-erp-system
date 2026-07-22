@@ -20,34 +20,16 @@ function serializeGatePass(gatePass) {
   return {
     id: gatePassId,
     number: g.number,
-    sourceType: g.sourceType || 'SALE',
-    documentNumber: g.documentNumber,
-    documentDate: g.sourceType === 'PURCHASE' ? g.purchaseDate : g.saleDate,
-    ...(g.sourceType === 'PURCHASE'
-      ? {
-          purchaseId: idOf(g.purchase),
-          purchaseNumber: g.documentNumber,
-          purchaseDate: g.purchaseDate,
-          vendor: withoutEmptyValues({
-            id: idOf(g.vendorInfo?.vendor),
-            name: g.vendorInfo?.name,
-            phone: g.vendorInfo?.phone,
-            email: g.vendorInfo?.email,
-            address: g.vendorInfo?.address,
-          }),
-        }
-      : {
-          saleId: idOf(g.sale),
-          saleNumber: g.documentNumber,
-          saleDate: g.saleDate,
-          customer: withoutEmptyValues({
-            id: idOf(g.customerInfo?.customer),
-            name: g.customerInfo?.name,
-            phone: g.customerInfo?.phone,
-            email: g.customerInfo?.email,
-            address: g.customerInfo?.address,
-          }),
-        }),
+    saleId: idOf(g.sale),
+    saleNumber: g.documentNumber,
+    saleDate: g.saleDate,
+    customer: withoutEmptyValues({
+      id: idOf(g.customerInfo?.customer),
+      name: g.customerInfo?.name,
+      phone: g.customerInfo?.phone,
+      email: g.customerInfo?.email,
+      address: g.customerInfo?.address,
+    }),
     items: (g.items || []).map((item) =>
       withoutEmptyValues({
         productId: idOf(item.product),
@@ -55,9 +37,7 @@ function serializeGatePass(gatePass) {
         sku: item.sku,
         barcode: item.barcode,
         quantity: item.quantity,
-        ...(g.sourceType === 'PURCHASE'
-          ? { unitCost: toRupees(item.unitPrice) }
-          : { unitPrice: toRupees(item.unitPrice) }),
+        unitPrice: toRupees(item.unitPrice),
         lineTotal: toRupees(item.lineTotal),
       }),
     ),

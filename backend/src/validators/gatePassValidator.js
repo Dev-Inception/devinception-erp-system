@@ -5,7 +5,6 @@ const gatePassIdParamValidator = [
 ];
 
 const saleParamValidator = [param('saleId').isMongoId().withMessage('Invalid sale id')];
-const purchaseParamValidator = [param('purchaseId').isMongoId().withMessage('Invalid purchase id')];
 
 const listGatePassValidator = [
   query('warehouse').optional({ values: 'falsy' }).isMongoId().withMessage('Invalid warehouse'),
@@ -14,11 +13,6 @@ const listGatePassValidator = [
     .toUpperCase()
     .isIn(['ACTIVE', 'USED', 'CANCELLED'])
     .withMessage('Invalid gate pass status'),
-  query('sourceType')
-    .optional({ values: 'falsy' })
-    .toUpperCase()
-    .isIn(['SALE', 'PURCHASE'])
-    .withMessage('Invalid gate pass source type'),
 ];
 
 const scanGatePassValidator = [
@@ -34,7 +28,6 @@ const scanGatePassValidator = [
 module.exports = {
   gatePassIdParamValidator,
   saleParamValidator,
-  purchaseParamValidator,
   listGatePassValidator,
   scanGatePassValidator,
 };
