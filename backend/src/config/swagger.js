@@ -193,7 +193,10 @@ const swaggerSpec = {
     { name: 'Purchases', description: 'Goods purchases from vendors' },
     { name: 'Sales', description: 'POS sales' },
     { name: 'Invoices', description: 'Persisted vendor purchase invoices (A/P)' },
-    { name: 'Gate Passes', description: 'QR gate passes for sold products leaving a warehouse' },
+    {
+      name: 'Gate Passes',
+      description: 'QR gate passes for sale dispatches and goods-purchase receipts',
+    },
     { name: 'Finance', description: 'Bank accounts, payments, ledgers and cash book' },
     { name: 'Reports', description: 'Sales, purchases, stock valuation and P&L' },
   ],
@@ -1561,6 +1564,11 @@ const swaggerSpec = {
             in: 'query',
             schema: { type: 'string', enum: ['ACTIVE', 'USED', 'CANCELLED'] },
           },
+          {
+            name: 'sourceType',
+            in: 'query',
+            schema: { type: 'string', enum: ['SALE', 'PURCHASE'] },
+          },
         ],
         responses: { 200: { description: 'Gate passes' }, 403: errorResponse },
       },
@@ -1571,6 +1579,21 @@ const swaggerSpec = {
         summary: 'Get or backfill the gate pass for a sale (inventory:read)',
         security: [{ bearerAuth: [] }],
         parameters: [{ name: 'saleId', in: 'path', required: true, schema: { type: 'string' } }],
+        responses: {
+          200: { description: 'Gate pass' },
+          403: errorResponse,
+          404: errorResponse,
+        },
+      },
+    },
+    '/gate-passes/purchase/{purchaseId}': {
+      get: {
+        tags: ['Gate Passes'],
+        summary: 'Get or backfill the gate pass for a goods purchase (inventory:read)',
+        security: [{ bearerAuth: [] }],
+        parameters: [
+          { name: 'purchaseId', in: 'path', required: true, schema: { type: 'string' } },
+        ],
         responses: {
           200: { description: 'Gate pass' },
           403: errorResponse,

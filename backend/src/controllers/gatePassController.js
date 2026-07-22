@@ -4,12 +4,13 @@ const asyncHandler = require('../utils/asyncHandler');
 const { sendSuccess } = require('../utils/ApiResponse');
 
 const listGatePasses = asyncHandler(async (req, res) => {
-  const { page, limit, warehouse, status } = req.query;
+  const { page, limit, warehouse, status, sourceType } = req.query;
   const result = await gatePassService.listGatePasses({
     page,
     limit,
     warehouse,
     status,
+    sourceType,
   });
   return sendSuccess(res, 200, 'Gate passes fetched', {
     ...result,
@@ -26,6 +27,13 @@ const getGatePass = asyncHandler(async (req, res) => {
 
 const getGatePassBySale = asyncHandler(async (req, res) => {
   const gatePass = await gatePassService.getGatePassBySale(req.params.saleId);
+  return sendSuccess(res, 200, 'Gate pass fetched', {
+    gatePass: serializeGatePass(gatePass),
+  });
+});
+
+const getGatePassByPurchase = asyncHandler(async (req, res) => {
+  const gatePass = await gatePassService.getGatePassByPurchase(req.params.purchaseId);
   return sendSuccess(res, 200, 'Gate pass fetched', {
     gatePass: serializeGatePass(gatePass),
   });
@@ -50,6 +58,7 @@ module.exports = {
   listGatePasses,
   getGatePass,
   getGatePassBySale,
+  getGatePassByPurchase,
   downloadQr,
   scanGatePass,
 };
