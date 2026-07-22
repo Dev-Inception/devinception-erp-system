@@ -47,6 +47,7 @@ const invoiceSchema = new mongoose.Schema(
     },
     notes: { type: String, trim: true, default: '' },
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+    gatePass: { type: mongoose.Schema.Types.ObjectId, ref: 'GatePass', default: null },
   },
   { timestamps: true },
 );

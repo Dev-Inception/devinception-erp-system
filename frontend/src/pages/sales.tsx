@@ -1,9 +1,17 @@
+import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
-import { ShoppingCart, FileText } from 'lucide-react';
+import { ShoppingCart, FileText, MoreHorizontal, QrCode } from 'lucide-react';
 import { toast } from 'sonner';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+} from '@/components/ui/dropdown-menu';
+import { GatePassDialog } from '@/components/gate-pass-dialog';
 import { api } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
 import { openSaleInvoicePopup } from '@/lib/invoicePopup';
@@ -29,6 +37,7 @@ interface Sale {
   status: string;
   customer?: { name: string };
   items: SaleItem[];
+  gatePassId?: string;
   gatePassQrUrl?: string;
 }
 
@@ -45,6 +54,7 @@ export function SalesPage() {
     queryKey: ['sales'],
     queryFn: async () => (await api.get('/sales')).data,
   });
+  const [gatePassSale, setGatePassSale] = useState<Sale | null>(null);
 
   const handleViewInvoice = async (s: Sale) => {
     // Open synchronously so the browser ties the popup to this click, not to
@@ -82,7 +92,7 @@ export function SalesPage() {
               <th className="px-4 py-3 text-right font-medium">Cash</th>
               <th className="px-4 py-3 text-right font-medium">Online</th>
               <th className="px-4 py-3 text-right font-medium">Total</th>
-              <th className="px-4 py-3 text-right font-medium">Invoice</th>
+              <th className="px-4 py-3 text-right font-medium">Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -116,15 +126,21 @@ export function SalesPage() {
                     {formatCurrency(Number(s.grandTotal))}
                   </td>
                   <td className="px-4 py-3 text-right">
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      className="h-8 w-8"
-                      title="View invoice"
-                      onClick={() => handleViewInvoice(s)}
-                    >
-                      <FileText className="h-4 w-4" />
-                    </Button>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button size="icon" variant="ghost" className="h-8 w-8" title="Actions">
+                          <MoreHorizontal className="h-4 w-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem onSelect={() => handleViewInvoice(s)}>
+                          <FileText className="h-4 w-4" /> View Invoice
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onSelect={() => setGatePassSale(s)}>
+                          <QrCode className="h-4 w-4" /> View Gate Pass
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </td>
                 </tr>
               ))}
@@ -138,6 +154,13 @@ export function SalesPage() {
           </tbody>
         </table>
       </Card>
+
+      <GatePassDialog
+        gatePassId={gatePassSale?.gatePassId}
+        gatePassQrUrl={gatePassSale?.gatePassQrUrl}
+        open={gatePassSale !== null}
+        onOpenChange={(o) => !o && setGatePassSale(null)}
+      />
     </div>
   );
 }

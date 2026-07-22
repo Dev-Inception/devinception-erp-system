@@ -35,14 +35,35 @@ const gatePassCustomerSchema = new mongoose.Schema(
   { _id: false },
 );
 
+const gatePassVendorSchema = new mongoose.Schema(
+  {
+    vendor: { type: mongoose.Schema.Types.ObjectId, ref: 'Vendor', default: null },
+    name: { type: String, required: true, trim: true },
+    phone: { type: String, trim: true, default: '' },
+    email: { type: String, trim: true, default: '' },
+    address: { type: String, trim: true, default: '' },
+  },
+  { _id: false },
+);
+
 const gatePassSchema = new mongoose.Schema(
   {
     number: { type: String, required: true, unique: true },
     // The random token is the only value encoded in the QR. Business data is
-    // resolved server-side after an authenticated scan.
+    // resolved server-side after an authenticated (or token-authenticated
+    // public) scan.
     token: { type: String, required: true, unique: true, select: false },
-    sourceType: { type: String, enum: ['SALE'], default: 'SALE', required: true, index: true },
-    sale: { type: mongoose.Schema.Types.ObjectId, ref: 'Sale', required: true },
+    // SALE = goods going out against a sale; PURCHASE = goods coming in
+    // against a vendor purchase. Exactly one of sale/purchase is set.
+    sourceType: {
+      type: String,
+      enum: ['SALE', 'PURCHASE'],
+      default: 'SALE',
+      required: true,
+      index: true,
+    },
+    sale: { type: mongoose.Schema.Types.ObjectId, ref: 'Sale', default: null },
+    purchase: { type: mongoose.Schema.Types.ObjectId, ref: 'GoodsPurchase', default: null },
     documentNumber: { type: String, required: true },
     warehouse: {
       type: mongoose.Schema.Types.ObjectId,
@@ -51,7 +72,8 @@ const gatePassSchema = new mongoose.Schema(
       index: true,
     },
     saleDate: { type: Date, required: true },
-    customerInfo: { type: gatePassCustomerSchema, required: true },
+    customerInfo: { type: gatePassCustomerSchema, default: null },
+    vendorInfo: { type: gatePassVendorSchema, default: null },
     items: { type: [gatePassItemSchema], required: true },
     pricing: { type: gatePassPricingSchema, default: null },
     status: {
@@ -71,6 +93,10 @@ const gatePassSchema = new mongoose.Schema(
 gatePassSchema.index(
   { sale: 1 },
   { unique: true, partialFilterExpression: { sale: { $type: 'objectId' } } },
+);
+gatePassSchema.index(
+  { purchase: 1 },
+  { unique: true, partialFilterExpression: { purchase: { $type: 'objectId' } } },
 );
 
 gatePassSchema.set('toJSON', {

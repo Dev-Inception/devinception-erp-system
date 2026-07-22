@@ -16,19 +16,28 @@ function withoutEmptyValues(value) {
 function serializeGatePass(gatePass) {
   const g = gatePass && gatePass.toJSON ? gatePass.toJSON() : { ...gatePass };
   const gatePassId = idOf(g._id);
+  const isPurchase = g.sourceType === 'PURCHASE';
+  // customer/saleId/saleNumber field names predate the PURCHASE (goods-in)
+  // gate pass type; kept as-is for existing SALE consumers and reused to
+  // carry the vendor/purchase equivalent so both types share one shape.
+  // `sourceType`/`direction`/`purchaseId` disambiguate for new consumers.
+  const partyInfo = isPurchase ? g.vendorInfo : g.customerInfo;
 
   return {
     id: gatePassId,
     number: g.number,
+    sourceType: g.sourceType,
+    direction: isPurchase ? 'IN' : 'OUT',
     saleId: idOf(g.sale),
+    purchaseId: idOf(g.purchase),
     saleNumber: g.documentNumber,
     saleDate: g.saleDate,
     customer: withoutEmptyValues({
-      id: idOf(g.customerInfo?.customer),
-      name: g.customerInfo?.name,
-      phone: g.customerInfo?.phone,
-      email: g.customerInfo?.email,
-      address: g.customerInfo?.address,
+      id: idOf(partyInfo?.customer ?? partyInfo?.vendor),
+      name: partyInfo?.name,
+      phone: partyInfo?.phone,
+      email: partyInfo?.email,
+      address: partyInfo?.address,
     }),
     items: (g.items || []).map((item) =>
       withoutEmptyValues({

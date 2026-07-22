@@ -4,6 +4,7 @@ const ApiError = require('../utils/ApiError');
 const { toPaisa } = require('../utils/money');
 const { parsePagination } = require('../utils/query');
 const paymentService = require('./paymentService');
+const gatePassService = require('./gatePassService');
 
 const PURCHASE_TYPE = 'PURCHASE';
 
@@ -122,13 +123,25 @@ async function listPurchaseInvoices({ vendor, status, from, to, ...query } = {})
       .limit(limit),
     Invoice.countDocuments(filter),
   ]);
+  await Promise.all(invoices.map((invoice) => ensureInvoiceGatePass(invoice)));
   return { invoices, total, page, limit };
+}
+
+// Purchases created before the goods-in gate pass feature shipped have no
+// linked GatePass yet; create one lazily the first time the invoice is read.
+async function ensureInvoiceGatePass(invoice) {
+  if (!invoice || invoice.gatePass) return invoice;
+  const purchase = await GoodsPurchase.findById(invoice.purchase);
+  if (!purchase) return invoice;
+  const gatePass = await gatePassService.createForPurchase(purchase);
+  invoice.gatePass = gatePass._id;
+  return invoice;
 }
 
 async function getPurchaseInvoiceById(id) {
   const invoice = await populatedInvoice(id);
   if (!invoice) throw ApiError.notFound('Purchase invoice not found');
-  return invoice;
+  return ensureInvoiceGatePass(invoice);
 }
 
 async function createFromPurchase(purchaseId) {

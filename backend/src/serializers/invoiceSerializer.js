@@ -31,6 +31,11 @@ function serializeInvoice(invoice) {
   i.taxTotal = i.tax;
   i.discountTotal = i.discount;
   i.status = i.balance <= 0 ? 'PAID' : i.paid > 0 ? 'PARTIALLY_PAID' : 'ISSUED';
+  if (i.gatePass) {
+    i.gatePassId = String(i.gatePass._id ?? i.gatePass);
+    i.gatePassUrl = `/gate-passes/${i.gatePassId}`;
+    i.gatePassQrUrl = `/gate-passes/${i.gatePassId}/qr`;
+  }
   i.pdfUrl = `/invoices/${i._id}/pdf`;
   i.download = {
     format: 'pdf',

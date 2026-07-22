@@ -13,6 +13,7 @@ const { parsePagination } = require('../utils/query');
 const { requirePositiveQuantity } = require('../utils/quantity');
 const { assertProductWarehouse } = require('../utils/productWarehouse');
 const invoiceService = require('./invoiceService');
+const gatePassService = require('./gatePassService');
 
 /**
  * Goods purchase flow. Validates everything up front, then: raises stock,
@@ -235,6 +236,10 @@ async function createPurchase(actor, input) {
   // Persist the downloadable vendor invoice after the purchase, stock, and
   // accounting entries have all been recorded successfully.
   await invoiceService.createFromPurchase(purchase._id);
+
+  // A goods-in gate pass for this purchase, the inbound counterpart of the
+  // one every sale gets automatically.
+  await gatePassService.createForPurchase(purchase, vendorDoc);
 
   return purchase;
 }

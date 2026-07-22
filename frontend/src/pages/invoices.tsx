@@ -1,6 +1,16 @@
 import { useEffect, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { FileText, FileDown, Mail, MessageCircle, Loader2, Wallet, Search } from 'lucide-react';
+import {
+  FileText,
+  FileDown,
+  Mail,
+  MessageCircle,
+  Loader2,
+  Wallet,
+  Search,
+  MoreHorizontal,
+  QrCode,
+} from 'lucide-react';
 import { toast } from 'sonner';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -12,9 +22,15 @@ import {
   DialogHeader,
   DialogTitle,
   DialogDescription,
-  DialogTrigger,
   DialogClose,
 } from '@/components/ui/dialog';
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+} from '@/components/ui/dropdown-menu';
+import { GatePassDialog } from '@/components/gate-pass-dialog';
 import { api } from '@/lib/api';
 import { formatCurrency, cn } from '@/lib/utils';
 import { useAuthStore } from '@/store/auth';
@@ -28,6 +44,8 @@ interface Invoice {
   grandTotal: string;
   paidAmount: string;
   vendor?: { name: string };
+  gatePassId?: string;
+  gatePassQrUrl?: string;
 }
 
 const statusStyle: Record<string, string> = {
@@ -40,14 +58,15 @@ const statusStyle: Record<string, string> = {
 function PayInvoiceDialog({
   invoice,
   balance,
-  trigger,
+  open,
+  onOpenChange,
 }: {
-  invoice: Invoice;
+  invoice: Invoice | null;
   balance: number;
-  trigger: React.ReactNode;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
 }) {
   const qc = useQueryClient();
-  const [open, setOpen] = useState(false);
   const [amount, setAmount] = useState(balance);
 
   useEffect(() => {
@@ -56,18 +75,19 @@ function PayInvoiceDialog({
 
   const pay = useMutation({
     mutationFn: async () =>
-      (await api.post(`/invoices/${invoice.id}/pay`, { amount, method: 'CASH' })).data,
+      (await api.post(`/invoices/${invoice!.id}/pay`, { amount, method: 'CASH' })).data,
     onSuccess: () => {
       toast.success('Payment recorded');
       qc.invalidateQueries({ queryKey: ['invoices'] });
-      setOpen(false);
+      onOpenChange(false);
     },
     onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Could not record payment'),
   });
 
+  if (!invoice) return null;
+
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>{trigger}</DialogTrigger>
+    <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-sm">
         <DialogHeader>
           <DialogTitle>Record Payment</DialogTitle>
@@ -125,6 +145,8 @@ export function InvoicesPage() {
   const [to, setTo] = useState('');
   const perms = useAuthStore((s) => s.user?.permissions);
   const canPay = grantsPermission(perms, 'invoices:create');
+  const [payingId, setPayingId] = useState<string | null>(null);
+  const [gatePassInvoice, setGatePassInvoice] = useState<Invoice | null>(null);
 
   const { data: invoices = [], isLoading } = useQuery<Invoice[]>({
     queryKey: ['invoices', status, from, to],
@@ -274,63 +296,56 @@ export function InvoicesPage() {
                   <td className="px-4 py-3 text-right font-medium">
                     {formatCurrency(Number(inv.grandTotal))}
                   </td>
-                  <td className="px-4 py-3">
-                    <div className="flex justify-end gap-1">
-                      {canPay && Number(inv.grandTotal) - Number(inv.paidAmount) > 0 && (
-                        <PayInvoiceDialog
-                          invoice={inv}
-                          balance={Number(inv.grandTotal) - Number(inv.paidAmount)}
-                          trigger={
-                            <Button
-                              size="icon"
-                              variant="ghost"
-                              className="h-8 w-8 text-emerald-600"
-                              title="Record payment"
-                            >
-                              <Wallet className="h-4 w-4" />
-                            </Button>
-                          }
-                        />
-                      )}
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        className="h-8 w-8"
-                        title="View PDF"
-                        disabled={busy === inv.id + 'pdf'}
-                        onClick={() => viewPdf(inv.id)}
-                      >
-                        {busy === inv.id + 'pdf' ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                          <FileDown className="h-4 w-4" />
+                  <td className="px-4 py-3 text-right">
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button size="icon" variant="ghost" className="h-8 w-8" title="Actions">
+                          <MoreHorizontal className="h-4 w-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        {canPay && Number(inv.grandTotal) - Number(inv.paidAmount) > 0 && (
+                          <DropdownMenuItem
+                            className="text-emerald-600"
+                            onSelect={() => setPayingId(inv.id)}
+                          >
+                            <Wallet className="h-4 w-4" /> Record Payment
+                          </DropdownMenuItem>
                         )}
-                      </Button>
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        className="h-8 w-8"
-                        title="Send Email"
-                        disabled={busy === inv.id + 'mail'}
-                        onClick={() => sendEmail(inv.id)}
-                      >
-                        {busy === inv.id + 'mail' ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                          <Mail className="h-4 w-4" />
-                        )}
-                      </Button>
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        className="h-8 w-8 text-success"
-                        title="Send on WhatsApp"
-                        disabled={busy === inv.id + 'wa'}
-                        onClick={() => sendWhatsapp(inv.id)}
-                      >
-                        <MessageCircle className="h-4 w-4" />
-                      </Button>
-                    </div>
+                        <DropdownMenuItem
+                          disabled={busy === inv.id + 'pdf'}
+                          onSelect={() => viewPdf(inv.id)}
+                        >
+                          {busy === inv.id + 'pdf' ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <FileDown className="h-4 w-4" />
+                          )}
+                          View PDF
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          disabled={busy === inv.id + 'mail'}
+                          onSelect={() => sendEmail(inv.id)}
+                        >
+                          {busy === inv.id + 'mail' ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <Mail className="h-4 w-4" />
+                          )}
+                          Send Email
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          className="text-success"
+                          disabled={busy === inv.id + 'wa'}
+                          onSelect={() => sendWhatsapp(inv.id)}
+                        >
+                          <MessageCircle className="h-4 w-4" /> Send on WhatsApp
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onSelect={() => setGatePassInvoice(inv)}>
+                          <QrCode className="h-4 w-4" /> View Gate Pass
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </td>
                 </tr>
               ))}
@@ -353,6 +368,23 @@ export function InvoicesPage() {
           </tbody>
         </table>
       </Card>
+
+      <PayInvoiceDialog
+        invoice={invoices.find((inv) => inv.id === payingId) ?? null}
+        balance={(() => {
+          const inv = invoices.find((i) => i.id === payingId);
+          return inv ? Number(inv.grandTotal) - Number(inv.paidAmount) : 0;
+        })()}
+        open={payingId !== null}
+        onOpenChange={(o) => !o && setPayingId(null)}
+      />
+
+      <GatePassDialog
+        gatePassId={gatePassInvoice?.gatePassId}
+        gatePassQrUrl={gatePassInvoice?.gatePassQrUrl}
+        open={gatePassInvoice !== null}
+        onOpenChange={(o) => !o && setGatePassInvoice(null)}
+      />
     </div>
   );
 }

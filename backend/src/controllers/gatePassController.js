@@ -31,6 +31,13 @@ const getGatePassBySale = asyncHandler(async (req, res) => {
   });
 });
 
+const getGatePassByPurchase = asyncHandler(async (req, res) => {
+  const gatePass = await gatePassService.getGatePassByPurchase(req.params.purchaseId);
+  return sendSuccess(res, 200, 'Gate pass fetched', {
+    gatePass: serializeGatePass(gatePass),
+  });
+});
+
 const downloadQr = asyncHandler(async (req, res) => {
   const { gatePass, png } = await gatePassService.generateQrPng(req.params.gatePassId);
   res.setHeader('Content-Type', 'image/png');
@@ -46,10 +53,29 @@ const scanGatePass = asyncHandler(async (req, res) => {
   });
 });
 
+// Public, unauthenticated counterparts used by the gate-side scan page. The
+// token in the URL is the credential (see gatePassPublicRoutes.js) — no `protect`.
+const getPublicGatePass = asyncHandler(async (req, res) => {
+  const gatePass = await gatePassService.getGatePassByToken(req.params.token);
+  return sendSuccess(res, 200, 'Gate pass fetched', {
+    gatePass: serializeGatePass(gatePass),
+  });
+});
+
+const scanPublicGatePass = asyncHandler(async (req, res) => {
+  const gatePass = await gatePassService.scanGatePass(null, req.params.token);
+  return sendSuccess(res, 200, 'Gate pass verified and marked as used', {
+    gatePass: serializeGatePass(gatePass),
+  });
+});
+
 module.exports = {
   listGatePasses,
   getGatePass,
   getGatePassBySale,
+  getGatePassByPurchase,
   downloadQr,
   scanGatePass,
+  getPublicGatePass,
+  scanPublicGatePass,
 };

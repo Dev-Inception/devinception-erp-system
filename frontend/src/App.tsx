@@ -6,6 +6,7 @@ import { AppLayout } from '@/components/layout/app-layout';
 import { useAuthStore } from '@/store/auth';
 import { MODULES, canSeeModule, landingPath } from '@/lib/modules';
 import { LoginPage } from '@/pages/login';
+import { GatePassScanPage } from '@/pages/gate-pass-scan';
 import { DashboardPage } from '@/pages/dashboard';
 import { PosPage } from '@/pages/pos';
 import { ProductsPage } from '@/pages/products';
@@ -81,6 +82,7 @@ export default function App() {
         <BrowserRouter>
           <Routes>
             <Route path="/login" element={<LoginPage />} />
+            <Route path="/gate-pass/scan/:token" element={<GatePassScanPage />} />
             <Route element={<AppLayout />}>
               <Route index element={<IndexRoute />} />
               {MODULE_ROUTES.map((r) => (

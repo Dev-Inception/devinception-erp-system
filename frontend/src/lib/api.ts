@@ -1115,6 +1115,17 @@ async function realGatePassQr(id: string) {
   const res = await http.get(`/gate-passes/${id}/qr`, { responseType: 'blob' });
   return res.data as Blob;
 }
+async function realGatePassDetail(id: string) {
+  return (await http.get(`/gate-passes/${id}`)).data.gatePass;
+}
+// Public, token-authenticated counterparts (no login) backing the gate-side
+// scan page — see backend/src/routes/gatePassPublicRoutes.js.
+async function realPublicGatePass(token: string) {
+  return (await http.get(`/gate-passes/public/${token}`)).data.gatePass;
+}
+async function realPublicGatePassScan(token: string) {
+  return (await http.post(`/gate-passes/public/${token}/scan`)).data.gatePass;
+}
 
 /* ── Purchases (GP) ── */
 function mapPurchaseItem(it: any) {
@@ -1381,6 +1392,9 @@ function mapInvoice(i: any) {
     grandTotal: i.grandTotal,
     paidAmount: i.paidAmount,
     vendor: i.customer ? { name: i.customer.name } : undefined,
+    gatePassId: i.gatePassId,
+    gatePassUrl: i.gatePassUrl,
+    gatePassQrUrl: i.gatePassQrUrl,
   };
 }
 // The backend filters `?status=` against the invoice's raw stored enum
@@ -1573,6 +1587,9 @@ async function tryReal(
     if (url === '/invoices') return wrap(await realInvoices(params));
     if (seg[0] === 'invoices' && seg[2] === 'pdf') return wrap(await realInvoicePdf(seg[1]));
     if (seg[0] === 'gate-passes' && seg[2] === 'qr') return wrap(await realGatePassQr(seg[1]));
+    if (seg[0] === 'gate-passes' && seg[1] === 'public' && seg.length === 3)
+      return wrap(await realPublicGatePass(seg[2]));
+    if (seg[0] === 'gate-passes' && seg.length === 2) return wrap(await realGatePassDetail(seg[1]));
     if (url === '/settings') return wrap(await realSettings());
     if (url === '/dashboard/kpis') return wrap(await realDashKpis());
     if (url === '/dashboard/sales-trend') return wrap(await realDashTrend());
@@ -1604,6 +1621,8 @@ async function tryReal(
       return wrap(await realSendInvoiceWhatsapp(seg[1]));
     if (seg[0] === 'warehouses' && seg[2] === 'set-default')
       return wrap(await realSetDefaultWarehouse(seg[1]));
+    if (seg[0] === 'gate-passes' && seg[1] === 'public' && seg[3] === 'scan')
+      return wrap(await realPublicGatePassScan(seg[2]));
   }
   if (method === 'patch') {
     if (seg[0] === 'products' && seg[1]) return wrap(await realUpdateProduct(seg[1], body));
