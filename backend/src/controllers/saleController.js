@@ -18,6 +18,11 @@ function serialize(sale) {
   if (Array.isArray(s.items)) {
     s.items = s.items.map((it) => view(it, ['unitPrice', 'lineTotal', 'cost']));
   }
+  if (s.gatePass) {
+    s.gatePassId = String(s.gatePass._id ?? s.gatePass);
+    s.gatePassUrl = `/gate-passes/${s.gatePassId}`;
+    s.gatePassQrUrl = `/gate-passes/${s.gatePassId}/qr`;
+  }
   return s;
 }
 

@@ -14,6 +14,7 @@ const { calculateInvoiceTotals, resolveUnitPrice } = require('./invoiceCalculati
 const { parsePagination } = require('../utils/query');
 const { normalizeQuantity, requirePositiveQuantity } = require('../utils/quantity');
 const { assertProductWarehouse } = require('../utils/productWarehouse');
+const gatePassService = require('./gatePassService');
 
 /**
  * POS sale flow. Resolves how the sale is settled (cash / bank / on account),
@@ -237,6 +238,9 @@ async function createSale(actor, input) {
       ],
     });
   }
+
+  const gatePass = await gatePassService.createForSale(sale, customerDoc);
+  sale.gatePass = gatePass._id;
 
   return sale;
 }

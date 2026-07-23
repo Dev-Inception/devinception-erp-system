@@ -56,6 +56,7 @@ const saleSchema = new mongoose.Schema(
     // reference). Required by the POS whenever money lands online.
     transferReceiptRef: { type: String, trim: true, default: '' },
 
+    gatePass: { type: mongoose.Schema.Types.ObjectId, ref: 'GatePass', default: null },
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
   },
   { timestamps: true },

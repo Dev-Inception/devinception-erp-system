@@ -30,6 +30,7 @@ interface Product {
   isLowStock: boolean;
   categoryId?: string;
   unitId?: string;
+  warehouseId?: string;
   category?: { name: string };
   unit?: { abbreviation: string };
 }
@@ -46,6 +47,7 @@ const blank = {
   barcode: '',
   categoryId: '',
   unitId: '',
+  warehouseId: '',
   purchasePrice: 0,
   salePrice: 0,
   taxRate: 0,
@@ -67,6 +69,7 @@ function ProductDialog({
     queryKey: ['catalog'],
     queryFn: async () => (await api.get('/catalog')).data,
   });
+  const { warehouses, currentId } = useWarehouses();
   const [form, setForm] = useState(() =>
     editing
       ? {
@@ -75,12 +78,13 @@ function ProductDialog({
           barcode: editing.barcode ?? '',
           categoryId: editing.categoryId ?? '',
           unitId: editing.unitId ?? '',
+          warehouseId: '',
           purchasePrice: Number(editing.purchasePrice),
           salePrice: Number(editing.salePrice),
           taxRate: Number(editing.taxRate),
           minStock: Number(editing.minStock),
         }
-      : blank,
+      : { ...blank, warehouseId: currentId ?? '' },
   );
 
   const save = useMutation({
@@ -90,6 +94,7 @@ function ProductDialog({
         categoryId: form.categoryId || undefined,
         unitId: form.unitId || undefined,
         barcode: form.barcode || undefined,
+        warehouseId: editing ? undefined : form.warehouseId,
       };
       return editing
         ? (await api.patch(`/products/${editing.id}`, payload)).data
@@ -130,6 +135,26 @@ function ProductDialog({
             <Label>Name *</Label>
             <Input required value={form.name} onChange={(e) => field('name', e.target.value)} />
           </div>
+          {!editing && (
+            <div className="col-span-2 space-y-1.5">
+              <Label>Warehouse *</Label>
+              <select
+                required
+                value={form.warehouseId}
+                onChange={(e) => field('warehouseId', e.target.value)}
+                className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
+              >
+                <option value="" disabled>
+                  Select warehouse…
+                </option>
+                {warehouses.map((w) => (
+                  <option key={w.id} value={w.id}>
+                    {w.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
           <div className="space-y-1.5">
             <Label>SKU *</Label>
             <Input
@@ -240,12 +265,10 @@ const ADJUST_TYPES = [
 function StockDialog({
   product,
   warehouseId,
-  warehouseName,
   onClose,
 }: {
   product: Product;
   warehouseId: string;
-  warehouseName: string;
   onClose: () => void;
 }) {
   const qc = useQueryClient();
@@ -278,10 +301,7 @@ function StockDialog({
       <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle>Adjust Stock — {product.name}</DialogTitle>
-          <DialogDescription>
-            Warehouse: <span className="font-medium text-foreground">{warehouseName}</span> ·
-            Current on-hand: {product.currentStock}
-          </DialogDescription>
+          <DialogDescription>Current on-hand: {product.currentStock}</DialogDescription>
         </DialogHeader>
         <form
           className="space-y-3"
@@ -342,14 +362,13 @@ export function ProductsPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<Product | null>(null);
   const [stockFor, setStockFor] = useState<Product | null>(null);
-  const { currentId, warehouses } = useWarehouses();
-  const warehouseName = warehouses.find((w) => w.id === currentId)?.name ?? '—';
+  // Resolved silently in the background (no picker) — Stock Adjustment still
+  // needs a warehouse id server-side, but the user never has to think about it.
+  const { currentId } = useWarehouses();
 
   const { data: products = [], isLoading } = useQuery<Product[]>({
-    queryKey: ['products', search, currentId],
-    queryFn: async () =>
-      (await api.get('/products', { params: { search, warehouseId: currentId } })).data,
-    enabled: !!currentId,
+    queryKey: ['products', search],
+    queryFn: async () => (await api.get('/products', { params: { search } })).data,
   });
 
   return (
@@ -365,9 +384,6 @@ export function ProductsPage() {
               className="w-72 pl-8"
             />
           </div>
-          <span className="text-sm text-muted-foreground">
-            Stock for <span className="font-medium text-foreground">{warehouseName}</span>
-          </span>
         </div>
         <Button
           onClick={() => {
@@ -459,11 +475,14 @@ export function ProductsPage() {
           editing={editing}
         />
       )}
-      {stockFor && currentId && (
+      {stockFor && (
         <StockDialog
           product={stockFor}
-          warehouseId={currentId}
-          warehouseName={warehouseName}
+          // Adjustments must target the product's own owning warehouse, not
+          // whatever is globally "current" — otherwise the backend rejects it
+          // as belonging to another warehouse. Only legacy owner-less products
+          // fall back to the global default.
+          warehouseId={stockFor.warehouseId ?? currentId ?? ''}
           onClose={() => setStockFor(null)}
         />
       )}

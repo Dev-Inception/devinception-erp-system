@@ -35,13 +35,7 @@ const createProductValidator = [
   body('name').trim().notEmpty().withMessage('Name is required').isLength({ max: 160 }),
   body('sku').trim().notEmpty().withMessage('SKU is required').isLength({ max: 60 }),
   body('warehouse').custom((value, { req }) => {
-    const warehouse =
-      value ||
-      req.body.warehouseId ||
-      req.query.warehouse ||
-      req.query.warehouseId ||
-      req.headers['x-warehouse-id'] ||
-      req.cookies?.activeWarehouse;
+    const warehouse = value || req.body.warehouseId;
     if (!mongoose.isValidObjectId(warehouse)) {
       throw new Error('A valid warehouse is required');
     }

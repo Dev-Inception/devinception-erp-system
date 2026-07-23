@@ -48,7 +48,7 @@ const PERMISSIONS = {
   SALES_READ: 'sales:read',
   SALES_CREATE: 'sales:create',
 
-  // Invoices (customer billing documents)
+  // Invoices (vendor purchase documents)
   INVOICES_READ: 'invoices:read',
   INVOICES_CREATE: 'invoices:create',
 

@@ -16,6 +16,8 @@ const reportRoutes = require('./reportRoutes');
 const settingsRoutes = require('./settingsRoutes');
 const uploadRoutes = require('./uploadRoutes');
 const labourRoutes = require('./labourRoutes');
+const gatePassRoutes = require('./gatePassRoutes');
+const gatePassPublicRoutes = require('./gatePassPublicRoutes');
 
 const router = express.Router();
 
@@ -38,5 +40,9 @@ router.use('/reports', reportRoutes);
 router.use('/settings', settingsRoutes);
 router.use('/uploads', uploadRoutes);
 router.use('/labour', labourRoutes);
+// Must be registered before the protected `/gate-passes` mount below —
+// otherwise its `protect` middleware would intercept these paths first.
+router.use('/gate-passes/public', gatePassPublicRoutes);
+router.use('/gate-passes', gatePassRoutes);
 
 module.exports = router;

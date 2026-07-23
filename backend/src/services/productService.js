@@ -72,24 +72,20 @@ async function listProducts({ search, warehouse, includeInactive = false, ...que
     ];
   }
 
-  // Keep zero-stock products visible so inventory can be initialized from the
-  // warehouse screen. The selected warehouse still scopes the quantities in
-  // attachStock; validating it here prevents a malformed id from accidentally
-  // falling back to business-wide stock totals.
+  // The unfiltered inventory is the complete product catalog. A warehouse
+  // filter has a narrower meaning: only products currently in stock at that
+  // location. This also keeps legacy products with stock rows in more than one
+  // warehouse accurate until their ownership is migrated.
   if (warehouse && !mongoose.isValidObjectId(warehouse)) {
     throw ApiError.badRequest('Invalid warehouse');
   }
   if (warehouse) {
     const warehouseId = new mongoose.Types.ObjectId(warehouse);
-    // Owned products remain visible even before their first stock adjustment.
-    // Legacy products have no owner, so their existing StockLevel row acts as
-    // the compatibility assignment to a warehouse (including quantity zero).
-    const legacyProductIds = await StockLevel.distinct('product', { warehouse: warehouseId });
-    filter.$and = [
-      {
-        $or: [{ warehouse: warehouseId }, { warehouse: null, _id: { $in: legacyProductIds } }],
-      },
-    ];
+    const stockedProductIds = await StockLevel.distinct('product', {
+      warehouse: warehouseId,
+      $expr: { $gt: [{ $round: ['$quantity', QUANTITY_DECIMALS] }, 0] },
+    });
+    filter._id = { $in: stockedProductIds };
   }
 
   const [docs, total] = await Promise.all([

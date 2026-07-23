@@ -1,6 +1,6 @@
 const { view } = require('../utils/money');
 
-// Serialize a GoodsPurchase through the purchase-invoice API contract.
+// Serialize a persisted purchase Invoice through the public API contract.
 function serializeInvoice(invoice) {
   const raw = invoice && invoice.toJSON ? invoice.toJSON() : invoice;
   const i = view(raw, ['subtotal', 'discount', 'tax', 'total', 'paid', 'balance']);
@@ -19,7 +19,8 @@ function serializeInvoice(invoice) {
   i.customer = i.vendor;
   i.partyType = 'VENDOR';
   i.invoiceType = 'PURCHASE';
-  i.purchaseId = String(i._id);
+  const purchase = i.purchase;
+  i.purchaseId = purchase ? String(purchase._id ?? purchase) : undefined;
   i.purchaseNumber = i.number;
   i.invoiceNumber = i.vendorInvoiceNo || i.number;
   i.issueDate = i.date;
@@ -30,6 +31,11 @@ function serializeInvoice(invoice) {
   i.taxTotal = i.tax;
   i.discountTotal = i.discount;
   i.status = i.balance <= 0 ? 'PAID' : i.paid > 0 ? 'PARTIALLY_PAID' : 'ISSUED';
+  if (i.gatePass) {
+    i.gatePassId = String(i.gatePass._id ?? i.gatePass);
+    i.gatePassUrl = `/gate-passes/${i.gatePassId}`;
+    i.gatePassQrUrl = `/gate-passes/${i.gatePassId}/qr`;
+  }
   i.pdfUrl = `/invoices/${i._id}/pdf`;
   i.download = {
     format: 'pdf',

@@ -53,6 +53,10 @@ const a4Styles = `
     .r { text-align: right; }
     .totals { margin-top: 16px; width: 280px; margin-left: auto; }
     .totals .grand { font-size: 16px; font-weight: bold; border-top: 2px solid #111; padding-top: 6px; }
+    .toolbar { display: flex; gap: 8px; justify-content: flex-end; margin-bottom: 16px; }
+    .toolbar button { font: inherit; padding: 8px 16px; border-radius: 6px; border: 1px solid #4f46e5; background: #4f46e5; color: #fff; cursor: pointer; }
+    .toolbar button.outline { background: #fff; color: #4f46e5; }
+    @media print { .toolbar { display: none !important; } }
   </style>`;
 
 function rows(items: LineItem[]) {
@@ -93,6 +97,14 @@ export function renderTemplate(type: TemplateType, d: DocData): string {
   // A4 family (Invoice / GP full / GP half all share this skeleton)
   const heading = type === 'INVOICE_A4' ? 'INVOICE' : 'GOODS PURCHASE';
   return `<!doctype html><html><head>${a4Styles}</head><body>
+    ${
+      type === 'INVOICE_A4'
+        ? `<div class="toolbar">
+      <button type="button" class="outline" onclick="window.print()">Download PDF</button>
+      <button type="button" onclick="window.print()">Print</button>
+    </div>`
+        : ''
+    }
     <div class="head">
       <div><h1>${heading}</h1><p>${d.company.name}<br/>${d.company.address ?? ''}<br/>${d.company.phone ?? ''}</p></div>
       <div class="r"><strong>${d.number}</strong><br/>${d.date}${d.partyName ? `<br/>${d.partyName}` : ''}</div>

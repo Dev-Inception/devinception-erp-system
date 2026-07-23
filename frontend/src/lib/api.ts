@@ -488,6 +488,7 @@ function createPurchase(body: any) {
     discountTotal,
     grandTotal,
     paidAmount,
+    note: body.notes || undefined,
     items,
   };
   db.purchases.push(gp);
@@ -575,6 +576,7 @@ async function handle(
       return ok({ categories: db.categories, brands: db.brands, units: db.units });
     if (url === '/categories') return ok(db.categories);
     if (url === '/units') return ok(db.units);
+    if (url === '/labour') return ok(db.labour);
     if (url === '/customers') return ok(listCustomers(params.search));
     if (url === '/vendors') return ok(listVendors(params.search));
     if (url === '/sales') return ok(listSales());
@@ -631,6 +633,11 @@ async function handle(
       const u = { id: uid('unit'), name: body.name, abbreviation: body.abbreviation || body.name };
       db.units.push(u);
       return ok(u);
+    }
+    if (url === '/labour') {
+      const l = { id: uid('lb'), name: body.name, phoneNumber: body.phoneNumber };
+      db.labour.push(l);
+      return ok(l);
     }
     if (url === '/cash') {
       const t = {
@@ -721,7 +728,8 @@ async function handle(
  * not matched here falls through to the in-memory mock above. Migrate a module
  * by adding its routes to `tryReal`.
  *
- * Migrated so far: Inventory — Warehouses, Products, Catalog (Categories, Units), Stock adjust.
+ * Migrated so far: Inventory — Warehouses, Products, Catalog (Categories, Units), Stock adjust;
+ * Partners — Labour.
  * ══════════════════════════════════════════════════════════════════════ */
 const wrap = <T>(data: T) => ({ data });
 
@@ -783,6 +791,10 @@ function mapProduct(p: any) {
     // dropdowns round-trip on the catalog id.
     categoryId: p.categoryId || undefined,
     unitId: p.unitId || undefined,
+    // The product's own owning warehouse (set once at creation) — stock
+    // adjustments must target this exact warehouse, not whatever is globally
+    // "current", or the backend rejects with "belongs to another warehouse".
+    warehouseId: p.warehouseId || undefined,
     category: p.category ? { id: p.category.id, name: p.category.name } : null,
     unit: p.unit
       ? { id: p.unit.id, name: p.unit.name, abbreviation: p.unit.abbreviation || p.unit.name }
@@ -809,12 +821,15 @@ async function realProductsList(params: any) {
 function productPayload(body: any) {
   // FE → backend field mapping. Catalog refs are real catalog ids, so send them
   // as *Id fields (the backend resolves refs by id); taxRate→taxPercent.
+  // warehouseId is required on create (a product belongs to one warehouse) and
+  // unused on update, so it's simply omitted there (undefined).
   return {
     name: body.name,
     sku: body.sku,
     barcode: body.barcode,
     categoryId: body.categoryId || undefined,
     unitId: body.unitId || undefined,
+    warehouseId: body.warehouseId || undefined,
     purchasePrice: body.purchasePrice,
     salePrice: body.salePrice,
     taxPercent: body.taxRate,
@@ -891,6 +906,30 @@ async function realUpdateUnit(id: string, body: any) {
 }
 async function realDeleteUnit(id: string) {
   await http.delete(`/catalog/units/${id}`);
+  return { success: true };
+}
+
+/* ── Labour (a standalone /labour master, not nested under /catalog) ── */
+function mapLabour(l: any) {
+  return { id: String(l._id ?? l.id), name: l.name, phoneNumber: l.phoneNumber };
+}
+async function realLabourList() {
+  const res = await http.get('/labour');
+  return (res.data.labour as any[]).map(mapLabour);
+}
+async function realCreateLabour(body: any) {
+  const res = await http.post('/labour', { name: body.name, phoneNumber: body.phoneNumber });
+  return mapLabour(res.data.labour);
+}
+async function realUpdateLabour(id: string, body: any) {
+  const res = await http.patch(`/labour/${id}`, {
+    name: body.name,
+    phoneNumber: body.phoneNumber,
+  });
+  return mapLabour(res.data.labour);
+}
+async function realDeleteLabour(id: string) {
+  await http.delete(`/labour/${id}`);
   return { success: true };
 }
 
@@ -1040,6 +1079,9 @@ function mapSale(s: any) {
       amount: it.lineTotal,
     })),
     customer: cname ? { name: cname } : undefined,
+    gatePassId: s.gatePassId,
+    gatePassUrl: s.gatePassUrl,
+    gatePassQrUrl: s.gatePassQrUrl,
   };
 }
 async function realSales() {
@@ -1068,6 +1110,21 @@ async function realCreateSale(body: any) {
     },
   });
   return mapSale(res.data.sale);
+}
+async function realGatePassQr(id: string) {
+  const res = await http.get(`/gate-passes/${id}/qr`, { responseType: 'blob' });
+  return res.data as Blob;
+}
+async function realGatePassDetail(id: string) {
+  return (await http.get(`/gate-passes/${id}`)).data.gatePass;
+}
+// Public, token-authenticated counterparts (no login) backing the gate-side
+// scan page — see backend/src/routes/gatePassPublicRoutes.js.
+async function realPublicGatePass(token: string) {
+  return (await http.get(`/gate-passes/public/${token}`)).data.gatePass;
+}
+async function realPublicGatePassScan(token: string) {
+  return (await http.post(`/gate-passes/public/${token}/scan`)).data.gatePass;
 }
 
 /* ── Purchases (GP) ── */
@@ -1125,6 +1182,7 @@ async function realCreatePurchase(body: any) {
     // FE captures no payment method; default to cash when something is paid.
     paymentMethod: paid > 0 ? 'CASH' : undefined,
     items,
+    notes: body.notes || undefined,
   });
   // The create response doesn't populate the vendor name (the print needs it).
   let vendorName: string | undefined;
@@ -1324,7 +1382,8 @@ async function realCreateBankAccount(body: any) {
 /* ── Invoices ── */
 function mapInvoice(i: any) {
   // Backend already serializes to the FE field names (invoiceNumber, issueDate,
-  // grandTotal, paidAmount, status, customer.name); we just pin a stable id.
+  // grandTotal, paidAmount, status); `customer` is the backend's compatibility
+  // alias for the vendor these purchase invoices actually belong to.
   return {
     id: String(i._id ?? i.id),
     invoiceNumber: i.invoiceNumber,
@@ -1332,11 +1391,30 @@ function mapInvoice(i: any) {
     status: i.status,
     grandTotal: i.grandTotal,
     paidAmount: i.paidAmount,
-    customer: i.customer ? { name: i.customer.name } : undefined,
+    vendor: i.customer ? { name: i.customer.name } : undefined,
+    gatePassId: i.gatePassId,
+    gatePassUrl: i.gatePassUrl,
+    gatePassQrUrl: i.gatePassQrUrl,
   };
 }
-async function realInvoices() {
-  const res = await http.get('/invoices', { params: { limit: 100 } });
+// The backend filters `?status=` against the invoice's raw stored enum
+// (UNPAID/PARTIAL/PAID), but the response's `status` field is a different,
+// serializer-computed display vocabulary (ISSUED/PARTIALLY_PAID/PAID) — so a
+// filter built from what the UI shows has to be translated back before it's sent.
+const INVOICE_STATUS_TO_RAW: Record<string, string> = {
+  ISSUED: 'UNPAID',
+  PARTIALLY_PAID: 'PARTIAL',
+  PAID: 'PAID',
+};
+async function realInvoices(params: any = {}) {
+  const res = await http.get('/invoices', {
+    params: {
+      limit: 100,
+      status: params.status ? INVOICE_STATUS_TO_RAW[params.status] : undefined,
+      from: params.from || undefined,
+      to: params.to || undefined,
+    },
+  });
   return (res.data.invoices as any[]).map(mapInvoice);
 }
 async function realCreateInvoice(body: any) {
@@ -1418,11 +1496,16 @@ async function realUpdateRole(id: string, body: any) {
 }
 
 /* ── Party ledger (customer/vendor statement) ── */
-async function realPartyLedger(kindPlural: string, id: string) {
+async function realPartyLedger(kindPlural: string, id: string, params: any = {}) {
   const kind = kindPlural === 'customers' ? 'customer' : 'vendor';
-  const stmt = (await http.get(`/finance/ledgers/${kind}/${id}`)).data; // { party, opening, closing, rows }
+  const stmt = (
+    await http.get(`/finance/ledgers/${kind}/${id}`, {
+      params: { from: params.from || undefined, to: params.to || undefined },
+    })
+  ).data; // { party, opening, closing, rows }
   return {
     balance: stmt.closing ?? 0,
+    opening: stmt.opening ?? 0,
     entries: (stmt.rows as any[]).map((r) => ({
       date: r.date,
       description: r.description || undefined,
@@ -1493,6 +1576,7 @@ async function tryReal(
     if (url === '/catalog') return wrap(await realCatalog());
     if (url === '/categories') return wrap(await realCategories());
     if (url === '/units') return wrap(await realUnits());
+    if (url === '/labour') return wrap(await realLabourList());
     if (url === '/customers') return wrap(await realCustomers(params));
     if (url === '/vendors') return wrap(await realVendors(params));
     if (url === '/sales') return wrap(await realSales());
@@ -1500,21 +1584,26 @@ async function tryReal(
     if (url === '/bank/accounts') return wrap(await realBankAccounts());
     if (url === '/users') return wrap(await realUsers());
     if (url === '/roles') return wrap(await realRoles());
-    if (url === '/invoices') return wrap(await realInvoices());
+    if (url === '/invoices') return wrap(await realInvoices(params));
     if (seg[0] === 'invoices' && seg[2] === 'pdf') return wrap(await realInvoicePdf(seg[1]));
+    if (seg[0] === 'gate-passes' && seg[2] === 'qr') return wrap(await realGatePassQr(seg[1]));
+    if (seg[0] === 'gate-passes' && seg[1] === 'public' && seg.length === 3)
+      return wrap(await realPublicGatePass(seg[2]));
+    if (seg[0] === 'gate-passes' && seg.length === 2) return wrap(await realGatePassDetail(seg[1]));
     if (url === '/settings') return wrap(await realSettings());
     if (url === '/dashboard/kpis') return wrap(await realDashKpis());
     if (url === '/dashboard/sales-trend') return wrap(await realDashTrend());
     if (url === '/dashboard/top-products') return wrap(await realDashTop());
     if (seg[0] === 'reports' && seg[1]) return wrap(await realReport(seg[1], params));
     if ((seg[0] === 'customers' || seg[0] === 'vendors') && seg[2] === 'ledger')
-      return wrap(await realPartyLedger(seg[0], seg[1]));
+      return wrap(await realPartyLedger(seg[0], seg[1], params));
   }
   if (method === 'post') {
     if (url === '/warehouses') return wrap(await realCreateWarehouse(body));
     if (url === '/products') return wrap(await realCreateProduct(body));
     if (url === '/categories') return wrap(await realCreateCategory(body));
     if (url === '/units') return wrap(await realCreateUnit(body));
+    if (url === '/labour') return wrap(await realCreateLabour(body));
     if (url === '/stock/adjust') return wrap(await realAdjustStock(body));
     if (url === '/customers') return wrap(await realCreateCustomer(body));
     if (url === '/vendors') return wrap(await realCreateVendor(body));
@@ -1532,6 +1621,8 @@ async function tryReal(
       return wrap(await realSendInvoiceWhatsapp(seg[1]));
     if (seg[0] === 'warehouses' && seg[2] === 'set-default')
       return wrap(await realSetDefaultWarehouse(seg[1]));
+    if (seg[0] === 'gate-passes' && seg[1] === 'public' && seg[3] === 'scan')
+      return wrap(await realPublicGatePassScan(seg[2]));
   }
   if (method === 'patch') {
     if (seg[0] === 'products' && seg[1]) return wrap(await realUpdateProduct(seg[1], body));
@@ -1543,6 +1634,7 @@ async function tryReal(
       return wrap(await realUpdateWarehouse(seg[1], body));
     if (seg[0] === 'categories' && seg[1]) return wrap(await realUpdateCategory(seg[1], body));
     if (seg[0] === 'units' && seg[1]) return wrap(await realUpdateUnit(seg[1], body));
+    if (seg[0] === 'labour' && seg[1]) return wrap(await realUpdateLabour(seg[1], body));
     if (seg[0] === 'users' && seg[1] && !seg[2]) return wrap(await realUpdateUser(seg[1], body));
     if (seg[0] === 'users' && seg[2] === 'role')
       return wrap(await realUpdateUserRole(seg[1], body));
@@ -1561,6 +1653,7 @@ async function tryReal(
       return wrap(await realDeleteWarehouse(seg[1]));
     if (seg[0] === 'categories' && seg[1]) return wrap(await realDeleteCategory(seg[1]));
     if (seg[0] === 'units' && seg[1]) return wrap(await realDeleteUnit(seg[1]));
+    if (seg[0] === 'labour' && seg[1]) return wrap(await realDeleteLabour(seg[1]));
   }
   return undefined;
 }

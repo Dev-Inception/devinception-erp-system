@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Search,
@@ -28,6 +28,7 @@ import {
 import { api } from '@/lib/api';
 import { formatCurrency, cn } from '@/lib/utils';
 import { useWarehouseStore } from '@/store/warehouse';
+import { openSaleInvoicePopup } from '@/lib/invoicePopup';
 
 interface Product {
   id: string;
@@ -36,6 +37,7 @@ interface Product {
   salePrice: string;
   currentStock: number;
   taxRate: string;
+  warehouseId?: string;
 }
 interface CartLine {
   product: Product;
@@ -197,18 +199,33 @@ export function PosPage() {
   const [taxPct, setTaxPct] = useState<number>(0);
   const [customer, setCustomer] = useState<CustomerLite | null>(null);
   const [customerPickerOpen, setCustomerPickerOpen] = useState(false);
-  const warehouseId = useWarehouseStore((s) => s.currentId);
+  // Opened synchronously on "Charge" (a direct user gesture) so the browser
+  // doesn't treat it as a blocked popup once we fill it in later, after the
+  // async sale-creation + QR fetch complete.
+  const invoiceWindowRef = useRef<Window | null>(null);
+  // Checkout still deducts from one warehouse (below), but the catalog itself
+  // is business-wide — no warehouse filter when browsing/searching products.
+  const defaultWarehouseId = useWarehouseStore((s) => s.currentId);
 
   const { data: products = [] } = useQuery<Product[]>({
-    queryKey: ['pos-products', search, warehouseId],
-    queryFn: async () => (await api.get('/products', { params: { search, warehouseId } })).data,
-    enabled: !!warehouseId,
+    queryKey: ['pos-products', search],
+    queryFn: async () => (await api.get('/products', { params: { search } })).data,
   });
 
   const addToCart = (product: Product) =>
     setCart((c) => {
       const found = c.find((l) => l.product.id === product.id);
       if (found) return c.map((l) => (l.product.id === product.id ? { ...l, qty: l.qty + 1 } : l));
+      // A sale can only come from one warehouse — block mixing in a product
+      // owned by a different one than what's already in the cart (would
+      // otherwise only surface as a confusing error at checkout).
+      const cartWarehouse = c[0]?.product.warehouseId;
+      if (cartWarehouse && product.warehouseId && product.warehouseId !== cartWarehouse) {
+        toast.error(
+          `${product.name} is stocked at a different warehouse — start a new sale for it.`,
+        );
+        return c;
+      }
       return [...c, { product, qty: 1 }];
     });
 
@@ -216,6 +233,13 @@ export function PosPage() {
     setCart((c) =>
       c.flatMap((l) => (l.product.id === id ? (qty <= 0 ? [] : [{ ...l, qty }]) : [l])),
     );
+
+  // A sale deducts from one warehouse. Target the cart's own owning warehouse
+  // (they should all match — a single register sale really is one location)
+  // rather than whatever is globally "current", so checkout never rejects a
+  // product as belonging to another warehouse. Legacy owner-less products (or
+  // an empty cart) fall back to the global default.
+  const saleWarehouseId = cart[0]?.product.warehouseId ?? defaultWarehouseId;
 
   const subtotal = cart.reduce((s, l) => s + Number(l.product.salePrice) * l.qty, 0);
   const discountAmount = Math.min(
@@ -260,7 +284,7 @@ export function PosPage() {
       return (
         await api.post('/sales', {
           paymentMethod: METHOD_MAP[method],
-          warehouseId,
+          warehouseId: saleWarehouseId,
           customerId: customer?.id,
           paidCash,
           paidBank,
@@ -281,12 +305,21 @@ export function PosPage() {
         })
       ).data;
     },
-    onSuccess: (sale) => {
+    onSuccess: async (sale) => {
       toast.success(`Sale ${sale.saleNumber} completed`);
-      reset();
       qc.invalidateQueries({ queryKey: ['pos-products'] });
+      try {
+        await openSaleInvoicePopup(sale, invoiceWindowRef.current);
+      } catch {
+        toast.error('Enable popups to view the printable invoice');
+      }
+      reset();
     },
-    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Checkout failed'),
+    onError: (e: any) => {
+      toast.error(e?.response?.data?.message ?? 'Checkout failed');
+      invoiceWindowRef.current?.close();
+      invoiceWindowRef.current = null;
+    },
   });
 
   // guard: require a receipt for online payments; mixed split must cover the total
@@ -596,7 +629,15 @@ export function PosPage() {
           <Button
             className="h-11 w-full text-base"
             disabled={!canCharge}
-            onClick={() => checkout.mutate()}
+            onClick={() => {
+              // Open the popup now, synchronously, so it's tied to this click
+              // and not blocked once we fill it in after the async checkout.
+              invoiceWindowRef.current = window.open('', '_blank', 'width=850,height=1000');
+              invoiceWindowRef.current?.document.write(
+                '<p style="font-family:sans-serif;padding:24px;color:#666">Preparing invoice…</p>',
+              );
+              checkout.mutate();
+            }}
           >
             {checkout.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
             Charge {formatCurrency(grandTotal)}

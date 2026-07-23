@@ -2,19 +2,9 @@ const productService = require('../services/productService');
 const asyncHandler = require('../utils/asyncHandler');
 const { sendSuccess } = require('../utils/ApiResponse');
 const { toPaisa, view } = require('../utils/money');
-const env = require('../config/env');
-
-const ACTIVE_WAREHOUSE_COOKIE = 'activeWarehouse';
 
 function warehouseFromRequest(req) {
-  return (
-    req.body?.warehouse ||
-    req.body?.warehouseId ||
-    req.query?.warehouse ||
-    req.query?.warehouseId ||
-    req.headers['x-warehouse-id'] ||
-    req.cookies?.[ACTIVE_WAREHOUSE_COOKIE]
-  );
+  return req.body?.warehouse || req.body?.warehouseId;
 }
 
 // paisa -> rupees for the wire.
@@ -64,16 +54,6 @@ const listProducts = asyncHandler(async (req, res) => {
     warehouse: selectedWarehouse,
     includeInactive: includeInactive === 'true',
   });
-  if (selectedWarehouse) {
-    // The current UI sends its selected warehouse on the list request but not
-    // on product creation. Preserve that context server-side so the following
-    // POST can still create the product under the correct warehouse.
-    res.cookie(ACTIVE_WAREHOUSE_COOKIE, selectedWarehouse, {
-      httpOnly: true,
-      secure: env.nodeEnv === 'production',
-      sameSite: 'strict',
-    });
-  }
   return sendSuccess(res, 200, 'Products fetched', {
     ...result,
     products: result.products.map(serialize),
