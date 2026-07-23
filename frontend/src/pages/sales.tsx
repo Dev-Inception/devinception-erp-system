@@ -1,21 +1,44 @@
+import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
-import { ShoppingCart } from 'lucide-react';
+import { ShoppingCart, FileText, MoreHorizontal, QrCode } from 'lucide-react';
+import { toast } from 'sonner';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+} from '@/components/ui/dropdown-menu';
+import { GatePassDialog } from '@/components/gate-pass-dialog';
 import { api } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
+import { openSaleInvoicePopup } from '@/lib/invoicePopup';
+
+interface SaleItem {
+  name: string;
+  quantity: number;
+  unitPrice: string | number;
+  amount: string | number;
+}
 
 interface Sale {
   id: string;
   saleNumber: string;
   date: string;
   grandTotal: string;
+  subtotal: string;
+  taxTotal: string;
+  discountTotal: string;
   paidCash: string;
   paidBank: string;
   paymentMethod: string;
   status: string;
   customer?: { name: string };
+  items: SaleItem[];
+  gatePassId?: string;
+  gatePassQrUrl?: string;
 }
 
 const PAYMENT_LABEL: Record<string, string> = {
@@ -31,6 +54,21 @@ export function SalesPage() {
     queryKey: ['sales'],
     queryFn: async () => (await api.get('/sales')).data,
   });
+  const [gatePassSale, setGatePassSale] = useState<Sale | null>(null);
+
+  const handleViewInvoice = async (s: Sale) => {
+    // Open synchronously so the browser ties the popup to this click, not to
+    // the async gate-pass QR fetch that happens before it's filled in.
+    const win = window.open('', '_blank', 'width=850,height=1000');
+    win?.document.write(
+      '<p style="font-family:sans-serif;padding:24px;color:#666">Preparing invoice…</p>',
+    );
+    try {
+      await openSaleInvoicePopup(s, win);
+    } catch {
+      toast.error('Enable popups to view the printable invoice');
+    }
+  };
 
   return (
     <div className="space-y-4">
@@ -54,33 +92,75 @@ export function SalesPage() {
               <th className="px-4 py-3 text-right font-medium">Cash</th>
               <th className="px-4 py-3 text-right font-medium">Online</th>
               <th className="px-4 py-3 text-right font-medium">Total</th>
+              <th className="px-4 py-3 text-right font-medium">Actions</th>
             </tr>
           </thead>
           <tbody>
             {isLoading && (
-              <tr><td colSpan={7} className="px-4 py-10 text-center text-muted-foreground">Loading…</td></tr>
-            )}
-            {!isLoading && sales.map((s) => (
-              <tr key={s.id} className="border-b last:border-0 hover:bg-muted/30">
-                <td className="px-4 py-3 font-medium">{s.saleNumber}</td>
-                <td className="px-4 py-3 text-muted-foreground">{new Date(s.date).toLocaleString()}</td>
-                <td className="px-4 py-3 text-muted-foreground">{s.customer?.name ?? 'Walk-in'}</td>
-                <td className="px-4 py-3 text-muted-foreground">{PAYMENT_LABEL[s.paymentMethod] ?? s.paymentMethod}</td>
-                <td className="px-4 py-3 text-right tabular-nums text-muted-foreground">
-                  {Number(s.paidCash) > 0 ? formatCurrency(Number(s.paidCash)) : '—'}
+              <tr>
+                <td colSpan={8} className="px-4 py-10 text-center text-muted-foreground">
+                  Loading…
                 </td>
-                <td className="px-4 py-3 text-right tabular-nums text-muted-foreground">
-                  {Number(s.paidBank) > 0 ? formatCurrency(Number(s.paidBank)) : '—'}
-                </td>
-                <td className="px-4 py-3 text-right font-medium">{formatCurrency(Number(s.grandTotal))}</td>
               </tr>
-            ))}
+            )}
+            {!isLoading &&
+              sales.map((s) => (
+                <tr key={s.id} className="border-b last:border-0 hover:bg-muted/30">
+                  <td className="px-4 py-3 font-medium">{s.saleNumber}</td>
+                  <td className="px-4 py-3 text-muted-foreground">
+                    {new Date(s.date).toLocaleString()}
+                  </td>
+                  <td className="px-4 py-3 text-muted-foreground">
+                    {s.customer?.name ?? 'Walk-in'}
+                  </td>
+                  <td className="px-4 py-3 text-muted-foreground">
+                    {PAYMENT_LABEL[s.paymentMethod] ?? s.paymentMethod}
+                  </td>
+                  <td className="px-4 py-3 text-right tabular-nums text-muted-foreground">
+                    {Number(s.paidCash) > 0 ? formatCurrency(Number(s.paidCash)) : '—'}
+                  </td>
+                  <td className="px-4 py-3 text-right tabular-nums text-muted-foreground">
+                    {Number(s.paidBank) > 0 ? formatCurrency(Number(s.paidBank)) : '—'}
+                  </td>
+                  <td className="px-4 py-3 text-right font-medium">
+                    {formatCurrency(Number(s.grandTotal))}
+                  </td>
+                  <td className="px-4 py-3 text-right">
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button size="icon" variant="ghost" className="h-8 w-8" title="Actions">
+                          <MoreHorizontal className="h-4 w-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem onSelect={() => handleViewInvoice(s)}>
+                          <FileText className="h-4 w-4" /> View Invoice
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onSelect={() => setGatePassSale(s)}>
+                          <QrCode className="h-4 w-4" /> View Gate Pass
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </td>
+                </tr>
+              ))}
             {!isLoading && sales.length === 0 && (
-              <tr><td colSpan={7} className="px-4 py-10 text-center text-muted-foreground">No sales yet — ring one up in the POS.</td></tr>
+              <tr>
+                <td colSpan={8} className="px-4 py-10 text-center text-muted-foreground">
+                  No sales yet — ring one up in the POS.
+                </td>
+              </tr>
             )}
           </tbody>
         </table>
       </Card>
+
+      <GatePassDialog
+        gatePassId={gatePassSale?.gatePassId}
+        gatePassQrUrl={gatePassSale?.gatePassQrUrl}
+        open={gatePassSale !== null}
+        onOpenChange={(o) => !o && setGatePassSale(null)}
+      />
     </div>
   );
 }

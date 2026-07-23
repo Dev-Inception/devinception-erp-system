@@ -1,110 +1,189 @@
 # API Design
 
-Base URL: `http://localhost:4000/api/v1` · Auth: `Authorization: Bearer <accessToken>`
-Interactive docs (Swagger): `http://localhost:4000/docs`
+Base URL: `http://localhost:5050/api` · Auth: `Authorization: Bearer <accessToken>`
+Interactive docs (Swagger): `http://localhost:5050/api/docs` · Raw spec: `/api/docs.json`
+Health check: `GET /api/health`
 
-Conventions: REST, JSON, `class-validator` DTOs, RBAC via `@Roles()`.
-Roles: `SUPER_ADMIN` (bypasses all), `ADMIN`, `MANAGER`, `CASHIER`, `ACCOUNTANT`.
+Conventions: REST, JSON, `express-validator` on writes. Every response is
+`{ success, message, data? }` (or `{ success: false, message, errors? }` on error).
 
-## Auth
-| Method | Path | Body | Access |
-|--------|------|------|--------|
-| POST | `/auth/login` | `{ email, password }` | public |
-| POST | `/auth/refresh` | `{ refreshToken }` | public |
-| POST | `/auth/forgot-password` | `{ email }` | public |
-| POST | `/auth/reset-password` | `{ token, newPassword }` | public |
-| POST | `/auth/logout` | — | auth |
-| GET  | `/auth/me` | — | auth |
+> **Money in requests is in rupees** (e.g. `unitPrice: 350` = ₨350) and is stored
+> internally as integer paisa. There is **no realtime/WebSocket** layer.
 
-`login` → `{ user, accessToken, refreshToken }`. Access token 15m, refresh 7d (rotated).
+## Authorization model
 
-## Users  — `ADMIN`, `MANAGER` (write: `ADMIN`)
-`GET /users` · `GET /users/:id` · `POST /users` · `PATCH /users/:id` · `DELETE /users/:id`
+Access is **permission-based**, not role-based. Each route guards on a permission
+(e.g. `sales:create`); the table below lists the permission a route requires.
+Roles are `Role` documents that bundle permissions. The five built-in roles are
+`cashier`, `accountant`, `manager`, `admin`, `super_admin`; `super_admin` holds
+the `"*"` wildcard and passes every check. A super admin can grant any permission
+to a custom role.
 
-## Products / Inventory
-| Method | Path | Access |
-|--------|------|--------|
-| GET | `/products?search=&lowStock=` | auth |
-| GET | `/products/barcode/:code` | auth |
-| GET | `/products/:id` | auth |
-| POST/PATCH/DELETE | `/products[/:id]` | `ADMIN`,`MANAGER` |
+## Auth — `/auth`
 
-List rows include computed `currentStock` and `isLowStock`.
+| Method | Path               | Body                               | Access                |
+| ------ | ------------------ | ---------------------------------- | --------------------- |
+| POST   | `/login`           | `{ email, password }`              | public (rate-limited) |
+| POST   | `/refresh`         | `{ refreshToken }` or cookie       | public                |
+| POST   | `/logout`          | —                                  | public                |
+| POST   | `/forgot-password` | `{ email }`                        | public (rate-limited) |
+| POST   | `/reset-password`  | `{ token, password }`              | public (rate-limited) |
+| GET    | `/me`              | —                                  | auth                  |
+| PATCH  | `/change-password` | `{ currentPassword, newPassword }` | auth                  |
 
-## Sales / POS
-| Method | Path | Access |
-|--------|------|--------|
-| POST | `/sales` (checkout) | `CASHIER`,`MANAGER`,`ADMIN` |
-| GET | `/sales?from=&to=` | auth |
-| GET | `/sales/:id` | auth |
+`login` → `{ user, accessToken, refreshToken }`; the refresh token is also set as
+an `httpOnly; SameSite=strict` cookie. Access token 15m, refresh 7d.
+
+## Users — `/users`
+
+| Method | Path          | Permission          |
+| ------ | ------------- | ------------------- |
+| GET    | `/`           | `users:read`        |
+| GET    | `/:id`        | `users:read`        |
+| POST   | `/`           | `users:create`      |
+| PATCH  | `/:id/role`   | `users:update_role` |
+| PATCH  | `/:id/active` | `users:set_active`  |
+| DELETE | `/:id`        | `users:delete`      |
+
+There is no self-registration — users are created here by an admin/super admin.
+
+## Roles — `/roles`
+
+`GET /` · `GET /:id` (`roles:read`) · `GET /permissions` lists the permission
+catalog (`roles:read`) · `POST /` (`roles:create`) · `PATCH /:id` (`roles:update`)
+· `DELETE /:id` (`roles:delete`). Built-in roles cannot be renamed or deleted.
+
+## Products / Inventory — `/products`, `/warehouses`
+
+| Method | Path                         | Permission         |
+| ------ | ---------------------------- | ------------------ |
+| GET    | `/products?search=`          | `inventory:read`   |
+| GET    | `/products/:id`              | `inventory:read`   |
+| POST   | `/products`                  | `inventory:manage` |
+| PATCH  | `/products/:id`              | `inventory:manage` |
+| POST   | `/products/:id/adjust-stock` | `inventory:manage` |
+| DELETE | `/products/:id`              | `inventory:manage` |
+
+`adjust-stock` body: `{ warehouse, delta, unitCost?, note? }` (`delta` non-zero;
+positive = receipt, negative = issue). `/warehouses` mirrors this CRUD under the
+same `inventory:read` / `inventory:manage` permissions.
+
+## Sales / POS — `/sales`
+
+| Method | Path           | Permission     |
+| ------ | -------------- | -------------- |
+| POST   | `/` (checkout) | `sales:create` |
+| GET    | `/?from=&to=`  | `sales:read`   |
+| GET    | `/:id`         | `sales:read`   |
 
 `POST /sales` body:
+
 ```json
 {
-  "customerId": "optional",
-  "warehouseId": "optional (defaults to default warehouse)",
-  "paymentMethod": "CASH | CARD | BANK_TRANSFER | CREDIT | MIXED",
-  "paidCash": 1000, "paidCard": 0, "paidBank": 0,
-  "discountTotal": 0,
-  "items": [{ "productId": "...", "quantity": 2, "unitPrice": 350, "taxRate": 0 }],
-  "orderTicketNotes": "optional"
+  "customer": "optional ObjectId (omit for walk-in)",
+  "warehouse": "optional (defaults to the default warehouse)",
+  "discount": 0,
+  "taxPercent": 0,
+  "items": [{ "product": "...", "quantity": 2, "unitPrice": 350 }],
+  "payment": {
+    "method": "CASH | CARD | BANK_TRANSFER | ONLINE | MIXED | CREDIT",
+    "cash": 700,
+    "online": 0,
+    "bankAccount": "ObjectId (required when money lands online)",
+    "receiptRef": "transfer proof reference (required for online portion)"
+  }
 }
 ```
-Atomically creates the sale, reduces stock, posts cash/customer ledger entries, and emits an Order Ticket. Emits `sale.created` + `stock.changed` over WebSocket.
 
-## Vendors
-| Method | Path | Access |
-|--------|------|--------|
-| GET | `/vendors?search=` | auth |
-| GET | `/vendors/:id` | auth |
-| GET | `/vendors/:id/ledger` | auth |
-| POST/PATCH | `/vendors[/:id]` | `ADMIN`,`MANAGER`,`ACCOUNTANT` |
-| DELETE | `/vendors/:id` | `ADMIN`,`MANAGER` |
+Allocates `SALE-YYYY-######`, decrements stock + appends `STOCK_OUT` movements,
+creates the sale, and posts the revenue and COGS journal entries. `unitPrice`
+defaults to the product's catalog `salePrice` when omitted.
 
-List rows include computed `outstanding` (payable balance). `/ledger` returns statement rows with running `balanceAfter`.
+> ⚠️ Not wrapped in a DB transaction — see [ARCHITECTURE.md §4](ARCHITECTURE.md).
+> No idempotency key today, so a retried POST creates a duplicate sale.
 
-## Purchases (GP)  — `MANAGER`,`ADMIN`,`ACCOUNTANT` (write)
-| Method | Path | Access |
-|--------|------|--------|
-| POST | `/purchases` | write |
-| GET | `/purchases?from=&to=&vendorId=` | auth |
-| GET | `/purchases/:id` | auth |
+## Purchases (GP) — `/purchases`
+
+| Method | Path                  | Permission         |
+| ------ | --------------------- | ------------------ |
+| POST   | `/`                   | `purchases:create` |
+| GET    | `/?from=&to=&vendor=` | `purchases:read`   |
+| GET    | `/:id`                | `purchases:read`   |
 
 `POST /purchases` body:
+
 ```json
 {
-  "vendorId": "...",
-  "warehouseId": "optional",
-  "invoiceNumber": "vendor inv #",
+  "vendor": "...",
+  "warehouse": "optional",
+  "vendorInvoiceNo": "supplier inv #",
   "date": "2026-06-22",
-  "items": [{ "productId": "...", "quantity": 10, "rate": 800, "taxRate": 0, "discount": 0 }],
-  "paidAmount": 5000,
-  "note": "optional"
+  "items": [{ "product": "...", "quantity": 10, "unitCost": 800, "taxPercent": 0 }],
+  "discount": 0,
+  "paid": 5000,
+  "paymentMethod": "CASH | BANK_TRANSFER | ...",
+  "bankAccount": "optional ObjectId",
+  "notes": "optional"
 }
 ```
-Atomically: allocates `GP-####`, creates the purchase, **increments stock** + appends `STOCK_IN` movements, refreshes product purchase price, **credits the vendor ledger** for the unpaid balance, and records `CASH_OUT` for any amount paid. Emits `purchase.created` + `stock.changed`.
 
-## Dashboard
-`GET /dashboard/kpis` · `GET /dashboard/sales-trend?days=30` · `GET /dashboard/top-products?limit=5`
+Allocates `GP-YYYY-####`, increments stock + appends `STOCK_IN` movements
+(updating moving-average cost), posts Dr Inventory / Cr A/P for the total, and
+posts a payment (Dr A/P, Cr Cash/Bank) for any `paid` amount.
 
-## Planned endpoints (scaffolded — see roadmap)
-```
-Invoices         POST/GET /invoices, POST /invoices/:id/pdf
-                 POST /invoices/:id/send-email, /send-whatsapp
-Customers        CRUD /customers, GET /customers/:id/ledger
-Ledgers          GET /ledgers/cash, /ledgers/bank, /ledgers/:accountId/entries
-Cash & Bank      POST /cash, POST /bank
-Reports          GET /reports/sales|purchases|stock|pnl?format=json|csv|xlsx|pdf
-Settings         GET/PUT /settings, /settings/print-templates
-Stock ops        POST /stock/in|out|transfer|adjust|damage
-```
+## Customers & Vendors — `/customers`, `/vendors`
 
-## WebSocket events (Socket.IO, `VITE_SOCKET_URL`)
-| Event | Payload |
-|-------|---------|
-| `sale.created` | `{ saleNumber, grandTotal }` |
-| `stock.changed` | `{ productIds }` |
-| `notification` | `{ title, body, type }` |
+CRUD under `customers:*` / `vendors:*` permissions. List rows include a computed
+`outstanding` balance. Party **statements** are served by the finance module
+(`/finance/ledgers/...`), not by these routers.
+
+## Invoices — `/invoices`
+
+| Method | Path                  | Permission        |
+| ------ | --------------------- | ----------------- |
+| POST   | `/`                   | `invoices:create` |
+| GET    | `/?status=&customer=` | `invoices:read`   |
+| GET    | `/:id`                | `invoices:read`   |
+| GET    | `/:id/pdf`            | `invoices:read`   |
+| POST   | `/:id/pay`            | `invoices:create` |
+
+`POST /invoices` body mirrors a sale (`customer` required, `items[]`, `discount`,
+`taxPercent`, optional `dueDate`); issuing it lowers stock and posts Dr A/R /
+Cr Sales (+ Cr Tax). `POST /:id/pay` body: `{ amount, method?, bankAccount?, date? }`
+posts a customer receipt and updates the invoice status (`UNPAID/PARTIAL/PAID`).
+`/:id/pdf` streams a PDFKit-rendered invoice.
+
+## Finance — `/finance` (`finance:read` / `finance:manage`)
+
+| Method | Path                        | Permission       |
+| ------ | --------------------------- | ---------------- |
+| GET    | `/bank-accounts`            | `finance:read`   |
+| POST   | `/bank-accounts`            | `finance:manage` |
+| PATCH  | `/bank-accounts/:id`        | `finance:manage` |
+| DELETE | `/bank-accounts/:id`        | `finance:manage` |
+| GET    | `/bank-accounts/:id/ledger` | `finance:read`   |
+| GET    | `/cash-ledger`              | `finance:read`   |
+| POST   | `/cash-entry`               | `finance:manage` |
+| POST   | `/payments/vendor`          | `finance:manage` |
+| POST   | `/payments/customer`        | `finance:manage` |
+| GET    | `/ledgers/customers`        | `finance:read`   |
+| GET    | `/ledgers/vendors`          | `finance:read`   |
+| GET    | `/ledgers/:kind/:id`        | `finance:read`   |
+
+`cash-entry` body: `{ direction: "IN" | "OUT", amount, date?, note? }`.
+`payments/vendor` / `payments/customer` body: `{ vendor|customer, amount, method?, bankAccount?, date?, note? }`.
+`/ledgers/:kind/:id` (`kind` = `customer` | `vendor`) returns a statement with a
+running balance derived from the journal.
+
+## Dashboard & Reports (`reports:read`)
+
+- `GET /dashboard?warehouse=` — headline KPIs + 30-day sales trend + top products.
+- `GET /reports/:type?from=&to=&warehouse=` — `type` ∈
+  `sales | purchases | stock-valuation | profit-loss`.
 
 ## Errors
-Standard Nest shape: `{ statusCode, message, error }`. `401` triggers the client's silent refresh-and-retry; a failed refresh logs out.
+
+All errors return `{ success: false, message, errors? }` with the appropriate
+status code (`400` validation, `401` auth, `403` permission, `404`, `409`
+duplicate, `500`). Stack traces are included only for 5xx in development. A `401`
+should trigger the client's refresh-and-retry; a failed refresh logs out.

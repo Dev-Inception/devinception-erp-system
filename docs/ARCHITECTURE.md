@@ -8,76 +8,90 @@
 │  ┌──────────────┐   ┌────────────────────┐   ┌──────────────────┐      │
 │  │  Web (Vite)  │   │ Electron Desktop   │   │  Mobile (future) │      │
 │  │  React SPA   │   │ (same React build  │   │  React Native /  │      │
-│  │              │   │  + native print/   │   │  Expo)           │      │
-│  └──────┬───────┘   │  auto-update)      │   └────────┬─────────┘      │
-│         │           └─────────┬──────────┘            │                │
+│  │              │   │  + native print)   │   │  Expo)           │      │
+│  └──────┬───────┘   └─────────┬──────────┘   └────────┬─────────┘      │
+│         │                     │                       │                │
 └─────────┼─────────────────────┼───────────────────────┼────────────────┘
           │ REST (JWT)          │ REST + IPC            │ REST
-          │ + WebSocket         │                       │
           ▼                     ▼                       ▼
 ┌──────────────────────────────────────────────────────────────────────┐
-│                    BACKEND  (NestJS, :4000/api/v1)                     │
+│                 BACKEND  (Express 5, :5050/api)                        │
 │                                                                        │
-│  Auth ─ Users ─ Products ─ Sales/POS ─ Purchases ─ Invoices            │
-│  Ledgers ─ Customers ─ Vendors ─ Reports ─ Dashboard ─ Settings        │
+│  Auth ─ Users ─ Roles ─ Products/Inventory ─ Sales/POS ─ Purchases     │
+│  Invoices ─ Customers ─ Vendors ─ Finance/Ledgers ─ Reports ─ Dashboard│
 │                                                                        │
-│  Cross-cutting: Global JwtAuthGuard + RolesGuard · ValidationPipe ·    │
-│  NumberingService (gapless doc #) · RealtimeGateway (Socket.IO) ·      │
-│  AuditLog interceptor · Mail / WhatsApp / PDF services                 │
-└───────────────┬───────────────────────────────────┬────────────────────┘
-                │ Prisma ORM                         │ external
-                ▼                                    ▼
+│  Cross-cutting: protect (JWT) + requirePermission (RBAC) ·             │
+│  express-validator DTO validation · Counter (gapless doc #) ·          │
+│  Mail (Nodemailer) · Invoice PDF (PDFKit) · central error handler      │
+└───────────────┬────────────────────────────────────┬───────────────────┘
+                │ Mongoose ODM                        │ external
+                ▼                                     ▼
        ┌─────────────────┐              ┌──────────────────────────────┐
-       │   PostgreSQL    │              │ SMTP · WhatsApp Cloud API ·   │
-       │                 │              │ S3/local storage · Puppeteer  │
+       │    MongoDB      │              │ SMTP (email) ·                │
+       │                 │              │ WhatsApp Cloud API (planned)  │
        └─────────────────┘              └──────────────────────────────┘
 ```
 
+> **Implemented vs. planned.** The backend REST API above is implemented. The
+> frontend currently runs on an in-memory mock API and is **not yet wired to the
+> backend**. There is **no realtime/Socket.IO** layer. Email send is wired
+> (Nodemailer); WhatsApp send is a planned integration.
+
 ## 2. Layers & responsibilities
 
-| Layer | Tech | Responsibility |
-|-------|------|----------------|
-| Presentation | React 18, Tailwind, shadcn/UI, Recharts | UI, routing, optimistic updates |
+| Layer        | Tech                                               | Responsibility                       |
+| ------------ | -------------------------------------------------- | ------------------------------------ |
+| Presentation | React 18, Tailwind, Radix (shadcn-style), Recharts | UI, routing, optimistic updates      |
 | Client state | Zustand (auth/session), React Query (server cache) | Token storage, data fetching/caching |
-| Transport | Axios (REST), socket.io-client | API calls + live events |
-| API | NestJS controllers + DTOs (class-validator) | HTTP surface, validation, RBAC |
-| Domain | NestJS services | Business rules, transactions |
-| Data | Prisma + PostgreSQL | Persistence, migrations |
-| Desktop | Electron main/preload | Local printing, file storage, auto-update, offline |
+| Transport    | Axios (planned; mock today)                        | API calls                            |
+| API          | Express routers + express-validator                | HTTP surface, validation, RBAC       |
+| Domain       | Service modules (`src/services`)                   | Business rules, money/ledger logic   |
+| Data         | Mongoose models → MongoDB                          | Persistence, indexes                 |
+| Desktop      | Electron main/preload                              | Local printing, auto-update          |
 
 ## 3. Key design decisions
 
-- **NestJS over plain Express** — modular DI, guards/interceptors, Swagger, testability fit an enterprise codebase.
-- **Stock = append-only `StockMovement` + denormalized `StockLevel`.** Movements are the source of truth (auditable); levels are a fast cache kept in sync inside the same DB transaction.
-- **Ledgers are double-entry-friendly.** Every `LedgerEntry` records `direction`, `amount`, and `balanceAfter`; account `balance` is updated atomically with the entry.
-- **Gapless document numbers** via a row-locked `NumberSequence` so concurrent POS terminals never duplicate `SALE-/GP-/INV-/OT-` numbers.
-- **Auth = short-lived access JWT + rotating refresh tokens** (hashed at rest, revocable). Global guard makes everything private unless `@Public()`.
-- **RBAC** via `@Roles()` metadata + `RolesGuard`; `SUPER_ADMIN` bypasses all checks.
-- **One React build, three shells.** The same SPA loads in the browser and Electron (`base: './'`), and is mobile-ready.
+- **Plain Express + a service layer** — thin routers delegate to `src/services`; controllers stay small via an `asyncHandler` wrapper and a central error middleware that normalizes Mongoose `ValidationError`/`CastError`/duplicate-key into a consistent JSON shape.
+- **Permission-based RBAC, roles as data.** Routes guard on fine-grained permissions (`requirePermission(PERMISSIONS.SALES_CREATE)`), not role names. The five built-in roles (`cashier → super_admin`) are seeded `Role` documents; a super admin can create custom roles from the fixed permission catalog. `super_admin` holds the `"*"` wildcard and passes every check.
+- **Stock = append-only `StockMovement` + denormalized `StockLevel`.** Movements (`IN`/`OUT`/`ADJUST`) are the audit trail; `StockLevel` is the fast current `quantity` + moving-average `avgCost` per `(product, warehouse)`. Issues use an atomic conditional `$inc` (`{ quantity: { $gte: qty } }`) so concurrent sales cannot oversell into negative stock.
+- **Double-entry ledger in a single document.** Each `JournalEntry` holds all of its balanced debit/credit `lines`, with a schema validator enforcing `SUM(debit) === SUM(credit)`. A post is therefore one atomic write that can never be half-posted — chosen so the system works on a **standalone MongoDB** (no replica set required). Account balances are always **derived** by aggregating lines; nothing stores a running balance.
+- **Gapless document numbers** via an atomic `Counter` (`findOneAndUpdate` `$inc`, upsert) scoped per year, so concurrent POS terminals never duplicate `SALE-/GP-/INV-` numbers.
+- **Money is integer paisa** end-to-end (see `utils/money.js`) to avoid floating-point drift; values are converted to rupees only at the display boundary.
+- **Auth = short-lived access JWT + refresh JWT.** Access 15m, refresh 7d. Passwords hashed with bcrypt; a password change bumps `passwordChangedAt`, which invalidates previously-issued access tokens.
 
-## 4. Transaction integrity (POS checkout example)
+## 4. Transaction integrity (POS checkout)
 
-A single Prisma `$transaction` performs, atomically:
-1. Allocate `SALE-####` number.
-2. Create `Sale` + `SaleItem[]`.
-3. For each item: decrement `StockLevel`, append `StockMovement(STOCK_OUT)`.
-4. Record `CashTransaction(CASH_IN)` for cash tendered.
-5. For credit portion: upsert customer `LedgerAccount`, append `LedgerEntry(DEBIT)`, update balance.
-6. Allocate `OT-####` and create the `OrderTicket`.
+`saleService.createSale` performs, in order:
 
-Any failure rolls the entire sale back — no partial stock/ledger drift. On commit, `RealtimeGateway` emits `sale.created` + `stock.changed` so every dashboard/POS updates live.
+1. Validate payment split (cash/online/credit) and stock availability.
+2. Allocate the `SALE-YYYY-######` number via the atomic `Counter`.
+3. For each line: atomically decrement `StockLevel` and append a `StockMovement(OUT)` at the line's `avgCost`.
+4. Create the `Sale` document (with embedded items + captured COGS).
+5. Post the revenue `JournalEntry` (Dr Cash/Bank/AR, Cr Sales, Cr Tax) and the COGS `JournalEntry` (Dr COGS, Cr Inventory).
+
+> ⚠️ **Known limitation — not yet atomic across documents.** These steps are
+> separate writes and are **not** wrapped in a MongoDB transaction, so a crash or
+> error mid-sequence can leave stock and the ledger inconsistent. Each individual
+> journal post is atomic (single document), but the overall flow is not.
+> Wrapping `createSale` / `createInvoice` / `createPurchase` in
+> `session.withTransaction` (which requires running MongoDB as a replica set) is a
+> tracked roadmap item.
 
 ## 5. Security
 
-- Argon2id password hashing.
-- JWT access (15m) + refresh (7d, rotated & revocable, SHA-256 hashed in DB).
-- Global validation pipe with `whitelist` + `forbidNonWhitelisted`.
-- CORS pinned to configured origins; Electron uses `contextIsolation` with a minimal preload bridge (no `nodeIntegration`).
-- `AuditLog` table for sensitive actions.
+- **Password hashing:** bcrypt (`bcryptjs`).
+- **JWT:** separate HS256 access (15m) and refresh (7d) secrets; refresh delivered as an `httpOnly; SameSite=strict` cookie (and accepted in the body). Refresh tokens are currently **stateless** (issued anew on `/auth/refresh`, not stored/rotated/revoked server-side); a password change invalidates outstanding access tokens via `passwordChangedAt`.
+- **Validation:** every write route runs `express-validator` chains; the central error handler avoids leaking stack traces outside development.
+- **Hardening:** `helmet` security headers (CSP disabled so the bundled Swagger UI works), CORS pinned to `CLIENT_URL` with credentials, rate limiting on login and password-reset, password-reset tokens stored only as SHA-256 hashes, and a generic forgot-password response (no account enumeration).
+- **Electron:** `contextIsolation` with a minimal preload bridge (no `nodeIntegration`).
+
+> See the code review notes for hardening follow-ups (JWT algorithm pinning,
+> refresh-token rotation/revocation, query-parameter sanitization).
 
 ## 6. Scalability path
 
-- Stateless API → horizontal scale behind a load balancer; sticky sessions only for Socket.IO (or Redis adapter).
-- PostgreSQL read replicas for reporting; materialized views for heavy dashboards.
-- Background jobs (BullMQ/Redis) for PDF generation, email/WhatsApp dispatch, and report exports.
-- Per-tenant schema or `companyId` scoping for multi-branch/multi-company.
+- Stateless REST API → horizontal scale behind a load balancer.
+- MongoDB replica set (also unlocks multi-document transactions for §4) + read preferences for reporting.
+- Materialized per-account/per-ref balance documents to speed up dashboard/ledger hot paths (today balances are aggregated on read).
+- Background jobs for PDF generation and email/WhatsApp dispatch.
+- `companyId` scoping for multi-branch / multi-company.

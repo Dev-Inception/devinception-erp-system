@@ -13,7 +13,7 @@ const STORAGE_KEY = 'devinception-theme';
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const [theme, setThemeState] = useState<Theme>(
-    () => (localStorage.getItem(STORAGE_KEY) as Theme) || 'system',
+    () => (localStorage.getItem(STORAGE_KEY) as Theme) || 'light',
   );
 
   useEffect(() => {

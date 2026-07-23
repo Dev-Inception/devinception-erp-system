@@ -11,9 +11,32 @@ import { formatCurrency } from '@/lib/utils';
 import { printDocument, type TemplateType } from '@/lib/printing';
 import { useWarehouses } from '@/components/layout/warehouse-switcher';
 
-interface Vendor { id: string; name: string }
-interface Product { id: string; name: string; sku: string; purchasePrice: string; currentStock: number }
-interface Line { productId: string; name: string; quantity: number; rate: number; taxRate: number; discount: number }
+interface Vendor {
+  id: string;
+  name: string;
+}
+interface Product {
+  id: string;
+  name: string;
+  sku: string;
+  purchasePrice: string;
+  currentStock: number;
+  warehouseId?: string;
+}
+interface Line {
+  productId: string;
+  name: string;
+  quantity: number;
+  rate: number;
+  taxRate: number;
+  discount: number;
+  warehouseId?: string;
+}
+interface Labour {
+  id: string;
+  name: string;
+  phoneNumber: string;
+}
 
 const GP_FORMATS: { label: string; type: TemplateType }[] = [
   { label: 'Divider Paper', type: 'GP_DIVIDER' },
@@ -34,17 +57,23 @@ export function PurchasesPage() {
   const [invoiceNumber, setInvoiceNumber] = useState(genVendorInvoiceNo);
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [lines, setLines] = useState<Line[]>([]);
+  const [labourIds, setLabourIds] = useState<string[]>([]);
   const [paidAmount, setPaidAmount] = useState(0);
   const [search, setSearch] = useState('');
   const [pickerOpen, setPickerOpen] = useState(false);
-  const [lastGp, setLastGp] = useState<any>(null);
-  const { currentId: warehouseId, warehouses } = useWarehouses();
-  const warehouseName = warehouses.find((w) => w.id === warehouseId)?.name ?? '—';
+  const [lastGps, setLastGps] = useState<any[]>([]);
+  const { currentId: defaultWarehouseId } = useWarehouses();
 
   const { data: vendors = [] } = useQuery<Vendor[]>({
     queryKey: ['vendors-select'],
     queryFn: async () => (await api.get('/vendors')).data,
   });
+  const { data: labourList = [] } = useQuery<Labour[]>({
+    queryKey: ['labour'],
+    queryFn: async () => (await api.get('/labour')).data,
+  });
+  const toggleLabour = (id: string) =>
+    setLabourIds((ids) => (ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]));
   // Always load products (empty search returns the catalog); the dropdown is
   // toggled by focus so you can browse the full list without typing.
   const { data: products = [] } = useQuery<Product[]>({
@@ -59,7 +88,15 @@ export function PurchasesPage() {
       if (ls.some((l) => l.productId === p.id)) return ls;
       return [
         ...ls,
-        { productId: p.id, name: p.name, quantity: 1, rate: Number(p.purchasePrice), taxRate: 0, discount: 0 },
+        {
+          productId: p.id,
+          name: p.name,
+          quantity: 1,
+          rate: Number(p.purchasePrice),
+          taxRate: 0,
+          discount: 0,
+          warehouseId: p.warehouseId,
+        },
       ];
     });
   };
@@ -67,6 +104,12 @@ export function PurchasesPage() {
   const patchLine = (id: string, patch: Partial<Line>) =>
     setLines((ls) => ls.map((l) => (l.productId === id ? { ...l, ...patch } : l)));
   const removeLine = (id: string) => setLines((ls) => ls.filter((l) => l.productId !== id));
+
+  const lineGrandTotal = (l: Line) => {
+    const gross = l.quantity * l.rate;
+    const taxable = gross - l.discount;
+    return taxable + (taxable * l.taxRate) / 100;
+  };
 
   const totals = useMemo(() => {
     let subtotal = 0;
@@ -82,37 +125,68 @@ export function PurchasesPage() {
   }, [lines]);
 
   const save = useMutation({
-    mutationFn: async () =>
-      (
-        await api.post('/purchases', {
-          vendorId,
-          warehouseId,
-          invoiceNumber: invoiceNumber || undefined,
-          date,
-          paidAmount,
-          items: lines.map((l) => ({
-            productId: l.productId,
-            quantity: l.quantity,
-            rate: l.rate,
-            taxRate: l.taxRate,
-            discount: l.discount,
-          })),
-        })
-      ).data,
-    onSuccess: (gp) => {
-      toast.success(`Saved ${gp.gpNumber}`);
-      setLastGp(gp);
+    mutationFn: async () => {
+      // Labour has no dedicated field on Goods Purchase — the selected names are
+      // folded into the free-text notes instead.
+      const labourNames = labourList.filter((l) => labourIds.includes(l.id)).map((l) => l.name);
+      const notes = labourNames.length ? `Labour: ${labourNames.join(', ')}` : undefined;
+
+      // A single purchase can only receive into one warehouse on the backend.
+      // Group the cart by each product's own warehouse (falling back to the
+      // default for owner-less products) and save one purchase per group —
+      // this is what lets the cart mix products from multiple warehouses.
+      const groups = new Map<string, Line[]>();
+      for (const l of lines) {
+        const wh = l.warehouseId ?? defaultWarehouseId ?? '';
+        groups.set(wh, [...(groups.get(wh) ?? []), l]);
+      }
+
+      // Apply the amount paid as a waterfall across groups in cart order, so
+      // it still reconciles to a single "paid now" figure the user entered.
+      let remainingPaid = paidAmount;
+      const results = [];
+      for (const [wh, groupLines] of groups) {
+        const groupTotal = groupLines.reduce((s, l) => s + lineGrandTotal(l), 0);
+        const groupPaid = Math.max(0, Math.min(remainingPaid, groupTotal));
+        remainingPaid -= groupPaid;
+        const gp = (
+          await api.post('/purchases', {
+            vendorId,
+            warehouseId: wh || undefined,
+            invoiceNumber: invoiceNumber || undefined,
+            date,
+            paidAmount: groupPaid,
+            notes,
+            items: groupLines.map((l) => ({
+              productId: l.productId,
+              quantity: l.quantity,
+              rate: l.rate,
+              taxRate: l.taxRate,
+              discount: l.discount,
+            })),
+          })
+        ).data;
+        results.push(gp);
+      }
+      return results;
+    },
+    onSuccess: (gps) => {
+      toast.success(
+        gps.length > 1
+          ? `Saved ${gps.length} purchases (split by warehouse): ${gps.map((g) => g.gpNumber).join(', ')}`
+          : `Saved ${gps[0].gpNumber}`,
+      );
+      setLastGps(gps);
       setLines([]);
+      setLabourIds([]);
       setPaidAmount(0);
       setInvoiceNumber(genVendorInvoiceNo()); // fresh number for the next GP
       qc.invalidateQueries({ queryKey: ['purchases'] });
     },
-    onError: (e: any) =>
-      toast.error(e?.response?.data?.message ?? 'Could not save purchase'),
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Could not save purchase'),
   });
 
-  const handlePrint = (type: TemplateType) => {
-    const gp = lastGp;
+  const handlePrint = (gp: any, type: TemplateType) => {
     if (!gp) return;
     printDocument(type, {
       company: { name: 'DevInception Retail', address: 'HQ, Lahore', phone: '+92 300 1234567' },
@@ -141,9 +215,6 @@ export function PurchasesPage() {
         <Card>
           <CardHeader>
             <CardTitle>New Goods Purchase</CardTitle>
-            <p className="text-sm text-muted-foreground">
-              Receiving into <span className="font-medium text-foreground">{warehouseName}</span> (switch in the top bar)
-            </p>
           </CardHeader>
           <CardContent className="grid gap-3 sm:grid-cols-3">
             <div className="space-y-1.5">
@@ -184,6 +255,25 @@ export function PurchasesPage() {
               <Label>Date</Label>
               <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
             </div>
+            <div className="col-span-full space-y-1.5">
+              <Label>Labour (optional)</Label>
+              {labourList.length === 0 ? (
+                <p className="text-xs text-muted-foreground">No labour records yet.</p>
+              ) : (
+                <div className="flex flex-wrap gap-3 rounded-md border p-2.5">
+                  {labourList.map((l) => (
+                    <label key={l.id} className="flex items-center gap-1.5 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={labourIds.includes(l.id)}
+                        onChange={() => toggleLabour(l.id)}
+                      />
+                      {l.name}
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
           </CardContent>
         </Card>
 
@@ -217,7 +307,9 @@ export function PurchasesPage() {
                       >
                         <span className="flex items-center gap-2">
                           {p.name}
-                          <span className="text-xs text-muted-foreground">· {p.currentStock} in stock</span>
+                          <span className="text-xs text-muted-foreground">
+                            · {p.currentStock} in stock
+                          </span>
                         </span>
                         <span className="text-xs text-muted-foreground">{p.sku}</span>
                       </button>
@@ -234,6 +326,7 @@ export function PurchasesPage() {
                   <th className="px-3 py-2 font-medium">Product</th>
                   <th className="px-3 py-2 font-medium">Qty</th>
                   <th className="px-3 py-2 font-medium">Rate</th>
+                  <th className="px-3 py-2 font-medium">Disc</th>
                   <th className="px-3 py-2 font-medium">Tax%</th>
                   <th className="px-3 py-2 text-right font-medium">Amount</th>
                   <th className="w-8" />
@@ -242,7 +335,7 @@ export function PurchasesPage() {
               <tbody>
                 {lines.length === 0 && (
                   <tr>
-                    <td colSpan={6} className="px-3 py-8 text-center text-muted-foreground">
+                    <td colSpan={7} className="px-3 py-8 text-center text-muted-foreground">
                       Search and add products above.
                     </td>
                   </tr>
@@ -257,7 +350,9 @@ export function PurchasesPage() {
                           type="number"
                           className="h-8 w-20"
                           value={l.quantity}
-                          onChange={(e) => patchLine(l.productId, { quantity: Number(e.target.value) })}
+                          onChange={(e) =>
+                            patchLine(l.productId, { quantity: Number(e.target.value) })
+                          }
                         />
                       </td>
                       <td className="px-3 py-2">
@@ -271,9 +366,21 @@ export function PurchasesPage() {
                       <td className="px-3 py-2">
                         <Input
                           type="number"
+                          className="h-8 w-20"
+                          value={l.discount}
+                          onChange={(e) =>
+                            patchLine(l.productId, { discount: Number(e.target.value) })
+                          }
+                        />
+                      </td>
+                      <td className="px-3 py-2">
+                        <Input
+                          type="number"
                           className="h-8 w-16"
                           value={l.taxRate}
-                          onChange={(e) => patchLine(l.productId, { taxRate: Number(e.target.value) })}
+                          onChange={(e) =>
+                            patchLine(l.productId, { taxRate: Number(e.target.value) })
+                          }
                         />
                       </td>
                       <td className="px-3 py-2 text-right">
@@ -341,20 +448,25 @@ export function PurchasesPage() {
             <Plus className="h-4 w-4" /> Save Purchase
           </Button>
 
-          {lastGp && (
-            <div className="space-y-2 rounded-lg border border-dashed p-3">
+          {lastGps.map((gp) => (
+            <div key={gp.id} className="space-y-2 rounded-lg border border-dashed p-3">
               <p className="text-xs text-muted-foreground">
-                Saved <span className="font-medium text-foreground">{lastGp.gpNumber}</span> — print:
+                Saved <span className="font-medium text-foreground">{gp.gpNumber}</span> — print:
               </p>
               <div className="grid grid-cols-1 gap-2">
                 {GP_FORMATS.map((f) => (
-                  <Button key={f.type} variant="outline" size="sm" onClick={() => handlePrint(f.type)}>
+                  <Button
+                    key={f.type}
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handlePrint(gp, f.type)}
+                  >
                     <Printer className="h-4 w-4" /> {f.label}
                   </Button>
                 ))}
               </div>
             </div>
-          )}
+          ))}
         </CardContent>
       </Card>
     </div>

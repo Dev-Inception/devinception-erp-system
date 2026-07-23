@@ -1,0 +1,115 @@
+# Render Blueprint for DevInception ERP
+# Deploys the Express API (web service) and the Vite/React SPA (static site).
+#
+# NOTE: Render has no managed MongoDB. Provision a free cluster on MongoDB Atlas
+# (https://www.mongodb.com/atlas) and paste its connection string into the
+# MONGO_URI env var of the API service after the blueprint is created.
+#
+# Docs: https://render.com/docs/blueprint-spec
+
+services:
+  # ------------------------------------------------------------------ #
+  #  Backend  —  Express + MongoDB REST API                            #
+  # ------------------------------------------------------------------ #
+  - type: web
+    name: devinception-erp-api
+    runtime: node
+    plan: free
+    region: oregon # change to frankfurt / singapore etc. if you prefer
+    # Repo root is the build context so npm workspaces resolve correctly.
+    buildCommand: npm install -w backend
+    startCommand: npm run start -w backend
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: "20"
+      - key: NODE_ENV
+        value: production
+      # Skip Husky git hooks during CI install (no .git hooks needed on Render).
+      - key: HUSKY
+        value: "0"
+
+      # ----- Database (paste your MongoDB Atlas SRV string) ----------
+      - key: MONGO_URI
+        sync: false
+
+      # ----- JWT — secrets are auto-generated on first deploy --------
+      - key: JWT_ACCESS_SECRET
+        generateValue: true
+      - key: JWT_ACCESS_EXPIRES_IN
+        value: 15m
+      - key: JWT_REFRESH_SECRET
+        generateValue: true
+      - key: JWT_REFRESH_EXPIRES_IN
+        value: 7d
+      - key: RESET_TOKEN_EXPIRES_MIN
+        value: "15"
+
+      # ----- CORS: full https URL of the frontend static site --------
+      # Paste the frontend URL after it deploys, e.g.
+      #   https://devinception-erp-web.onrender.com
+      - key: CLIENT_URL
+        sync: false
+
+      # ----- SMTP (password reset / notification emails) -------------
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        sync: false
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
+      - key: MAIL_FROM
+        value: DevInception ERP <no-reply@devinception.com>
+
+      # ----- Bootstrap super admin (used by the seed script) ---------
+      - key: SUPER_ADMIN_NAME
+        value: Super Admin
+      - key: SUPER_ADMIN_EMAIL
+        sync: false
+      - key: SUPER_ADMIN_PASSWORD
+        sync: false
+
+      # ----- Company details printed on documents (optional) ---------
+      - key: COMPANY_NAME
+        value: DevInception
+      - key: COMPANY_ADDRESS
+        sync: false
+      - key: COMPANY_PHONE
+        sync: false
+
+    # Uploaded files (POS receipts) are written to backend/uploads. The free
+    # plan has an EPHEMERAL filesystem, so these are lost on every redeploy or
+    # restart. To keep them, upgrade off free and uncomment the disk below
+    # (a persistent disk requires a paid instance type).
+    # disk:
+    #   name: uploads
+    #   mountPath: /opt/render/project/src/backend/uploads
+    #   sizeGB: 1
+
+  # ------------------------------------------------------------------ #
+  #  Frontend  —  Vite + React single-page app (static site)          #
+  # ------------------------------------------------------------------ #
+  - type: web
+    name: devinception-erp-web
+    runtime: static
+    # --include=dev forces Vite/TypeScript (devDependencies) to install even
+    # if NODE_ENV happens to be production during the build.
+    buildCommand: npm install --include=dev -w frontend && npm run build -w frontend
+    staticPublishPath: ./frontend/dist
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: "20"
+      # Base URL of the API — MUST include the /api suffix. Paste the API
+      # service URL after it deploys, e.g.
+      #   https://devinception-erp-api.onrender.com/api
+      - key: VITE_API_URL
+        sync: false
+    # SPA fallback so client-side routes (e.g. the gate-pass scan page) resolve.
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html

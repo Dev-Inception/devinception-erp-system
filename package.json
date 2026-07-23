@@ -14,13 +14,35 @@
     "dev:web": "npm run dev -w frontend",
     "dev:desktop": "npm run dev -w electron",
     "build": "npm run build -w backend && npm run build -w frontend",
-    "db:migrate": "npm run db:migrate -w backend",
-    "db:seed": "npm run db:seed -w backend",
-    "db:studio": "npm run db:studio -w backend",
-    "lint": "npm run lint -w backend && npm run lint -w frontend"
+    "seed:roles": "npm run seed:roles -w backend",
+    "seed:superadmin": "npm run seed:superadmin -w backend",
+    "db:seed": "npm run seed:roles -w backend && npm run seed:superadmin -w backend",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "prepare": "husky"
+  },
+  "lint-staged": {
+    "*.{ts,tsx}": [
+      "eslint",
+      "prettier --check"
+    ],
+    "*.{js,jsx,json,css,md}": [
+      "prettier --check"
+    ]
   },
   "devDependencies": {
-    "concurrently": "^9.1.0"
+    "@eslint/js": "^9.39.4",
+    "concurrently": "^9.1.0",
+    "eslint": "^9.39.4",
+    "eslint-config-prettier": "^9.1.2",
+    "eslint-plugin-react-hooks": "^5.2.0",
+    "eslint-plugin-react-refresh": "^0.4.26",
+    "globals": "^15.15.0",
+    "husky": "^9.1.7",
+    "lint-staged": "^15.5.2",
+    "prettier": "^3.8.4",
+    "typescript-eslint": "^8.62.0"
   },
   "engines": {
     "node": ">=20"
