@@ -4,8 +4,6 @@ const GatePass = require('../models/gatePassModel');
 const Sale = require('../models/saleModel');
 const GoodsPurchase = require('../models/goodsPurchaseModel');
 const Invoice = require('../models/invoiceModel');
-const Customer = require('../models/customerModel');
-const Vendor = require('../models/vendorModel');
 const Product = require('../models/productModel');
 const ApiError = require('../utils/ApiError');
 const counterService = require('./counterService');
@@ -19,16 +17,13 @@ function refId(value) {
   return value && typeof value === 'object' && value._id ? value._id : value;
 }
 
-async function saleSnapshot(sale, suppliedCustomer = null) {
+async function saleSnapshot(sale) {
   const productIds = (sale.items || []).map((item) => refId(item.product)).filter(Boolean);
-  const [products, customer] = await Promise.all([
-    productIds.length
-      ? Product.find({ _id: { $in: productIds } })
-          .select('name sku barcode')
-          .lean()
-      : [],
-    suppliedCustomer || (sale.customer ? Customer.findById(refId(sale.customer)).lean() : null),
-  ]);
+  const products = productIds.length
+    ? await Product.find({ _id: { $in: productIds } })
+        .select('name sku barcode')
+        .lean()
+    : [];
   const productsById = new Map(products.map((product) => [String(product._id), product]));
 
   return {
@@ -38,14 +33,6 @@ async function saleSnapshot(sale, suppliedCustomer = null) {
     documentNumber: sale.number,
     warehouse: refId(sale.warehouse),
     saleDate: sale.date,
-    customerInfo: {
-      customer: customer ? customer._id : null,
-      name: customer ? customer.name : sale.customerName || 'Walk-in',
-      phone: customer ? customer.phone || '' : '',
-      email: customer ? customer.email || '' : '',
-      address: customer ? customer.address || '' : '',
-    },
-    vendorInfo: null,
     items: (sale.items || []).map((item) => {
       const productId = refId(item.product);
       const product = productsById.get(String(productId));
@@ -55,31 +42,21 @@ async function saleSnapshot(sale, suppliedCustomer = null) {
         sku: (product && product.sku) || '',
         barcode: (product && product.barcode) || '',
         quantity: item.quantity,
-        unitPrice: item.unitPrice,
-        lineTotal: item.lineTotal,
+        loadedQuantity: null,
+        loadConfirmed: false,
       };
     }),
-    pricing: {
-      subtotal: sale.subtotal,
-      discount: sale.discount || 0,
-      taxPercent: sale.taxPercent || 0,
-      tax: sale.tax || 0,
-      total: sale.total,
-    },
     createdBy: refId(sale.createdBy) || null,
   };
 }
 
-async function purchaseSnapshot(purchase, suppliedVendor = null) {
+async function purchaseSnapshot(purchase) {
   const productIds = (purchase.items || []).map((item) => refId(item.product)).filter(Boolean);
-  const [products, vendor] = await Promise.all([
-    productIds.length
-      ? Product.find({ _id: { $in: productIds } })
-          .select('name sku barcode')
-          .lean()
-      : [],
-    suppliedVendor || (purchase.vendor ? Vendor.findById(refId(purchase.vendor)).lean() : null),
-  ]);
+  const products = productIds.length
+    ? await Product.find({ _id: { $in: productIds } })
+        .select('name sku barcode')
+        .lean()
+    : [];
   const productsById = new Map(products.map((product) => [String(product._id), product]));
 
   return {
@@ -89,14 +66,6 @@ async function purchaseSnapshot(purchase, suppliedVendor = null) {
     documentNumber: purchase.number,
     warehouse: refId(purchase.warehouse),
     saleDate: purchase.date,
-    customerInfo: null,
-    vendorInfo: {
-      vendor: vendor ? vendor._id : null,
-      name: vendor ? vendor.name : purchase.vendorName || 'Vendor',
-      phone: vendor ? vendor.phone || '' : '',
-      email: vendor ? vendor.email || '' : '',
-      address: vendor ? vendor.address || '' : '',
-    },
     items: (purchase.items || []).map((item) => {
       const productId = refId(item.product);
       const product = productsById.get(String(productId));
@@ -106,31 +75,19 @@ async function purchaseSnapshot(purchase, suppliedVendor = null) {
         sku: (product && product.sku) || '',
         barcode: (product && product.barcode) || '',
         quantity: item.quantity,
-        unitPrice: item.unitCost,
-        lineTotal: item.lineTotal,
+        loadedQuantity: null,
+        loadConfirmed: false,
       };
     }),
-    pricing: {
-      subtotal: purchase.subtotal,
-      discount: purchase.discount || 0,
-      taxPercent: 0, // purchases apply tax per line; no single order-level rate to snapshot
-      tax: purchase.tax || 0,
-      total: purchase.total,
-    },
     createdBy: refId(purchase.createdBy) || null,
   };
 }
 
 function needsSnapshotRefresh(gatePass) {
-  const partyInfo =
-    gatePass.sourceType === 'PURCHASE' ? gatePass.vendorInfo : gatePass.customerInfo;
+  if (['PROCESSED', 'USED'].includes(gatePass.status)) return false;
   return (
-    !partyInfo ||
     !gatePass.saleDate ||
-    !gatePass.pricing ||
-    (gatePass.items || []).some(
-      (item) => typeof item.unitPrice !== 'number' || typeof item.lineTotal !== 'number',
-    )
+    (gatePass.items || []).some((item) => !item.name || item.loadedQuantity === undefined)
   );
 }
 
@@ -145,13 +102,20 @@ async function linkPurchase(purchaseId, gatePassId) {
   ]);
 }
 
-async function createForSale(sale, customer = null) {
-  const snapshot = await saleSnapshot(sale, customer);
+async function createForSale(sale) {
+  const snapshot = await saleSnapshot(sale);
   let gatePass = await GatePass.findOne({ ...SALE_FILTER, sale: sale._id });
   if (gatePass) {
+    if (['PROCESSED', 'USED'].includes(gatePass.status)) {
+      await linkSale(sale._id, gatePass._id);
+      return gatePass;
+    }
     gatePass = await GatePass.findByIdAndUpdate(
       gatePass._id,
-      { $set: snapshot },
+      {
+        $set: snapshot,
+        $unset: { customerInfo: 1, vendorInfo: 1, pricing: 1 },
+      },
       { returnDocument: 'after', runValidators: true },
     );
     await linkSale(sale._id, gatePass._id);
@@ -179,13 +143,20 @@ async function createForSale(sale, customer = null) {
   return gatePass;
 }
 
-async function createForPurchase(purchase, vendor = null) {
-  const snapshot = await purchaseSnapshot(purchase, vendor);
+async function createForPurchase(purchase) {
+  const snapshot = await purchaseSnapshot(purchase);
   let gatePass = await GatePass.findOne({ ...PURCHASE_FILTER, purchase: purchase._id });
   if (gatePass) {
+    if (['PROCESSED', 'USED'].includes(gatePass.status)) {
+      await linkPurchase(purchase._id, gatePass._id);
+      return gatePass;
+    }
     gatePass = await GatePass.findByIdAndUpdate(
       gatePass._id,
-      { $set: snapshot },
+      {
+        $set: snapshot,
+        $unset: { customerInfo: 1, vendorInfo: 1, pricing: 1 },
+      },
       { returnDocument: 'after', runValidators: true },
     );
     await linkPurchase(purchase._id, gatePass._id);
@@ -213,25 +184,32 @@ async function createForPurchase(purchase, vendor = null) {
   return gatePass;
 }
 
-// Upgrade sale gate passes created by the earlier purchase/sale implementation
-// so their stored snapshot also contains the new customer and product fields.
+// Upgrade legacy status names without changing the meaning of old passes.
 async function refreshLegacySaleGatePasses() {
-  const stalePasses = await GatePass.find({
-    ...SALE_FILTER,
-    $or: [
-      { customerInfo: { $exists: false } },
-      { saleDate: { $exists: false } },
-      { pricing: { $in: [null] } },
-      { 'items.unitPrice': { $exists: false } },
-      { 'items.lineTotal': { $exists: false } },
-    ],
-  }).select('sale');
-
-  for (const stalePass of stalePasses) {
-    if (!stalePass.sale) continue;
-    const sale = await Sale.findById(stalePass.sale);
-    if (sale) await createForSale(sale);
-  }
+  await Promise.all([
+    GatePass.updateMany({ status: 'ACTIVE' }, { $set: { status: 'PENDING' } }),
+    GatePass.collection.updateMany({ status: 'USED' }, [
+      {
+        $set: {
+          status: 'PROCESSED',
+          processedAt: { $ifNull: ['$processedAt', '$scannedAt'] },
+          processedBy: { $ifNull: ['$processedBy', '$scannedBy'] },
+        },
+      },
+    ]),
+    GatePass.collection.updateMany(
+      {},
+      {
+        $unset: {
+          customerInfo: '',
+          vendorInfo: '',
+          pricing: '',
+          'items.$[].unitPrice': '',
+          'items.$[].lineTotal': '',
+        },
+      },
+    ),
+  ]);
 }
 
 // Refreshes/backfills whichever source document backs a gate pass. Shared by
@@ -256,7 +234,9 @@ async function refreshSourceIfNeeded(gatePass) {
 }
 
 async function getGatePassById(id) {
-  const gatePass = await GatePass.findById(id).populate('createdBy', 'name');
+  const gatePass = await GatePass.findById(id)
+    .populate('createdBy', 'name')
+    .populate('processedBy', 'name');
   if (!gatePass) throw ApiError.notFound('Gate pass not found');
   return refreshSourceIfNeeded(gatePass);
 }
@@ -294,6 +274,7 @@ async function listGatePasses({ warehouse, status, sourceType, ...query } = {}) 
   const [gatePasses, total] = await Promise.all([
     GatePass.find(filter)
       .populate('createdBy', 'name')
+      .populate('processedBy', 'name')
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit),
@@ -319,23 +300,89 @@ async function generateQrPng(id) {
   return { gatePass, png };
 }
 
-async function scanGatePass(actor, encodedValue) {
+function processingUpdate(payload, actor, { adminEdit = false } = {}) {
+  return {
+    driver: payload.driver,
+    items: payload.items.map((item) => ({
+      product: item.productId,
+      name: item.name,
+      sku: item.sku || '',
+      barcode: item.barcode || '',
+      quantity: item.quantity,
+      loadedQuantity: item.loadedQuantity,
+      loadConfirmed: item.loadConfirmed,
+    })),
+    loadNotes: payload.loadNotes || '',
+    ...(payload.signatureData ? { signatureData: payload.signatureData } : {}),
+    ...(adminEdit
+      ? { lastEditedAt: new Date(), lastEditedBy: actor._id }
+      : {
+          status: 'PROCESSED',
+          processedAt: new Date(),
+          processedBy: actor._id,
+        }),
+  };
+}
+
+function validateLoadedItems(gatePass, submittedItems) {
+  if (!Array.isArray(submittedItems) || submittedItems.length !== gatePass.items.length) {
+    throw ApiError.badRequest('Every gate pass item must be checked');
+  }
+  const submittedByProduct = new Map(submittedItems.map((item) => [String(item.productId), item]));
+  return gatePass.items.map((item) => {
+    const submitted = submittedByProduct.get(String(item.product));
+    if (!submitted) throw ApiError.badRequest(`Load confirmation is missing for ${item.name}`);
+    if (!submitted.loadConfirmed || Number(submitted.loadedQuantity) !== Number(item.quantity)) {
+      throw ApiError.badRequest(`Loaded quantity for ${item.name} must match the gate pass`);
+    }
+    return {
+      productId: item.product,
+      name: item.name,
+      sku: item.sku,
+      barcode: item.barcode,
+      quantity: item.quantity,
+      loadedQuantity: Number(submitted.loadedQuantity),
+      loadConfirmed: true,
+    };
+  });
+}
+
+async function processGatePass(actor, encodedValue, payload) {
   const token = normalizeToken(encodedValue);
   if (!token) throw ApiError.badRequest('A gate pass QR token is required');
-
-  const gatePass = await GatePass.findOneAndUpdate(
-    { token, status: 'ACTIVE' },
-    { $set: { status: 'USED', scannedAt: new Date(), scannedBy: actor ? actor._id : null } },
-    { returnDocument: 'after' },
-  ).populate('createdBy', 'name');
-  if (gatePass) {
-    return refreshSourceIfNeeded(gatePass);
-  }
-
   const existing = await GatePass.findOne({ token });
   if (!existing) throw ApiError.notFound('Invalid gate pass QR code');
-  if (existing.status === 'USED') throw ApiError.conflict('Gate pass has already been used');
-  throw ApiError.conflict('Gate pass is cancelled');
+  if (['PROCESSED', 'USED'].includes(existing.status)) {
+    throw ApiError.conflict('Gate pass has already been processed');
+  }
+  if (existing.status === 'CANCELLED') throw ApiError.conflict('Gate pass is cancelled');
+
+  const items = validateLoadedItems(existing, payload.items);
+  const gatePass = await GatePass.findOneAndUpdate(
+    { token, status: { $in: ['PENDING', 'ACTIVE'] } },
+    { $set: processingUpdate({ ...payload, items }, actor) },
+    { returnDocument: 'after', runValidators: true },
+  )
+    .populate('createdBy', 'name')
+    .populate('processedBy', 'name');
+  if (!gatePass) throw ApiError.conflict('Gate pass has already been processed');
+  return gatePass;
+}
+
+async function updateProcessedGatePass(actor, id, payload) {
+  const existing = await GatePass.findById(id);
+  if (!existing) throw ApiError.notFound('Gate pass not found');
+  if (!['PROCESSED', 'USED'].includes(existing.status)) {
+    throw ApiError.conflict('Only processed gate passes can be edited');
+  }
+  const items = validateLoadedItems(existing, payload.items);
+  return GatePass.findByIdAndUpdate(
+    id,
+    { $set: processingUpdate({ ...payload, items }, actor, { adminEdit: true }) },
+    { returnDocument: 'after', runValidators: true },
+  )
+    .populate('createdBy', 'name')
+    .populate('processedBy', 'name');
 }
 
 module.exports = {
@@ -348,5 +395,6 @@ module.exports = {
   getGatePassByPurchase,
   listGatePasses,
   generateQrPng,
-  scanGatePass,
+  processGatePass,
+  updateProcessedGatePass,
 };

@@ -7,41 +7,18 @@ const gatePassItemSchema = new mongoose.Schema(
     sku: { type: String, trim: true, default: '' },
     barcode: { type: String, trim: true, default: '' },
     quantity: { type: Number, required: true, min: 0 },
-    unitPrice: { type: Number, min: 0 }, // paisa snapshot from the sale
-    lineTotal: { type: Number, min: 0 }, // paisa snapshot from the sale
+    loadedQuantity: { type: Number, min: 0, default: null },
+    loadConfirmed: { type: Boolean, default: false },
   },
   { _id: false },
 );
 
-const gatePassPricingSchema = new mongoose.Schema(
+const gatePassDriverSchema = new mongoose.Schema(
   {
-    subtotal: { type: Number, required: true, min: 0 },
-    discount: { type: Number, required: true, min: 0 },
-    taxPercent: { type: Number, required: true, min: 0 },
-    tax: { type: Number, required: true, min: 0 },
-    total: { type: Number, required: true, min: 0 },
-  },
-  { _id: false },
-);
-
-const gatePassCustomerSchema = new mongoose.Schema(
-  {
-    customer: { type: mongoose.Schema.Types.ObjectId, ref: 'Customer', default: null },
-    name: { type: String, required: true, trim: true },
-    phone: { type: String, trim: true, default: '' },
-    email: { type: String, trim: true, default: '' },
-    address: { type: String, trim: true, default: '' },
-  },
-  { _id: false },
-);
-
-const gatePassVendorSchema = new mongoose.Schema(
-  {
-    vendor: { type: mongoose.Schema.Types.ObjectId, ref: 'Vendor', default: null },
-    name: { type: String, required: true, trim: true },
-    phone: { type: String, trim: true, default: '' },
-    email: { type: String, trim: true, default: '' },
-    address: { type: String, trim: true, default: '' },
+    name: { type: String, required: true, trim: true, maxlength: 120 },
+    phone: { type: String, trim: true, maxlength: 40, default: '' },
+    licenseNumber: { type: String, trim: true, maxlength: 80, default: '' },
+    vehicleNumber: { type: String, required: true, trim: true, maxlength: 80 },
   },
   { _id: false },
 );
@@ -72,19 +49,23 @@ const gatePassSchema = new mongoose.Schema(
       index: true,
     },
     saleDate: { type: Date, required: true },
-    customerInfo: { type: gatePassCustomerSchema, default: null },
-    vendorInfo: { type: gatePassVendorSchema, default: null },
     items: { type: [gatePassItemSchema], required: true },
-    pricing: { type: gatePassPricingSchema, default: null },
     status: {
       type: String,
-      enum: ['ACTIVE', 'USED', 'CANCELLED'],
-      default: 'ACTIVE',
+      // ACTIVE/USED remain accepted so existing deployments can migrate their
+      // older records lazily when they are next read.
+      enum: ['PENDING', 'PROCESSED', 'CANCELLED', 'ACTIVE', 'USED'],
+      default: 'PENDING',
       required: true,
       index: true,
     },
-    scannedAt: { type: Date, default: null },
-    scannedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+    driver: { type: gatePassDriverSchema, default: null },
+    loadNotes: { type: String, trim: true, maxlength: 1000, default: '' },
+    signatureData: { type: String, default: null, select: false },
+    processedAt: { type: Date, default: null },
+    processedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+    lastEditedAt: { type: Date, default: null },
+    lastEditedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
   },
   { timestamps: true },

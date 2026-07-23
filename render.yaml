@@ -23,12 +23,12 @@ services:
     autoDeploy: true
     envVars:
       - key: NODE_VERSION
-        value: "20"
+        value: '20'
       - key: NODE_ENV
         value: production
       # Skip Husky git hooks during CI install (no .git hooks needed on Render).
       - key: HUSKY
-        value: "0"
+        value: '0'
 
       # ----- Database (paste your MongoDB Atlas SRV string) ----------
       - key: MONGO_URI
@@ -44,7 +44,7 @@ services:
       - key: JWT_REFRESH_EXPIRES_IN
         value: 7d
       - key: RESET_TOKEN_EXPIRES_MIN
-        value: "15"
+        value: '15'
 
       # ----- CORS: full https URL of the frontend static site --------
       # Paste the frontend URL after it deploys, e.g.
@@ -102,7 +102,7 @@ services:
     autoDeploy: true
     envVars:
       - key: NODE_VERSION
-        value: "20"
+        value: '20'
       # Base URL of the API — MUST include the /api suffix. Paste the API
       # service URL after it deploys, e.g.
       #   https://devinception-erp-api.onrender.com/api

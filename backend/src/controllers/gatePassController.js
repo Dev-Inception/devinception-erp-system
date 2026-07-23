@@ -4,12 +4,13 @@ const asyncHandler = require('../utils/asyncHandler');
 const { sendSuccess } = require('../utils/ApiResponse');
 
 const listGatePasses = asyncHandler(async (req, res) => {
-  const { page, limit, warehouse, status } = req.query;
+  const { page, limit, warehouse, status, sourceType } = req.query;
   const result = await gatePassService.listGatePasses({
     page,
     limit,
     warehouse,
     status,
+    sourceType,
   });
   return sendSuccess(res, 200, 'Gate passes fetched', {
     ...result,
@@ -46,15 +47,8 @@ const downloadQr = asyncHandler(async (req, res) => {
   return res.status(200).send(png);
 });
 
-const scanGatePass = asyncHandler(async (req, res) => {
-  const gatePass = await gatePassService.scanGatePass(req.user, req.body.token);
-  return sendSuccess(res, 200, 'Gate pass verified and marked as used', {
-    gatePass: serializeGatePass(gatePass),
-  });
-});
-
-// Public, unauthenticated counterparts used by the gate-side scan page. The
-// token in the URL is the credential (see gatePassPublicRoutes.js) — no `protect`.
+// The token permits a minimal product/quantity view. Processing itself is
+// authenticated in the route and records the signed-in user on the pass.
 const getPublicGatePass = asyncHandler(async (req, res) => {
   const gatePass = await gatePassService.getGatePassByToken(req.params.token);
   return sendSuccess(res, 200, 'Gate pass fetched', {
@@ -62,9 +56,20 @@ const getPublicGatePass = asyncHandler(async (req, res) => {
   });
 });
 
-const scanPublicGatePass = asyncHandler(async (req, res) => {
-  const gatePass = await gatePassService.scanGatePass(null, req.params.token);
-  return sendSuccess(res, 200, 'Gate pass verified and marked as used', {
+const processGatePass = asyncHandler(async (req, res) => {
+  const gatePass = await gatePassService.processGatePass(req.user, req.params.token, req.body);
+  return sendSuccess(res, 200, 'Gate pass processed', {
+    gatePass: serializeGatePass(gatePass),
+  });
+});
+
+const updateProcessedGatePass = asyncHandler(async (req, res) => {
+  const gatePass = await gatePassService.updateProcessedGatePass(
+    req.user,
+    req.params.gatePassId,
+    req.body,
+  );
+  return sendSuccess(res, 200, 'Processed gate pass updated', {
     gatePass: serializeGatePass(gatePass),
   });
 });
@@ -75,7 +80,7 @@ module.exports = {
   getGatePassBySale,
   getGatePassByPurchase,
   downloadQr,
-  scanGatePass,
   getPublicGatePass,
-  scanPublicGatePass,
+  processGatePass,
+  updateProcessedGatePass,
 };

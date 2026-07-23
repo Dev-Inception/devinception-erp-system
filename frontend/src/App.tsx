@@ -24,6 +24,7 @@ import { InvoicesPage } from '@/pages/invoices';
 import { ReportsPage } from '@/pages/reports';
 import { WarehousesPage } from '@/pages/warehouses';
 import { PermissionsPage } from '@/pages/permissions';
+import { GatePassesPage } from '@/pages/gate-passes';
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { refetchOnWindowFocus: false, retry: 1 } },
@@ -73,6 +74,7 @@ const MODULE_ROUTES: { path: string; element: React.ReactElement }[] = [
   { path: 'cash', element: <CashPage /> },
   { path: 'settings', element: <SettingsPage /> },
   { path: 'permissions', element: <PermissionsPage /> },
+  { path: 'gate-passes', element: <GatePassesPage /> },
 ];
 
 export default function App() {
