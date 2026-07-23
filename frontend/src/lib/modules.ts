@@ -17,6 +17,7 @@ import {
   Tags,
   Ruler,
   HardHat,
+  ClipboardCheck,
 } from 'lucide-react';
 import type { Role } from '@/store/auth';
 
@@ -43,6 +44,8 @@ export interface ModuleDef {
   defaultRoles?: Role[];
   /** Only the super admin ever sees this — it is not part of the access matrix. */
   superAdminOnly?: boolean;
+  /** Operational administration visible only to admin and super admin. */
+  adminOnly?: boolean;
 }
 
 /**
@@ -69,6 +72,15 @@ export const MODULES: ModuleDef[] = [
     defaultRoles: ['MANAGER', 'ADMIN', 'ACCOUNTANT'],
   },
   { key: 'invoices', to: '/invoices', label: 'Invoices', section: 'Operations', icon: FileText },
+  {
+    key: 'gate-passes',
+    to: '/gate-passes',
+    label: 'Gate Passes',
+    section: 'Operations',
+    icon: ClipboardCheck,
+    defaultRoles: ['ADMIN'],
+    adminOnly: true,
+  },
   { key: 'products', to: '/products', label: 'Inventory', section: 'Catalog', icon: Package },
   {
     key: 'categories',
@@ -143,7 +155,7 @@ export const MODULES: ModuleDef[] = [
 export const SECTION_ORDER = ['Overview', 'Operations', 'Catalog', 'Partners', 'Finance', 'System'];
 
 /** Modules that appear as rows in the Permissions access matrix. */
-export const CONFIGURABLE_MODULES = MODULES.filter((m) => !m.superAdminOnly);
+export const CONFIGURABLE_MODULES = MODULES.filter((m) => !m.superAdminOnly && !m.adminOnly);
 
 /** Wildcard permission — a role holding it is granted everything. */
 export const WILDCARD_PERMISSION = '*';
@@ -162,6 +174,7 @@ export const MODULE_PERMISSION: Record<string, string> = {
   sales: 'sales:read',
   purchases: 'purchases:read',
   invoices: 'invoices:read',
+  'gate-passes': 'inventory:read',
   products: 'inventory:read',
   categories: 'inventory:manage',
   units: 'inventory:manage',
@@ -203,6 +216,7 @@ export function canSeeModule(
   m: ModuleDef,
 ): boolean {
   if (m.superAdminOnly) return role === 'SUPER_ADMIN';
+  if (m.adminOnly) return role === 'ADMIN' || role === 'SUPER_ADMIN';
   if (role === 'SUPER_ADMIN') return true;
   if (!role) return false;
   if (!permissions) return defaultModulesForRole(role).includes(m.key);

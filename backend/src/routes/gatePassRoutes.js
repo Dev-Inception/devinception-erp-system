@@ -1,15 +1,16 @@
 const express = require('express');
 const gatePassController = require('../controllers/gatePassController');
 const { protect } = require('../middlewares/authMiddleware');
-const { requirePermission } = require('../middlewares/roleMiddleware');
+const { authorize, requirePermission } = require('../middlewares/roleMiddleware');
 const { validate } = require('../middlewares/validateMiddleware');
 const { PERMISSIONS } = require('../utils/permissions');
+const { ROLES } = require('../utils/constants');
 const {
   gatePassIdParamValidator,
   saleParamValidator,
   purchaseParamValidator,
   listGatePassValidator,
-  scanGatePassValidator,
+  adminUpdateGatePassValidator,
 } = require('../validators/gatePassValidator');
 
 const router = express.Router();
@@ -21,13 +22,6 @@ router.get(
   listGatePassValidator,
   validate,
   gatePassController.listGatePasses,
-);
-router.post(
-  '/scan',
-  requirePermission(PERMISSIONS.INVENTORY_MANAGE),
-  scanGatePassValidator,
-  validate,
-  gatePassController.scanGatePass,
 );
 router.get(
   '/sale/:saleId',
@@ -56,6 +50,13 @@ router.get(
   gatePassIdParamValidator,
   validate,
   gatePassController.getGatePass,
+);
+router.patch(
+  '/:gatePassId',
+  authorize(ROLES.ADMIN, ROLES.SUPER_ADMIN),
+  adminUpdateGatePassValidator,
+  validate,
+  gatePassController.updateProcessedGatePass,
 );
 
 module.exports = router;

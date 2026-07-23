@@ -1,5 +1,3 @@
-const { toRupees } = require('../utils/money');
-
 function idOf(value) {
   if (!value) return null;
   return String(value._id ?? value);
@@ -17,11 +15,7 @@ function serializeGatePass(gatePass) {
   const g = gatePass && gatePass.toJSON ? gatePass.toJSON() : { ...gatePass };
   const gatePassId = idOf(g._id);
   const isPurchase = g.sourceType === 'PURCHASE';
-  // customer/saleId/saleNumber field names predate the PURCHASE (goods-in)
-  // gate pass type; kept as-is for existing SALE consumers and reused to
-  // carry the vendor/purchase equivalent so both types share one shape.
-  // `sourceType`/`direction`/`purchaseId` disambiguate for new consumers.
-  const partyInfo = isPurchase ? g.vendorInfo : g.customerInfo;
+  const status = g.status === 'ACTIVE' ? 'PENDING' : g.status === 'USED' ? 'PROCESSED' : g.status;
 
   return {
     id: gatePassId,
@@ -32,13 +26,6 @@ function serializeGatePass(gatePass) {
     purchaseId: idOf(g.purchase),
     saleNumber: g.documentNumber,
     saleDate: g.saleDate,
-    customer: withoutEmptyValues({
-      id: idOf(partyInfo?.customer ?? partyInfo?.vendor),
-      name: partyInfo?.name,
-      phone: partyInfo?.phone,
-      email: partyInfo?.email,
-      address: partyInfo?.address,
-    }),
     items: (g.items || []).map((item) =>
       withoutEmptyValues({
         productId: idOf(item.product),
@@ -46,17 +33,12 @@ function serializeGatePass(gatePass) {
         sku: item.sku,
         barcode: item.barcode,
         quantity: item.quantity,
-        unitPrice: toRupees(item.unitPrice),
-        lineTotal: toRupees(item.lineTotal),
+        loadedQuantity: item.loadedQuantity,
+        loadConfirmed: item.loadConfirmed,
       }),
     ),
-    pricing: {
-      subtotal: toRupees(g.pricing?.subtotal),
-      discount: toRupees(g.pricing?.discount),
-      taxPercent: g.pricing?.taxPercent || 0,
-      tax: toRupees(g.pricing?.tax),
-      total: toRupees(g.pricing?.total),
-    },
+    ...(g.driver ? { driver: withoutEmptyValues(g.driver) } : {}),
+    ...(g.loadNotes ? { loadNotes: g.loadNotes } : {}),
     ...(g.createdBy
       ? {
           createdBy: withoutEmptyValues({
@@ -65,8 +47,17 @@ function serializeGatePass(gatePass) {
           }),
         }
       : {}),
-    status: g.status,
-    ...(g.scannedAt ? { scannedAt: g.scannedAt } : {}),
+    ...(g.processedBy
+      ? {
+          processedBy: withoutEmptyValues({
+            id: idOf(g.processedBy),
+            name: g.processedBy?.name,
+          }),
+        }
+      : {}),
+    status,
+    ...(g.processedAt ? { processedAt: g.processedAt } : {}),
+    ...(g.lastEditedAt ? { lastEditedAt: g.lastEditedAt } : {}),
     qrUrl: `/api/gate-passes/${gatePassId}/qr`,
   };
 }

@@ -1559,7 +1559,7 @@ const swaggerSpec = {
           {
             name: 'status',
             in: 'query',
-            schema: { type: 'string', enum: ['ACTIVE', 'USED', 'CANCELLED'] },
+            schema: { type: 'string', enum: ['PENDING', 'PROCESSED', 'CANCELLED'] },
           },
         ],
         responses: { 200: { description: 'Gate passes' }, 403: errorResponse },
@@ -1594,6 +1594,21 @@ const swaggerSpec = {
         ],
         responses: { 200: { description: 'Gate pass' }, 403: errorResponse, 404: errorResponse },
       },
+      patch: {
+        tags: ['Gate Passes'],
+        summary: 'Correct processed driver/load information (admin only)',
+        security: [{ bearerAuth: [] }],
+        parameters: [
+          { name: 'gatePassId', in: 'path', required: true, schema: { type: 'string' } },
+        ],
+        responses: {
+          200: { description: 'Processed gate pass updated' },
+          400: errorResponse,
+          403: errorResponse,
+          404: errorResponse,
+          409: errorResponse,
+        },
+      },
     },
     '/gate-passes/{gatePassId}/qr': {
       get: {
@@ -1619,18 +1634,16 @@ const swaggerSpec = {
         },
       },
     },
-    '/gate-passes/scan': {
+    '/gate-passes/public/{token}/process': {
       post: {
         tags: ['Gate Passes'],
-        summary: 'Verify and consume a gate pass QR (inventory:manage)',
+        summary: 'Process a gate pass with driver, load checks, and signature (authenticated)',
         description:
-          'Accepts either the raw token or the full ERP_GATE_PASS value decoded from the QR. An ACTIVE pass becomes USED and cannot be consumed again.',
+          'Every loaded quantity must match and be confirmed. A PENDING pass becomes PROCESSED and cannot be processed again.',
         security: [{ bearerAuth: [] }],
-        requestBody: jsonBody(['token'], {
-          token: { type: 'string', example: 'ERP_GATE_PASS:decoded-token' },
-        }),
+        parameters: [{ name: 'token', in: 'path', required: true, schema: { type: 'string' } }],
         responses: {
-          200: { description: 'Gate pass verified and marked used' },
+          200: { description: 'Gate pass processed' },
           400: errorResponse,
           403: errorResponse,
           404: errorResponse,
