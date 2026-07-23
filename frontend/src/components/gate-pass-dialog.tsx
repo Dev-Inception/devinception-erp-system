@@ -11,7 +11,6 @@ import {
 import { Button } from '@/components/ui/button';
 import { api } from '@/lib/api';
 import { buildGatePassScanQr } from '@/lib/gatePass';
-import { formatCurrency } from '@/lib/utils';
 
 interface GatePassDetail {
   id: string;
@@ -20,16 +19,14 @@ interface GatePassDetail {
   direction?: 'IN' | 'OUT';
   saleNumber: string;
   saleDate: string;
-  customer?: { name?: string; phone?: string };
-  items: { name: string; quantity: number; unitPrice: number; lineTotal: number }[];
-  pricing: { subtotal: number; discount: number; tax: number; total: number };
-  status: 'ACTIVE' | 'USED' | 'CANCELLED';
-  scannedAt?: string;
+  items: { name: string; quantity: number; loadedQuantity?: number }[];
+  status: 'PENDING' | 'PROCESSED' | 'CANCELLED';
+  processedAt?: string;
 }
 
 const STATUS_STYLE: Record<string, string> = {
-  ACTIVE: 'text-blue-500',
-  USED: 'text-success',
+  PENDING: 'text-blue-500',
+  PROCESSED: 'text-success',
   CANCELLED: 'text-destructive',
 };
 
@@ -75,7 +72,6 @@ export function GatePassDialog({
   };
 
   const isPurchase = data?.sourceType === 'PURCHASE';
-  const partyLabel = isPurchase ? 'Vendor' : 'Customer';
   const docLabel = isPurchase ? 'Purchase #' : 'Sale #';
   const directionLabel = isPurchase ? 'goods coming in' : 'goods going out';
 
@@ -85,8 +81,8 @@ export function GatePassDialog({
         <DialogHeader>
           <DialogTitle>Gate Pass</DialogTitle>
           <DialogDescription>
-            Tracks {directionLabel}. Scanning the QR opens a public page a gate/security person uses
-            to verify the goods and confirm the scan.
+            Tracks {directionLabel}. A signed-in gate user verifies quantities, records the driver
+            and vehicle, signs, and processes the pass.
           </DialogDescription>
         </DialogHeader>
 
@@ -108,15 +104,11 @@ export function GatePassDialog({
                 <span className="font-medium">{data.saleNumber}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-muted-foreground">{partyLabel}</span>
-                <span className="font-medium">{data.customer?.name ?? '—'}</span>
-              </div>
-              <div className="flex justify-between">
                 <span className="text-muted-foreground">Status</span>
                 <span className={`font-medium ${STATUS_STYLE[data.status] ?? ''}`}>
                   {data.status}
-                  {data.status === 'USED' && data.scannedAt
-                    ? ` · ${new Date(data.scannedAt).toLocaleString()}`
+                  {data.status === 'PROCESSED' && data.processedAt
+                    ? ` · ${new Date(data.processedAt).toLocaleString()}`
                     : ''}
                 </span>
               </div>
@@ -125,10 +117,8 @@ export function GatePassDialog({
             <div className="max-h-40 space-y-1 overflow-y-auto rounded-lg border p-2 text-sm">
               {data.items.map((it, idx) => (
                 <div key={idx} className="flex justify-between">
-                  <span>
-                    {it.name} × {it.quantity}
-                  </span>
-                  <span className="tabular-nums">{formatCurrency(it.lineTotal)}</span>
+                  <span>{it.name}</span>
+                  <span className="tabular-nums">Qty {it.quantity}</span>
                 </div>
               ))}
             </div>

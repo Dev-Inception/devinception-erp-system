@@ -1118,13 +1118,17 @@ async function realGatePassQr(id: string) {
 async function realGatePassDetail(id: string) {
   return (await http.get(`/gate-passes/${id}`)).data.gatePass;
 }
-// Public, token-authenticated counterparts (no login) backing the gate-side
-// scan page — see backend/src/routes/gatePassPublicRoutes.js.
+async function realGatePassList(params?: Record<string, unknown>) {
+  return (await http.get('/gate-passes', { params })).data;
+}
 async function realPublicGatePass(token: string) {
   return (await http.get(`/gate-passes/public/${token}`)).data.gatePass;
 }
-async function realPublicGatePassScan(token: string) {
-  return (await http.post(`/gate-passes/public/${token}/scan`)).data.gatePass;
+async function realProcessGatePass(token: string, body: any) {
+  return (await http.post(`/gate-passes/public/${token}/process`, body)).data.gatePass;
+}
+async function realUpdateGatePass(id: string, body: any) {
+  return (await http.patch(`/gate-passes/${id}`, body)).data.gatePass;
 }
 
 /* ── Purchases (GP) ── */
@@ -1587,6 +1591,7 @@ async function tryReal(
     if (url === '/invoices') return wrap(await realInvoices(params));
     if (seg[0] === 'invoices' && seg[2] === 'pdf') return wrap(await realInvoicePdf(seg[1]));
     if (seg[0] === 'gate-passes' && seg[2] === 'qr') return wrap(await realGatePassQr(seg[1]));
+    if (url === '/gate-passes') return wrap(await realGatePassList(params));
     if (seg[0] === 'gate-passes' && seg[1] === 'public' && seg.length === 3)
       return wrap(await realPublicGatePass(seg[2]));
     if (seg[0] === 'gate-passes' && seg.length === 2) return wrap(await realGatePassDetail(seg[1]));
@@ -1621,8 +1626,8 @@ async function tryReal(
       return wrap(await realSendInvoiceWhatsapp(seg[1]));
     if (seg[0] === 'warehouses' && seg[2] === 'set-default')
       return wrap(await realSetDefaultWarehouse(seg[1]));
-    if (seg[0] === 'gate-passes' && seg[1] === 'public' && seg[3] === 'scan')
-      return wrap(await realPublicGatePassScan(seg[2]));
+    if (seg[0] === 'gate-passes' && seg[1] === 'public' && seg[3] === 'process')
+      return wrap(await realProcessGatePass(seg[2], body));
   }
   if (method === 'patch') {
     if (seg[0] === 'products' && seg[1]) return wrap(await realUpdateProduct(seg[1], body));
@@ -1641,6 +1646,8 @@ async function tryReal(
     if (seg[0] === 'users' && seg[2] === 'active')
       return wrap(await realSetUserActive(seg[1], body));
     if (seg[0] === 'roles' && seg[1] && !seg[2]) return wrap(await realUpdateRole(seg[1], body));
+    if (seg[0] === 'gate-passes' && seg[1] && !seg[2])
+      return wrap(await realUpdateGatePass(seg[1], body));
   }
   if (method === 'put') {
     if (url === '/settings') return wrap(await realUpdateSettings(body));
