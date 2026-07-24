@@ -278,8 +278,7 @@ export function PosPage() {
         transferReceiptUrl = (await api.post('/uploads', fd)).data.url;
       }
       // 2) create the sale
-      const paidCash =
-        method === 'CASH' ? cashAmount || grandTotal : method === 'MIXED' ? cashAmount : 0;
+      const paidCash = method === 'CASH' ? cashAmount : method === 'MIXED' ? cashAmount : 0;
       const paidBank = method === 'ONLINE' ? grandTotal : method === 'MIXED' ? onlineAmount : 0;
       return (
         await api.post('/sales', {
@@ -324,7 +323,7 @@ export function PosPage() {
 
   // guard: require a receipt for online payments; mixed split must cover the total
   const mixedShort = method === 'MIXED' && cashAmount + onlineAmount + 0.001 < grandTotal;
-  const cashShort = method === 'CASH' && cashAmount > 0 && cashAmount + 0.001 < grandTotal;
+  const cashShort = method === 'CASH' && cashAmount + 0.001 < grandTotal;
   const canCharge =
     cart.length > 0 &&
     !checkout.isPending &&
@@ -534,7 +533,7 @@ export function PosPage() {
                 value={cashAmount || ''}
                 onChange={(e) => setCashAmount(Number(e.target.value))}
               />
-              {cashAmount > 0 && (
+              {grandTotal > 0 && (
                 <p
                   className={cn(
                     'text-right text-xs',
@@ -542,7 +541,9 @@ export function PosPage() {
                   )}
                 >
                   {cashShort
-                    ? `Amount does not match total. Short by ${formatCurrency(grandTotal - cashAmount)}`
+                    ? cashAmount > 0
+                      ? `Amount does not match total. Short by ${formatCurrency(grandTotal - cashAmount)}`
+                      : 'Enter the cash received to charge.'
                     : `Change: ${formatCurrency(change)}`}
                 </p>
               )}

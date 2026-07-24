@@ -1,6 +1,6 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Plus, Trash2, Printer, Loader2, Search, RefreshCw } from 'lucide-react';
+import { Plus, Trash2, Printer, Loader2, Search, RefreshCw, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -61,7 +61,11 @@ export function PurchasesPage() {
   const [paidAmount, setPaidAmount] = useState(0);
   const [search, setSearch] = useState('');
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [labourSearch, setLabourSearch] = useState('');
+  const [labourPickerOpen, setLabourPickerOpen] = useState(false);
   const [lastGps, setLastGps] = useState<any[]>([]);
+  const productSearchRef = useRef<HTMLInputElement>(null);
+  const labourSearchRef = useRef<HTMLInputElement>(null);
   const { currentId: defaultWarehouseId } = useWarehouses();
 
   const { data: vendors = [] } = useQuery<Vendor[]>({
@@ -74,6 +78,18 @@ export function PurchasesPage() {
   });
   const toggleLabour = (id: string) =>
     setLabourIds((ids) => (ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]));
+  const addLabour = (id: string) => {
+    setLabourSearch('');
+    setLabourPickerOpen(false);
+    setLabourIds((ids) => (ids.includes(id) ? ids : [...ids, id]));
+    labourSearchRef.current?.blur();
+  };
+  const labourQuery = labourSearch.trim().toLowerCase();
+  const filteredLabour = labourList.filter(
+    (l) =>
+      !labourIds.includes(l.id) && (!labourQuery || l.name.toLowerCase().includes(labourQuery)),
+  );
+  const selectedLabour = labourList.filter((l) => labourIds.includes(l.id));
   // Always load products (empty search returns the catalog); the dropdown is
   // toggled by focus so you can browse the full list without typing.
   const { data: products = [] } = useQuery<Product[]>({
@@ -84,6 +100,7 @@ export function PurchasesPage() {
   const addLine = (p: Product) => {
     setSearch('');
     setPickerOpen(false);
+    productSearchRef.current?.blur();
     setLines((ls) => {
       if (ls.some((l) => l.productId === p.id)) return ls;
       return [
@@ -257,19 +274,59 @@ export function PurchasesPage() {
             </div>
             <div className="col-span-full space-y-1.5">
               <Label>Labour (optional)</Label>
-              {labourList.length === 0 ? (
-                <p className="text-xs text-muted-foreground">No labour records yet.</p>
-              ) : (
-                <div className="flex flex-wrap gap-3 rounded-md border p-2.5">
-                  {labourList.map((l) => (
-                    <label key={l.id} className="flex items-center gap-1.5 text-sm">
-                      <input
-                        type="checkbox"
-                        checked={labourIds.includes(l.id)}
-                        onChange={() => toggleLabour(l.id)}
-                      />
+              <div className="relative">
+                <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  ref={labourSearchRef}
+                  value={labourSearch}
+                  onChange={(e) => setLabourSearch(e.target.value)}
+                  onFocus={() => setLabourPickerOpen(true)}
+                  // delay so a click on a result registers before closing
+                  onBlur={() => setTimeout(() => setLabourPickerOpen(false), 150)}
+                  placeholder="Click to browse, or type to search labour…"
+                  className="pl-8"
+                />
+                {labourPickerOpen && (
+                  <div className="absolute z-10 mt-1 max-h-64 w-full overflow-y-auto rounded-md border bg-popover shadow-md">
+                    {filteredLabour.length === 0 ? (
+                      <p className="px-3 py-3 text-sm text-muted-foreground">
+                        {labourList.length === 0
+                          ? 'No labour records yet.'
+                          : `No labour found${labourSearch ? ` for “${labourSearch}”` : ''}.`}
+                      </p>
+                    ) : (
+                      filteredLabour.map((l) => (
+                        <button
+                          key={l.id}
+                          type="button"
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() => addLabour(l.id)}
+                          className="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-accent"
+                        >
+                          <span>{l.name}</span>
+                          <span className="text-xs text-muted-foreground">{l.phoneNumber}</span>
+                        </button>
+                      ))
+                    )}
+                  </div>
+                )}
+              </div>
+              {selectedLabour.length > 0 && (
+                <div className="flex flex-wrap gap-2 pt-1">
+                  {selectedLabour.map((l) => (
+                    <span
+                      key={l.id}
+                      className="inline-flex items-center gap-1.5 rounded-full border bg-muted px-2.5 py-1 text-xs"
+                    >
                       {l.name}
-                    </label>
+                      <button
+                        type="button"
+                        onClick={() => toggleLabour(l.id)}
+                        className="text-muted-foreground hover:text-destructive"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </span>
                   ))}
                 </div>
               )}
@@ -282,6 +339,7 @@ export function PurchasesPage() {
             <div className="relative">
               <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
+                ref={productSearchRef}
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 onFocus={() => setPickerOpen(true)}

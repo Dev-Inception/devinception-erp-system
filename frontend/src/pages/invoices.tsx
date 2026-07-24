@@ -31,6 +31,7 @@ import {
   DropdownMenuItem,
 } from '@/components/ui/dropdown-menu';
 import { GatePassDialog } from '@/components/gate-pass-dialog';
+import { Pagination } from '@/components/ui/pagination';
 import { api } from '@/lib/api';
 import { formatCurrency, cn } from '@/lib/utils';
 import { useAuthStore } from '@/store/auth';
@@ -136,6 +137,12 @@ function PayInvoiceDialog({
 // actually computes it today, so it's left out of the filter options below.
 const STATUSES = ['PAID', 'ISSUED', 'PARTIALLY_PAID'];
 
+const PAGE_SIZE = 20;
+// While searching, widen the fetch and search across that whole batch
+// client-side instead of just the current 20-row page — otherwise typing a
+// search term would silently only match whatever page happened to be loaded.
+const SEARCH_FETCH_LIMIT = 200;
+
 export function InvoicesPage() {
   const qc = useQueryClient();
   const [busy, setBusy] = useState<string | null>(null);
@@ -143,19 +150,35 @@ export function InvoicesPage() {
   const [status, setStatus] = useState('');
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
+  const [page, setPage] = useState(1);
   const perms = useAuthStore((s) => s.user?.permissions);
   const canPay = grantsPermission(perms, 'invoices:create');
   const [payingId, setPayingId] = useState<string | null>(null);
   const [gatePassInvoice, setGatePassInvoice] = useState<Invoice | null>(null);
 
-  const { data: invoices = [], isLoading } = useQuery<Invoice[]>({
-    queryKey: ['invoices', status, from, to],
-    queryFn: async () =>
-      (await api.get('/invoices', { params: { status: status || undefined, from, to } })).data,
-  });
-
   const q = search.trim().toLowerCase();
-  const filteredInvoices = q
+  const isSearching = q.length > 0;
+  const fetchPage = isSearching ? 1 : page;
+  const fetchLimit = isSearching ? SEARCH_FETCH_LIMIT : PAGE_SIZE;
+
+  useEffect(() => {
+    setPage(1);
+  }, [status, from, to, search]);
+
+  const { data, isLoading } = useQuery({
+    queryKey: ['invoices', status, from, to, fetchPage, fetchLimit],
+    queryFn: async () =>
+      (
+        await api.get('/invoices', {
+          params: { status: status || undefined, from, to, page: fetchPage, limit: fetchLimit },
+        })
+      ).data as { invoices: Invoice[]; total: number; page: number; limit: number },
+  });
+  const invoices = data?.invoices ?? [];
+  const total = data?.total ?? 0;
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+
+  const filteredInvoices = isSearching
     ? invoices.filter(
         (inv) =>
           inv.invoiceNumber?.toLowerCase().includes(q) ||
@@ -208,7 +231,9 @@ export function InvoicesPage() {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-4">
-        <p className="text-sm text-muted-foreground">{filteredInvoices.length} invoice(s)</p>
+        <p className="text-sm text-muted-foreground">
+          {isSearching ? filteredInvoices.length : total} invoice(s)
+        </p>
         <div className="flex flex-wrap items-end gap-3">
           <div className="space-y-1.5">
             <Label>Status</Label>
@@ -349,7 +374,7 @@ export function InvoicesPage() {
                   </td>
                 </tr>
               ))}
-            {!isLoading && invoices.length > 0 && filteredInvoices.length === 0 && (
+            {!isLoading && isSearching && filteredInvoices.length === 0 && (
               <tr>
                 <td colSpan={6} className="px-4 py-12 text-center text-muted-foreground">
                   <FileText className="mx-auto mb-2 h-8 w-8 opacity-50" />
@@ -357,7 +382,7 @@ export function InvoicesPage() {
                 </td>
               </tr>
             )}
-            {!isLoading && invoices.length === 0 && (
+            {!isLoading && total === 0 && (
               <tr>
                 <td colSpan={6} className="px-4 py-12 text-center text-muted-foreground">
                   <FileText className="mx-auto mb-2 h-8 w-8 opacity-50" />
@@ -367,6 +392,16 @@ export function InvoicesPage() {
             )}
           </tbody>
         </table>
+        {!isSearching && (
+          <Pagination
+            page={page}
+            totalPages={totalPages}
+            total={total}
+            pageSize={PAGE_SIZE}
+            onPageChange={setPage}
+            className="border-t"
+          />
+        )}
       </Card>
 
       <PayInvoiceDialog

@@ -1084,9 +1084,22 @@ function mapSale(s: any) {
     gatePassQrUrl: s.gatePassQrUrl,
   };
 }
-async function realSales() {
-  const res = await http.get('/sales', { params: { limit: 100 } });
-  return (res.data.sales as any[]).map(mapSale);
+async function realSales(params: any = {}) {
+  const res = await http.get('/sales', {
+    params: {
+      page: params.page || undefined,
+      limit: params.limit || 20,
+      from: params.from || undefined,
+      to: params.to || undefined,
+      paymentMethod: params.paymentMethod || undefined,
+    },
+  });
+  return {
+    sales: (res.data.sales as any[]).map(mapSale),
+    total: res.data.total ?? res.data.sales.length,
+    page: res.data.page ?? 1,
+    limit: res.data.limit ?? 20,
+  };
 }
 async function realCreateSale(body: any) {
   // POS (flat) → backend (nested payment). The POS sends one tax rate per line;
@@ -1409,13 +1422,19 @@ const INVOICE_STATUS_TO_RAW: Record<string, string> = {
 async function realInvoices(params: any = {}) {
   const res = await http.get('/invoices', {
     params: {
-      limit: 100,
+      page: params.page || undefined,
+      limit: params.limit || 20,
       status: params.status ? INVOICE_STATUS_TO_RAW[params.status] : undefined,
       from: params.from || undefined,
       to: params.to || undefined,
     },
   });
-  return (res.data.invoices as any[]).map(mapInvoice);
+  return {
+    invoices: (res.data.invoices as any[]).map(mapInvoice),
+    total: res.data.total ?? res.data.invoices.length,
+    page: res.data.page ?? 1,
+    limit: res.data.limit ?? 20,
+  };
 }
 async function realCreateInvoice(body: any) {
   const res = await http.post('/invoices', { saleId: body.saleId });
@@ -1579,7 +1598,7 @@ async function tryReal(
     if (url === '/labour') return wrap(await realLabourList());
     if (url === '/customers') return wrap(await realCustomers(params));
     if (url === '/vendors') return wrap(await realVendors(params));
-    if (url === '/sales') return wrap(await realSales());
+    if (url === '/sales') return wrap(await realSales(params));
     if (url === '/cash') return wrap(await realCashLedger());
     if (url === '/bank/accounts') return wrap(await realBankAccounts());
     if (url === '/users') return wrap(await realUsers());
