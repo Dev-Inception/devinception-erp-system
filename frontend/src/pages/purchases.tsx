@@ -349,9 +349,13 @@ export function PurchasesPage() {
                         <Input
                           type="number"
                           className="h-8 w-20"
+                          min="1"
+                          step="1"
                           value={l.quantity}
                           onChange={(e) =>
-                            patchLine(l.productId, { quantity: Number(e.target.value) })
+                            patchLine(l.productId, {
+                              quantity: Math.max(1, Math.trunc(Number(e.target.value))),
+                            })
                           }
                         />
                       </td>

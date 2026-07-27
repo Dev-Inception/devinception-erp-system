@@ -5,15 +5,15 @@ independently shippable.
 
 Legend: ✅ done · ◑ backend done, UI still on mock data · 🚧 next · ⬜ not started.
 
-> **Current reality:** the **backend** (Express + Mongoose + MongoDB) implements
+> **Current reality:** the **backend** (Express + Sequelize + PostgreSQL) implements
 > most modules below. The **frontend** is a polished UI running on an in-memory
 > **mock API** — it is not yet wired to the backend. There is no realtime/Socket.IO
-> layer, no audit log, and multi-document writes are not yet transactional.
+> layer or audit log.
 
 ## Phase 0 — Foundation ✅
 
 - [x] Monorepo (npm workspaces), env config + validation, separate frontend/backend.
-- [x] Mongoose models for all entities; `seed:roles` + `seed:superadmin` scripts.
+- [x] Sequelize models and PostgreSQL migrations; `seed:roles` + `seed:superadmin` scripts.
 - [x] Express app bootstrap: `helmet`, CORS, `express-validator`, Swagger at `/api/docs`, central error handler.
 - [x] Design system: Tailwind tokens, dark/light, Radix (shadcn-style) primitives, app shell.
 
@@ -38,9 +38,9 @@ Legend: ✅ done · ◑ backend done, UI still on mock data · 🚧 next · ⬜ 
 
 ## Phase 3 — POS & Sales ◑
 
-- [x] Checkout API: sale → stock-out (atomic per-line `$inc`) → revenue + COGS journal entries; mixed cash/online/credit settlement.
+- [x] Transactional checkout API: sale → stock-out → revenue + COGS journal entries; mixed cash/online/credit settlement.
 - [x] POS UI: search, cart, payment, change (on mock data).
-- [ ] **Wrap checkout in a MongoDB transaction** (requires replica set) + add an idempotency key.
+- [ ] Add a checkout idempotency key.
 - [ ] Barcode scanner focus-trap; hold/resume carts; returns/refunds; receipt reprint.
 - [ ] Print receipt to thermal on completion.
 

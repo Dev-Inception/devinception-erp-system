@@ -1,10 +1,11 @@
-const Vendor = require('../models/vendorModel');
-const GoodsPurchase = require('../models/goodsPurchaseModel');
+const { Op } = require('sequelize');
+const { initializeModels } = require('../db/models');
 const ApiError = require('../utils/ApiError');
 const journalService = require('./journalService');
 const { ACCOUNT } = require('../utils/finance');
 const { toRupees } = require('../utils/money');
-const { parsePagination, escapeRegex } = require('../utils/query');
+const { parsePagination } = require('../utils/query');
+const { Vendor, GoodsPurchase } = initializeModels();
 
 /**
  * Vendor (supplier) management. Authorization is enforced by route
@@ -25,34 +26,34 @@ async function listVendors(query = {}) {
   // The GP vendor picker and the Vendors page consume the full list (no
   // pagination UI), so allow a far larger page size than the default cap.
   const { page, limit, skip } = parsePagination(query, { defaultLimit: 1000, maxLimit: 100000 });
-  const filter = {};
+  const where = {};
   if (query.search) {
-    const term = escapeRegex(query.search);
-    filter.$or = [
-      { name: { $regex: term, $options: 'i' } },
-      { phone: { $regex: term, $options: 'i' } },
-      { email: { $regex: term, $options: 'i' } },
+    const term = `%${query.search}%`;
+    where[Op.or] = [
+      { name: { [Op.iLike]: term } },
+      { phone: { [Op.iLike]: term } },
+      { email: { [Op.iLike]: term } },
     ];
   }
 
   const [docs, total, balances] = await Promise.all([
-    Vendor.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
-    Vendor.countDocuments(filter),
+    Vendor.findAll({ where, order: [['createdAt', 'DESC']], offset: skip, limit }),
+    Vendor.count({ where }),
     journalService.balancesByRef(ACCOUNT.AP),
   ]);
 
   // Replace the (legacy) stored outstanding with the live payable from the
   // ledger, in rupees, so the list matches the partner's statement.
-  const vendors = docs.map((v) => ({
-    ...v,
-    outstanding: toRupees(balances.get(String(v._id)) || 0),
+  const vendors = docs.map((vendor) => ({
+    ...vendor.toJSON(),
+    outstanding: toRupees(balances.get(String(vendor.id)) || 0),
   }));
 
   return { vendors, total, page, limit };
 }
 
 async function getVendorById(id) {
-  const vendor = await Vendor.findById(id);
+  const vendor = await Vendor.findByPk(id);
   if (!vendor) throw ApiError.notFound('Vendor not found');
   return vendor;
 }
@@ -70,13 +71,13 @@ async function updateVendor(id, data) {
 
 async function deleteVendor(id) {
   const vendor = await getVendorById(id);
-  if (vendor.outstanding > 0) {
+  if ((await journalService.accountBalance(ACCOUNT.AP, vendor.id)) > 0) {
     throw ApiError.badRequest('Vendor has an outstanding balance and cannot be deleted');
   }
-  if (await GoodsPurchase.exists({ vendor: id })) {
+  if (await GoodsPurchase.count({ where: { vendor: id } })) {
     throw ApiError.badRequest('Vendor has purchase history and cannot be deleted');
   }
-  await vendor.deleteOne();
+  await vendor.destroy();
 }
 
 module.exports = {

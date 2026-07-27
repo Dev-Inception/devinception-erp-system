@@ -1,9 +1,11 @@
-const Customer = require('../models/customerModel');
+const { Op } = require('sequelize');
+const { initializeModels } = require('../db/models');
 const ApiError = require('../utils/ApiError');
 const journalService = require('./journalService');
 const { ACCOUNT } = require('../utils/finance');
 const { toRupees } = require('../utils/money');
-const { parsePagination, escapeRegex } = require('../utils/query');
+const { parsePagination } = require('../utils/query');
+const { Customer } = initializeModels();
 
 /**
  * Customer management. Authorization is enforced by route middleware; here we
@@ -23,33 +25,33 @@ async function listCustomers(query = {}) {
   // The POS customer picker and the Customers page consume the full list (no
   // pagination UI), so allow a far larger page size than the default cap.
   const { page, limit, skip } = parsePagination(query, { defaultLimit: 1000, maxLimit: 100000 });
-  const filter = {};
+  const where = {};
   if (query.search) {
-    const term = escapeRegex(query.search);
-    filter.$or = [
-      { name: { $regex: term, $options: 'i' } },
-      { phone: { $regex: term, $options: 'i' } },
-      { email: { $regex: term, $options: 'i' } },
+    const term = `%${query.search}%`;
+    where[Op.or] = [
+      { name: { [Op.iLike]: term } },
+      { phone: { [Op.iLike]: term } },
+      { email: { [Op.iLike]: term } },
     ];
   }
 
   const [docs, total, balances] = await Promise.all([
-    Customer.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
-    Customer.countDocuments(filter),
+    Customer.findAll({ where, order: [['createdAt', 'DESC']], offset: skip, limit }),
+    Customer.count({ where }),
     journalService.balancesByRef(ACCOUNT.AR),
   ]);
 
   // Show the live receivable from the ledger (rupees) as outstanding.
-  const customers = docs.map((c) => ({
-    ...c,
-    outstanding: toRupees(balances.get(String(c._id)) || 0),
+  const customers = docs.map((customer) => ({
+    ...customer.toJSON(),
+    outstanding: toRupees(balances.get(String(customer.id)) || 0),
   }));
 
   return { customers, total, page, limit };
 }
 
 async function getCustomerById(id) {
-  const customer = await Customer.findById(id);
+  const customer = await Customer.findByPk(id);
   if (!customer) throw ApiError.notFound('Customer not found');
   return customer;
 }
@@ -67,10 +69,10 @@ async function updateCustomer(id, data) {
 
 async function deleteCustomer(id) {
   const customer = await getCustomerById(id);
-  if (customer.outstanding > 0) {
+  if ((await journalService.accountBalance(ACCOUNT.AR, customer.id)) > 0) {
     throw ApiError.badRequest('Customer has an outstanding balance and cannot be deleted');
   }
-  await customer.deleteOne();
+  await customer.destroy();
 }
 
 module.exports = {

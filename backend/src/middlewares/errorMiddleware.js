@@ -13,7 +13,18 @@ function errorHandler(err, _req, res, _next) {
 
   // Normalize common non-ApiError errors into ApiError shapes.
   if (!(error instanceof ApiError)) {
-    if (error.name === 'ValidationError') {
+    if (error.name === 'SequelizeValidationError') {
+      const details = {};
+      for (const item of error.errors || []) {
+        details[item.path || 'field'] = item.message;
+      }
+      error = ApiError.badRequest('Validation failed', details);
+    } else if (error.name === 'SequelizeUniqueConstraintError') {
+      const field = error.errors?.[0]?.path || 'field';
+      error = ApiError.conflict(`${field} already exists`);
+    } else if (error.name === 'SequelizeForeignKeyConstraintError') {
+      error = ApiError.badRequest('Referenced record does not exist or is still in use');
+    } else if (error.name === 'ValidationError') {
       const details = {};
       for (const key of Object.keys(error.errors)) {
         details[key] = error.errors[key].message;

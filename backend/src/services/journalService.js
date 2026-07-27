@@ -1,6 +1,9 @@
-const JournalEntry = require('../models/journalEntryModel');
+const { QueryTypes, Op } = require('sequelize');
+const { initializeModels } = require('../db/models');
+const { getPostgres } = require('../db/postgres');
 const ApiError = require('../utils/ApiError');
 const { naturalBalance } = require('../utils/finance');
+const { JournalEntry, JournalLine } = initializeModels();
 
 /**
  * The ledger engine. Everything that moves money posts through `post()`, and
@@ -15,8 +18,8 @@ function line(account, { debit = 0, credit = 0, ref = null } = {}) {
 
 /**
  * Append an immutable journal entry. The model enforces that lines are
- * balanced; we re-check here so callers get a clean 400 instead of a Mongoose
- * ValidationError, and drop any zero/zero lines defensively.
+ * balanced; we re-check here so callers get a clean 400 before PostgreSQL's
+ * deferred balance constraint runs, and drop zero/zero lines defensively.
  */
 async function post({
   date,
@@ -27,6 +30,7 @@ async function post({
   warehouse = null,
   lines,
   createdBy = null,
+  transaction: outerTransaction = null,
 }) {
   const clean = (lines || []).filter((l) => (l.debit || 0) > 0 || (l.credit || 0) > 0);
 
@@ -40,21 +44,35 @@ async function post({
     throw ApiError.badRequest('Internal posting is not balanced');
   }
 
-  return JournalEntry.create({
-    date: date || new Date(),
-    description,
-    refType,
-    refId,
-    refNo,
-    warehouse,
-    lines: clean,
-    createdBy,
-  });
-}
+  const write = async (transaction) => {
+    const entry = await JournalEntry.create(
+      {
+        date: date || new Date(),
+        description,
+        refType,
+        refId,
+        refNo,
+        warehouse,
+        createdBy,
+      },
+      { transaction },
+    );
+    await JournalLine.bulkCreate(
+      clean.map((journalLine, position) => ({
+        ...journalLine,
+        journalEntryId: entry.id,
+        position,
+      })),
+      { transaction, validate: true },
+    );
+    return JournalEntry.findByPk(entry.id, {
+      include: [{ model: JournalLine, as: 'lines' }],
+      transaction,
+    });
+  };
 
-// Match expression selecting lines for one account (ref null for singletons).
-function accountMatch(account, ref = null) {
-  return { 'lines.account': account, 'lines.ref': ref || null };
+  if (outerTransaction) return write(outerTransaction);
+  return getPostgres().transaction(write);
 }
 
 /**
@@ -68,30 +86,40 @@ async function accountBalance(account, ref = null) {
 
 // Raw debit/credit totals (paisa) for an account over an optional date range.
 async function accountTotals(account, ref = null, { from, to, refType, refIds, warehouse } = {}) {
-  const entryMatch = {};
-  if (from || to) {
-    entryMatch.date = {};
-    if (from) entryMatch.date.$gte = from;
-    if (to) entryMatch.date.$lte = to;
+  const clauses = ['jl.account = :account'];
+  const replacements = { account, ref };
+  clauses.push(ref ? 'jl.ref_id = :ref' : 'jl.ref_id IS NULL');
+  if (from) {
+    clauses.push('je.date >= :from');
+    replacements.from = from;
   }
-  if (refType) entryMatch.refType = refType;
-  if (Array.isArray(refIds)) entryMatch.refId = { $in: refIds };
-  if (warehouse) entryMatch.warehouse = warehouse;
+  if (to) {
+    clauses.push('je.date <= :to');
+    replacements.to = to;
+  }
+  if (refType) {
+    clauses.push('je.ref_type = :refType');
+    replacements.refType = refType;
+  }
+  if (warehouse) {
+    clauses.push('je.warehouse_id = :warehouse');
+    replacements.warehouse = warehouse;
+  }
+  if (Array.isArray(refIds)) {
+    if (!refIds.length) return { debit: 0, credit: 0 };
+    clauses.push('je.ref_id IN (:refIds)');
+    replacements.refIds = refIds.map(String);
+  }
 
-  const rows = await JournalEntry.aggregate([
-    ...(Object.keys(entryMatch).length ? [{ $match: entryMatch }] : []),
-    { $unwind: '$lines' },
-    { $match: accountMatch(account, ref) },
-    {
-      $group: {
-        _id: null,
-        debit: { $sum: '$lines.debit' },
-        credit: { $sum: '$lines.credit' },
-      },
-    },
-  ]);
-
-  return rows[0] ? { debit: rows[0].debit, credit: rows[0].credit } : { debit: 0, credit: 0 };
+  const [row] = await getPostgres().query(
+    `SELECT COALESCE(SUM(jl.debit), 0) AS debit,
+            COALESCE(SUM(jl.credit), 0) AS credit
+       FROM journal_lines jl
+       JOIN journal_entries je ON je.id = jl.journal_entry_id
+      WHERE ${clauses.join(' AND ')}`,
+    { replacements, type: QueryTypes.SELECT },
+  );
+  return { debit: Number(row.debit), credit: Number(row.credit) };
 }
 
 /**
@@ -107,14 +135,31 @@ async function accountStatement(account, ref = null, { from, to } = {}) {
     opening = naturalBalance(account, before.debit, before.credit);
   }
 
-  const entryMatch = { ...accountMatch(account, ref) };
+  const where = {};
   if (from || to) {
-    entryMatch.date = {};
-    if (from) entryMatch.date.$gte = from;
-    if (to) entryMatch.date.$lte = to;
+    where.date = {};
+    if (from) where.date[Op.gte] = from;
+    if (to) where.date[Op.lte] = to;
   }
 
-  const entries = await JournalEntry.find(entryMatch).sort({ date: 1, createdAt: 1 }).lean();
+  const entries = await JournalEntry.findAll({
+    where,
+    include: [
+      {
+        model: JournalLine,
+        as: 'lines',
+        required: true,
+        where: {
+          account,
+          ref: ref || null,
+        },
+      },
+    ],
+    order: [
+      ['date', 'ASC'],
+      ['createdAt', 'ASC'],
+    ],
+  });
 
   let running = opening;
   const rows = entries.map((e) => {
@@ -149,22 +194,18 @@ async function accountStatement(account, ref = null, { from, to } = {}) {
  * without a query per party. Returns Map<refIdString, balancePaisa>.
  */
 async function balancesByRef(account) {
-  const rows = await JournalEntry.aggregate([
-    { $unwind: '$lines' },
-    { $match: { 'lines.account': account } },
-    {
-      $group: {
-        _id: '$lines.ref',
-        debit: { $sum: '$lines.debit' },
-        credit: { $sum: '$lines.credit' },
-      },
-    },
-  ]);
+  const rows = await getPostgres().query(
+    `SELECT ref_id, SUM(debit) AS debit, SUM(credit) AS credit
+       FROM journal_lines
+      WHERE account = :account
+      GROUP BY ref_id`,
+    { replacements: { account }, type: QueryTypes.SELECT },
+  );
 
   const map = new Map();
   for (const r of rows) {
-    if (!r._id) continue;
-    map.set(String(r._id), naturalBalance(account, r.debit, r.credit));
+    if (!r.ref_id) continue;
+    map.set(String(r.ref_id), naturalBalance(account, Number(r.debit), Number(r.credit)));
   }
   return map;
 }

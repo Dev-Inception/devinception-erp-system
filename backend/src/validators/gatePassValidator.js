@@ -49,9 +49,9 @@ const processingFieldsValidator = [
   body('items').isArray({ min: 1 }).withMessage('Every loaded item must be submitted'),
   body('items.*.productId').isMongoId().withMessage('Invalid gate pass product'),
   body('items.*.loadedQuantity')
-    .isFloat({ min: 0 })
-    .toFloat()
-    .withMessage('Loaded quantity must be zero or greater'),
+    .isInt({ min: 0 })
+    .toInt()
+    .withMessage('Loaded quantity must be a non-negative whole number'),
   body('items.*.loadConfirmed')
     .equals('true')
     .toBoolean()

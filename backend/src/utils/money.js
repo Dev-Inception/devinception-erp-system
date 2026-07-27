@@ -35,7 +35,10 @@ function view(obj, keys) {
   if (!obj) return obj;
   const out = { ...obj };
   for (const k of keys) {
-    if (typeof out[k] === 'number') out[k] = toRupees(out[k]);
+    const value = out[k];
+    const isNumericString =
+      typeof value === 'string' && value.trim() !== '' && Number.isFinite(Number(value));
+    if (typeof value === 'number' || isNumericString) out[k] = toRupees(value);
   }
   return out;
 }

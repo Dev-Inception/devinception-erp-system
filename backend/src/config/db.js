@@ -1,18 +1,15 @@
-const mongoose = require('mongoose');
-const env = require('./env');
+const { getPostgres } = require('../db/postgres');
 
 /**
- * Connect to MongoDB. Resolves once the connection is open so the
- * server only starts listening after the DB is reachable.
+ * Verify PostgreSQL before the HTTP server starts. Schema changes remain an
+ * explicit deployment step (`npm run db:migrate`) rather than implicit sync.
  */
 async function connectDB() {
-  mongoose.set('strictQuery', true);
-
-  const conn = await mongoose.connect(env.mongoUri);
-
+  const db = getPostgres();
+  await db.authenticate();
   // eslint-disable-next-line no-console
-  console.log(`MongoDB connected: ${conn.connection.host}`);
-  return conn;
+  console.log('PostgreSQL connected');
+  return db;
 }
 
 module.exports = connectDB;

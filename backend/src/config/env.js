@@ -7,7 +7,7 @@ dotenv.config();
  * Import this instead of reading process.env directly so a missing
  * variable fails fast at startup rather than deep inside a request.
  */
-const required = ['MONGO_URI', 'JWT_ACCESS_SECRET', 'JWT_REFRESH_SECRET'];
+const required = ['DATABASE_URL', 'JWT_ACCESS_SECRET', 'JWT_REFRESH_SECRET'];
 
 const missing = required.filter((key) => !process.env[key]);
 if (missing.length) {
@@ -22,6 +22,9 @@ const env = {
   clientUrl: process.env.CLIENT_URL || 'http://localhost:3000',
 
   mongoUri: process.env.MONGO_URI,
+  // MONGO_URI is optional and used only by the one-time legacy data importer.
+  databaseUrl: process.env.DATABASE_URL,
+  databaseSsl: process.env.DATABASE_SSL !== 'false',
 
   jwt: {
     accessSecret: process.env.JWT_ACCESS_SECRET,

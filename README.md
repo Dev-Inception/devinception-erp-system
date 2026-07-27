@@ -11,7 +11,7 @@ Runs as a **web app** and an **Electron desktop app** (Windows/macOS), with a pa
 
 ```
 devinception-erp-system/
-├── backend/      Node.js + Express 5 + MongoDB (Mongoose) REST API — JWT auth + RBAC
+├── backend/      Node.js + Express 5 + PostgreSQL (Sequelize) REST API — JWT auth + RBAC
 ├── frontend/     React 18 + TS + Vite + Tailwind + Radix (shadcn-style) + React Query + Zustand
 ├── electron/     Desktop shell (electron-builder + auto-update)
 ├── docs/         Architecture, ER diagram, API, roadmap, integrations
@@ -28,7 +28,7 @@ build, and deploy targets).
 ### Backend (`backend/`)
 
 - **Runtime:** Node.js ≥ 20, Express 5 (CommonJS JavaScript)
-- **Database:** MongoDB via Mongoose
+- **Database:** PostgreSQL via Sequelize with explicit migrations
 - **Auth:** JWT access/refresh tokens, role-based access control (RBAC), forgot/reset password
 - **Security:** `helmet`, `cors`, `cookie-parser`, `express-rate-limit`, `express-validator`
 - **Docs & output:** Swagger UI (`swagger-ui-express`), PDF invoices (`pdfkit`), email (`nodemailer`)
@@ -61,23 +61,24 @@ build, and deploy targets).
 ### 1. Prerequisites
 
 - Node.js ≥ 20, npm ≥ 10
-- MongoDB ≥ 6 running locally (default `mongodb://127.0.0.1:27017/point-of-sale`)
+- PostgreSQL ≥ 14 running locally
 
 ### 2. Install
 
 ```bash
 npm install                              # installs all workspaces
-cp backend/.env.example backend/.env     # then edit MONGO_URI, JWT secrets, SMTP, super admin
+cp backend/.env.example backend/.env     # then edit DATABASE_URL, JWT secrets, SMTP, super admin
 ```
 
-### 3. Seed roles & the bootstrap super admin
+### 3. Migrate and seed
 
 ```bash
+npm run db:migrate
 npm run seed:roles      -w backend       # create system roles + permissions
 npm run seed:superadmin -w backend       # create the super admin from SUPER_ADMIN_* env vars
 ```
 
-Mongoose has no migration step — schemas/indexes are created on first use.
+`npm start` also applies pending PostgreSQL migrations before starting the API.
 
 ### 4. Run
 
@@ -119,9 +120,8 @@ Mounted under `/api` (see `backend/src/routes/index.js`):
 `auth` · `users` · `roles` · `vendors` · `customers` · `warehouses` ·
 `products` · `purchases` · `sales` · `invoices` · `finance` · `dashboard` · `reports`
 
-Core Mongoose models: `user`, `role`, `vendor`, `customer`, `warehouse`,
-`product`, `stockLevel`, `stockMovement`, `goodsPurchase`, `sale`, `invoice`,
-`journalEntry`, `bankAccount`, `counter`.
+Core Sequelize models live in `backend/src/db/models`; normalized child tables
+are managed by versioned SQL migrations.
 
 ## Frontend pages
 
@@ -139,7 +139,8 @@ See [`backend/.env.example`](backend/.env.example). Key values:
 | ------------------------------------------------------------------- | --------------------------------------- |
 | `PORT`                                                              | API port (default `5050`)               |
 | `CLIENT_URL`                                                        | Allowed CORS origin for the frontend    |
-| `MONGO_URI`                                                         | MongoDB connection string               |
+| `DATABASE_URL`                                                      | PostgreSQL connection string            |
+| `DATABASE_SSL`                                                      | Enable PostgreSQL TLS                   |
 | `JWT_ACCESS_SECRET` / `JWT_REFRESH_SECRET`                          | JWT signing secrets                     |
 | `JWT_ACCESS_EXPIRES_IN` / `JWT_REFRESH_EXPIRES_IN`                  | Token lifetimes                         |
 | `RESET_TOKEN_EXPIRES_MIN`                                           | Password-reset token lifetime (minutes) |

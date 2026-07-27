@@ -1,11 +1,10 @@
-const Vendor = require('../models/vendorModel');
-const Customer = require('../models/customerModel');
-const BankAccount = require('../models/bankAccountModel');
+const { initializeModels } = require('../db/models');
 const ApiError = require('../utils/ApiError');
 const { toPaisa, toRupees } = require('../utils/money');
 const { ACCOUNT, REF, PAYMENT_METHOD, BANK_METHODS } = require('../utils/finance');
 const journalService = require('./journalService');
 const counterService = require('./counterService');
+const { Vendor, Customer, BankAccount } = initializeModels();
 
 /**
  * Money movements that aren't sales or purchases: paying down a vendor's
@@ -17,7 +16,7 @@ const counterService = require('./counterService');
 async function settlementAccount(method, bankAccountId) {
   if (BANK_METHODS.has(method)) {
     if (!bankAccountId) throw ApiError.badRequest('A bank account is required for this method');
-    const bank = await BankAccount.findById(bankAccountId);
+    const bank = await BankAccount.findByPk(bankAccountId);
     if (!bank) throw ApiError.notFound('Bank account not found');
     return { account: ACCOUNT.BANK, ref: bank._id };
   }
@@ -42,9 +41,9 @@ async function assertSufficientFunds(account, ref, amount) {
 // Pay a vendor: Dr Accounts-Payable (vendor) / Cr Cash|Bank.
 async function payVendor(
   actor,
-  { vendor, amount, method = PAYMENT_METHOD.CASH, bankAccount, date, note },
+  { vendor, amount, method = PAYMENT_METHOD.CASH, bankAccount, date, note, transaction = null },
 ) {
-  const vendorDoc = await Vendor.findById(vendor);
+  const vendorDoc = await Vendor.findByPk(vendor, { transaction });
   if (!vendorDoc) throw ApiError.notFound('Vendor not found');
 
   const amt = toPaisa(amount);
@@ -53,7 +52,7 @@ async function payVendor(
   const settle = await settlementAccount(method, bankAccount);
   await assertSufficientFunds(settle.account, settle.ref, amt);
   const when = date ? new Date(date) : new Date();
-  const number = await counterService.nextDocNumber('PAY', when.getFullYear(), 4);
+  const number = await counterService.nextDocNumber('PAY', when.getFullYear(), 4, transaction);
 
   return journalService.post({
     date: when,
@@ -65,6 +64,7 @@ async function payVendor(
       journalService.line(ACCOUNT.AP, { debit: amt, ref: vendorDoc._id }),
       journalService.line(settle.account, { credit: amt, ref: settle.ref }),
     ],
+    transaction,
   });
 }
 
@@ -73,7 +73,7 @@ async function receiveFromCustomer(
   actor,
   { customer, amount, method = PAYMENT_METHOD.CASH, bankAccount, date, note },
 ) {
-  const customerDoc = await Customer.findById(customer);
+  const customerDoc = await Customer.findByPk(customer);
   if (!customerDoc) throw ApiError.notFound('Customer not found');
 
   const amt = toPaisa(amount);

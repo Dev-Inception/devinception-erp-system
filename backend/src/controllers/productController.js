@@ -21,7 +21,7 @@ function refObject(ref, withAbbrev) {
       : { id, name: ref.name };
     return { id, obj };
   }
-  // Unpopulated ObjectId or legacy string: surface it as both id and label.
+  // Unexpanded PostgreSQL foreign-key id or legacy string: use it as both id and label.
   const id = String(ref);
   const obj = withAbbrev ? { id, name: id, abbreviation: id } : { id, name: id };
   return { id, obj };

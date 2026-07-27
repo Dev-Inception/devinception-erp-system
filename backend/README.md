@@ -1,40 +1,31 @@
-# DevInception ERP — Backend (skeleton)
+# DevInception ERP backend
 
-Node.js + Express + MongoDB (Mongoose) + TypeScript. This is a **scaffold** — the
-folder structure and wiring are in place, but the domain logic is intentionally
-left as stubs to be implemented.
+Express 5 REST API backed by PostgreSQL through Sequelize. It includes JWT
+authentication, RBAC, inventory, sales, purchases, invoices, double-entry
+accounting, reporting, PDFs, and gate passes.
 
-## Structure
-
-```
-src/
-  server.ts          # entry point — boots the app, connects to Mongo, listens
-  app.ts             # builds the Express app (middleware, routes, error handler)
-  config/
-    env.ts           # typed environment config
-    db.ts            # Mongoose connection
-  models/            # Mongoose schemas/models (one file per entity)
-  routes/            # Express routers (one file per resource) — mounted in index.ts
-  controllers/       # request handlers (thin; call services)
-  services/          # business logic + DB access
-  middleware/        # cross-cutting middleware (error handler, auth, validation, …)
-```
-
-## Getting started
+## Local setup
 
 ```bash
-cp .env.example .env      # then fill in MONGODB_URI etc.
+cp .env.example .env
 npm install
-npm run dev               # tsx watch — starts on http://localhost:4000/api/v1
+npm run db:migrate
+npm run seed:roles
+npm run seed:superadmin
+npm run dev
 ```
 
-The server currently exposes a single health check at `GET /api/v1/health`.
-Database connection in `server.ts` is commented out so it boots without Mongo;
-enable `connectDb()` once your `.env` is configured.
+`DATABASE_URL` is required. `DATABASE_SSL=false` is typical locally. `npm
+start` applies pending migrations before listening.
 
-## Next steps
+## One-time MongoDB import
 
-1. Define Mongoose models in `src/models/` and re-export from `models/index.ts`.
-2. Add routers in `src/routes/` and mount them in `routes/index.ts`.
-3. Put domain logic in `src/services/`, keep `controllers/` thin.
-4. Add auth (JWT), validation, and any realtime/PDF/email features as needed.
+For an existing installation, configure `MONGO_URI` and import into an empty,
+migrated PostgreSQL database:
+
+```bash
+npm run db:import:mongo
+```
+
+The legacy `src/models` directory and Mongoose dependency are used only by this
+import command. Live requests use `src/db/models`.

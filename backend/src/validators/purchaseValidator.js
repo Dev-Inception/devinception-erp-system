@@ -9,7 +9,10 @@ const createPurchaseValidator = [
   body('date').optional({ values: 'falsy' }).isISO8601().withMessage('Invalid date'),
   body('items').isArray({ min: 1 }).withMessage('At least one item is required'),
   body('items.*.product').isMongoId().withMessage('Each item needs a valid product'),
-  body('items.*.quantity').isFloat({ gt: 0 }).withMessage('Each item quantity must be positive'),
+  body('items.*.quantity')
+    .isInt({ gt: 0 })
+    .toInt()
+    .withMessage('Each item quantity must be a positive whole number'),
   body('items.*.unitCost')
     .isFloat({ min: 0 })
     .withMessage('Each item unit cost must be non-negative'),

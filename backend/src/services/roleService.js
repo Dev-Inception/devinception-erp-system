@@ -1,8 +1,8 @@
-const Role = require('../models/roleModel');
-const User = require('../models/userModel');
+const { initializeModels } = require('../db/models');
 const ApiError = require('../utils/ApiError');
 const { ROLES } = require('../utils/constants');
 const { PERMISSIONS, PERMISSION_VALUES, WILDCARD } = require('../utils/permissions');
+const { Role, User } = initializeModels();
 
 /**
  * Role management + a small in-process permission cache so authorization
@@ -110,7 +110,7 @@ let cache = null; // Map<roleName, Set<permission>>
 
 async function getCache() {
   if (cache) return cache;
-  const roles = await Role.find().lean();
+  const roles = await Role.findAll();
   cache = new Map(roles.map((r) => [r.name, new Set(r.permissions)]));
   return cache;
 }
@@ -129,11 +129,10 @@ async function getPermissions(roleName) {
 // left untouched so a super admin's permission tweaks survive re-seeding.
 async function ensureSystemRoles() {
   for (const def of SYSTEM_ROLES) {
-    await Role.updateOne(
-      { name: def.name },
-      { $setOnInsert: { ...def, isSystem: true } },
-      { upsert: true },
-    );
+    await Role.findOrCreate({
+      where: { name: def.name },
+      defaults: { ...def, isSystem: true },
+    });
   }
   invalidateCache();
 }
@@ -149,18 +148,18 @@ function validatePermissions(permissions) {
 }
 
 async function listRoles() {
-  return Role.find().sort({ createdAt: 1 });
+  return Role.findAll({ order: [['createdAt', 'ASC']] });
 }
 
 async function getRoleById(id) {
-  const role = await Role.findById(id);
+  const role = await Role.findByPk(id);
   if (!role) throw ApiError.notFound('Role not found');
   return role;
 }
 
 async function createRole({ name, description, permissions = [] }) {
   const normalized = name.trim().toLowerCase();
-  const existing = await Role.findOne({ name: normalized });
+  const existing = await Role.findOne({ where: { name: normalized } });
   if (existing) throw ApiError.conflict('A role with that name already exists');
 
   validatePermissions(permissions);
@@ -204,14 +203,14 @@ async function deleteRole(id) {
     throw ApiError.forbidden('Built-in roles cannot be deleted');
   }
 
-  const inUse = await User.countDocuments({ role: role.name });
+  const inUse = await User.count({ where: { role: role.name } });
   if (inUse) {
     throw ApiError.badRequest(
       `Role is assigned to ${inUse} user(s); reassign them before deleting`,
     );
   }
 
-  await role.deleteOne();
+  await role.destroy();
   invalidateCache();
 }
 

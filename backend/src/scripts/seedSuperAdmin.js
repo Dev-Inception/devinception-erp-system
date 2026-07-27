@@ -4,12 +4,12 @@
  *
  *   node src/scripts/seedSuperAdmin.js
  */
-const mongoose = require('mongoose');
-const connectDB = require('../config/db');
+const { getPostgres, closePostgres } = require('../db/postgres');
+const { initializeModels } = require('../db/models');
 const env = require('../config/env');
-const User = require('../models/userModel');
 const roleService = require('../services/roleService');
 const { ROLES } = require('../utils/constants');
+const { User } = initializeModels();
 
 async function seed() {
   if (!env.superAdmin.email || !env.superAdmin.password) {
@@ -18,12 +18,14 @@ async function seed() {
     process.exit(1);
   }
 
-  await connectDB();
+  await getPostgres().authenticate();
 
   // The super_admin role must exist before we can create the user with it.
   await roleService.ensureSystemRoles();
 
-  const existing = await User.findOne({ email: env.superAdmin.email });
+  const existing = await User.findOne({
+    where: { email: env.superAdmin.email.trim().toLowerCase() },
+  });
   if (existing) {
     // eslint-disable-next-line no-console
     console.log(`Super admin already exists: ${existing.email}`);
@@ -38,7 +40,7 @@ async function seed() {
     console.log(`Super admin created: ${user.email}`);
   }
 
-  await mongoose.connection.close();
+  await closePostgres();
   process.exit(0);
 }
 

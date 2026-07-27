@@ -1,6 +1,7 @@
 const app = require('./src/app');
 const connectDB = require('./src/config/db');
 const env = require('./src/config/env');
+const { closePostgres } = require('./src/db/postgres');
 
 async function start() {
   try {
@@ -15,7 +16,10 @@ async function start() {
     const shutdown = (signal) => {
       // eslint-disable-next-line no-console
       console.log(`\n${signal} received, shutting down...`);
-      server.close(() => process.exit(0));
+      server.close(async () => {
+        await closePostgres();
+        process.exit(0);
+      });
     };
     process.on('SIGINT', () => shutdown('SIGINT'));
     process.on('SIGTERM', () => shutdown('SIGTERM'));

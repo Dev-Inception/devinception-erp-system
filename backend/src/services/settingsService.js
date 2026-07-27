@@ -1,5 +1,6 @@
-const Settings = require('../models/settingsModel');
+const { initializeModels } = require('../db/models');
 const env = require('../config/env');
+const { Settings } = initializeModels();
 
 /**
  * The singleton settings document. `getSettings` lazily creates it on first
@@ -21,14 +22,16 @@ function defaults() {
 }
 
 async function getSettings() {
-  let settings = await Settings.findOne({ key: KEY });
+  let settings = await Settings.findOne({ where: { key: KEY } });
   if (settings) return settings;
   try {
     settings = await Settings.create({ key: KEY, ...defaults() });
     return settings;
   } catch (err) {
     // Concurrent first-read created it first — fetch the winner.
-    if (err && err.code === 11000) return Settings.findOne({ key: KEY });
+    if (err && err.name === 'SequelizeUniqueConstraintError') {
+      return Settings.findOne({ where: { key: KEY } });
+    }
     throw err;
   }
 }

@@ -1,9 +1,8 @@
-const Customer = require('../models/customerModel');
-const Vendor = require('../models/vendorModel');
-const BankAccount = require('../models/bankAccountModel');
+const { initializeModels } = require('../db/models');
 const ApiError = require('../utils/ApiError');
 const { ACCOUNT } = require('../utils/finance');
 const journalService = require('./journalService');
+const { Customer, Vendor, BankAccount } = initializeModels();
 
 /**
  * Read-only financial views built on top of the journal: customer & vendor
@@ -21,19 +20,25 @@ function parseRange({ from, to } = {}) {
 // List of customers with their receivable balance, for the ledger picker.
 async function customerLedgers() {
   const [customers, balances] = await Promise.all([
-    Customer.find().sort({ name: 1 }).lean(),
+    Customer.findAll({ order: [['name', 'ASC']] }),
     journalService.balancesByRef(ACCOUNT.AR),
   ]);
-  return customers.map((c) => ({ ...c, balance: balances.get(String(c._id)) || 0 }));
+  return customers.map((c) => ({
+    ...c.toJSON(),
+    balance: balances.get(String(c.id)) || 0,
+  }));
 }
 
 // List of vendors with their payable balance.
 async function vendorLedgers() {
   const [vendors, balances] = await Promise.all([
-    Vendor.find().sort({ name: 1 }).lean(),
+    Vendor.findAll({ order: [['name', 'ASC']] }),
     journalService.balancesByRef(ACCOUNT.AP),
   ]);
-  return vendors.map((v) => ({ ...v, balance: balances.get(String(v._id)) || 0 }));
+  return vendors.map((v) => ({
+    ...v.toJSON(),
+    balance: balances.get(String(v.id)) || 0,
+  }));
 }
 
 // Statement for one customer (AR) or vendor (AP).
@@ -41,10 +46,10 @@ async function partyStatement(kind, id, range) {
   let party;
   let account;
   if (kind === 'customer') {
-    party = await Customer.findById(id);
+    party = await Customer.findByPk(id);
     account = ACCOUNT.AR;
   } else if (kind === 'vendor') {
-    party = await Vendor.findById(id);
+    party = await Vendor.findByPk(id);
     account = ACCOUNT.AP;
   } else {
     throw ApiError.badRequest("Ledger kind must be 'customer' or 'vendor'");
@@ -62,7 +67,7 @@ async function cashLedger(range) {
 
 // Statement for one bank account.
 async function bankLedger(id, range) {
-  const bank = await BankAccount.findById(id);
+  const bank = await BankAccount.findByPk(id);
   if (!bank) throw ApiError.notFound('Bank account not found');
   const statement = await journalService.accountStatement(
     ACCOUNT.BANK,
