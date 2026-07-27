@@ -11,10 +11,13 @@ const journalService = require('./journalService');
  * screen). Returns paisa; controllers convert to rupees.
  */
 
-function parseRange({ from, to } = {}) {
+function parseRange({ from, to, page, limit } = {}, paginate = false) {
   return {
     from: from ? new Date(from) : undefined,
     to: to ? new Date(to) : undefined,
+    page,
+    limit,
+    paginate,
   };
 }
 
@@ -57,7 +60,7 @@ async function partyStatement(kind, id, range) {
 
 // Cash book (the singleton CASH account).
 async function cashLedger(range) {
-  return journalService.accountStatement(ACCOUNT.CASH, null, parseRange(range));
+  return journalService.accountStatement(ACCOUNT.CASH, null, parseRange(range, true));
 }
 
 // Statement for one bank account.
@@ -67,7 +70,7 @@ async function bankLedger(id, range) {
   const statement = await journalService.accountStatement(
     ACCOUNT.BANK,
     bank._id,
-    parseRange(range),
+    parseRange(range, true),
   );
   return { bank, ...statement };
 }

@@ -1,8 +1,14 @@
 const Labour = require('../models/labourModel');
 const ApiError = require('../utils/ApiError');
+const { parsePagination } = require('../utils/query');
 
-async function listLabour() {
-  return Labour.find().sort({ createdAt: -1 });
+async function listLabour(query = {}) {
+  const { page, limit, skip } = parsePagination(query);
+  const [labour, total] = await Promise.all([
+    Labour.find().sort({ createdAt: -1 }).skip(skip).limit(limit),
+    Labour.countDocuments(),
+  ]);
+  return { labour, total, page, limit, totalPages: Math.ceil(total / limit) };
 }
 
 async function getLabourById(id) {

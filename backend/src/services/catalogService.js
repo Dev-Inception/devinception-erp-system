@@ -4,7 +4,7 @@ const Brand = require('../models/brandModel');
 const Unit = require('../models/unitModel');
 const Product = require('../models/productModel');
 const ApiError = require('../utils/ApiError');
-const { escapeRegex } = require('../utils/query');
+const { parsePagination, escapeRegex } = require('../utils/query');
 
 /**
  * The product catalog's classification entities — categories, brands and units
@@ -103,8 +103,15 @@ function modelFor(kind) {
   return Model;
 }
 
-async function listEntries(kind) {
-  return modelFor(kind).find({ isActive: true }).sort({ name: 1 }).lean();
+async function listEntries(kind, query = {}) {
+  const { page, limit, skip } = parsePagination(query);
+  const Model = modelFor(kind);
+  const filter = { isActive: true };
+  const [entries, total] = await Promise.all([
+    Model.find(filter).sort({ name: 1 }).skip(skip).limit(limit).lean(),
+    Model.countDocuments(filter),
+  ]);
+  return { entries, total, page, limit, totalPages: Math.ceil(total / limit) };
 }
 
 async function getEntryById(kind, id) {

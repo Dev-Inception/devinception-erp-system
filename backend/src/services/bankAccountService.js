@@ -2,6 +2,7 @@ const BankAccount = require('../models/bankAccountModel');
 const ApiError = require('../utils/ApiError');
 const { toPaisa } = require('../utils/money');
 const { ACCOUNT, REF } = require('../utils/finance');
+const { parsePagination } = require('../utils/query');
 const journalService = require('./journalService');
 
 /**
@@ -10,15 +11,20 @@ const journalService = require('./journalService');
  * an OPENING entry (Dr Bank / Cr Equity) so the books start in balance.
  */
 
-async function listBankAccounts() {
-  const accounts = await BankAccount.find().sort({ createdAt: 1 }).lean();
+async function listBankAccounts(query = {}) {
+  const { page, limit, skip } = parsePagination(query);
+  const [accounts, total] = await Promise.all([
+    BankAccount.find().sort({ createdAt: 1 }).skip(skip).limit(limit).lean(),
+    BankAccount.countDocuments(),
+  ]);
   // Attach each account's derived balance (paisa).
-  return Promise.all(
+  const rows = await Promise.all(
     accounts.map(async (a) => ({
       ...a,
       balance: await journalService.accountBalance(ACCOUNT.BANK, a._id),
     })),
   );
+  return { accounts: rows, total, page, limit, totalPages: Math.ceil(total / limit) };
 }
 
 async function getBankAccountById(id) {

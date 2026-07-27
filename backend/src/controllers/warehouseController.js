@@ -3,10 +3,11 @@ const asyncHandler = require('../utils/asyncHandler');
 const { sendSuccess } = require('../utils/ApiResponse');
 const { view } = require('../utils/money');
 
-const listWarehouses = asyncHandler(async (_req, res) => {
-  const warehouses = await warehouseService.listWarehouses();
+const listWarehouses = asyncHandler(async (req, res) => {
+  const result = await warehouseService.listWarehouses(req.query);
   return sendSuccess(res, 200, 'Warehouses fetched', {
-    warehouses: warehouses.map((w) => view(w, ['stockValue'])),
+    ...result,
+    warehouses: result.warehouses.map((w) => view(w, ['stockValue'])),
   });
 });
 

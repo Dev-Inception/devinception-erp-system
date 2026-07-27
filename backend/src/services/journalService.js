@@ -1,6 +1,7 @@
 const JournalEntry = require('../models/journalEntryModel');
 const ApiError = require('../utils/ApiError');
 const { naturalBalance } = require('../utils/finance');
+const { parsePagination } = require('../utils/query');
 
 /**
  * The ledger engine. Everything that moves money posts through `post()`, and
@@ -99,7 +100,12 @@ async function accountTotals(account, ref = null, { from, to, refType, refIds, w
  * within [from, to], with a running balance. Used for party ledgers and the
  * cash/bank book. Returns paisa; the controller converts to rupees.
  */
-async function accountStatement(account, ref = null, { from, to } = {}) {
+async function accountStatement(
+  account,
+  ref = null,
+  { from, to, page, limit, paginate = false } = {},
+) {
+  const pagination = parsePagination({ page, limit });
   // Opening balance = everything strictly before `from`.
   let opening = 0;
   if (from) {
@@ -114,19 +120,44 @@ async function accountStatement(account, ref = null, { from, to } = {}) {
     if (to) entryMatch.date.$lte = to;
   }
 
-  const entries = await JournalEntry.find(entryMatch).sort({ date: 1, createdAt: 1 }).lean();
+  let entriesQuery = JournalEntry.find(entryMatch).sort({ date: 1, createdAt: 1 });
+  if (paginate) {
+    entriesQuery = entriesQuery.skip(pagination.skip).limit(pagination.limit);
+  }
 
-  let running = opening;
-  const rows = entries.map((e) => {
-    // Sum this account's lines within the entry (usually one).
+  const [entries, precedingEntries, total, periodTotals] = await Promise.all([
+    entriesQuery.lean(),
+    paginate && pagination.skip
+      ? JournalEntry.find(entryMatch)
+          .sort({ date: 1, createdAt: 1 })
+          .limit(pagination.skip)
+          .select('lines')
+          .lean()
+      : [],
+    paginate ? JournalEntry.countDocuments(entryMatch) : 0,
+    paginate ? accountTotals(account, ref, { from, to }) : null,
+  ]);
+
+  const amounts = (entry) => {
     let debit = 0;
     let credit = 0;
-    for (const l of e.lines) {
+    for (const l of entry.lines) {
       if (l.account === account && String(l.ref || null) === String(ref || null)) {
         debit += l.debit || 0;
         credit += l.credit || 0;
       }
     }
+    return { debit, credit };
+  };
+
+  // A later page must continue the running balance from all rows before it.
+  let running = precedingEntries.reduce((balance, entry) => {
+    const { debit, credit } = amounts(entry);
+    return balance + naturalBalance(account, debit, credit);
+  }, opening);
+
+  const rows = entries.map((e) => {
+    const { debit, credit } = amounts(e);
     running += naturalBalance(account, debit, credit);
     return {
       date: e.date,
@@ -139,8 +170,18 @@ async function accountStatement(account, ref = null, { from, to } = {}) {
     };
   });
 
-  const closing = running;
-  return { opening, rows, closing };
+  const closing = paginate
+    ? opening + naturalBalance(account, periodTotals.debit || 0, periodTotals.credit || 0)
+    : running;
+  const statement = { opening, rows, closing };
+  if (!paginate) return statement;
+  return {
+    ...statement,
+    total,
+    page: pagination.page,
+    limit: pagination.limit,
+    totalPages: Math.ceil(total / pagination.limit),
+  };
 }
 
 /**

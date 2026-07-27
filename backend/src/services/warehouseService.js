@@ -6,6 +6,7 @@ const GoodsPurchase = require('../models/goodsPurchaseModel');
 const JournalEntry = require('../models/journalEntryModel');
 const ApiError = require('../utils/ApiError');
 const { QUANTITY_DECIMALS } = require('../utils/quantity');
+const { parsePagination } = require('../utils/query');
 
 /**
  * Warehouse CRUD. Exactly one warehouse carries isDefault=true; setting it on
@@ -14,9 +15,11 @@ const { QUANTITY_DECIMALS } = require('../utils/quantity');
 
 // Warehouses with the count of in-stock products and total stock value (paisa)
 // each holds, for the Warehouses screen cards.
-async function listWarehouses() {
-  const [warehouses, stock] = await Promise.all([
-    Warehouse.find().sort({ createdAt: 1 }).lean(),
+async function listWarehouses(query = {}) {
+  const { page, limit, skip } = parsePagination(query);
+  const [warehouses, total, stock] = await Promise.all([
+    Warehouse.find().sort({ createdAt: 1 }).skip(skip).limit(limit).lean(),
+    Warehouse.countDocuments(),
     StockLevel.aggregate([
       {
         $match: {
@@ -40,10 +43,11 @@ async function listWarehouses() {
     ]),
   ]);
   const byId = new Map(stock.map((s) => [String(s._id), s]));
-  return warehouses.map((w) => {
+  const rows = warehouses.map((w) => {
     const s = byId.get(String(w._id));
     return { ...w, itemsInStock: s ? s.itemsInStock : 0, stockValue: s ? s.stockValue : 0 };
   });
+  return { warehouses: rows, total, page, limit, totalPages: Math.ceil(total / limit) };
 }
 
 async function getWarehouseById(id) {

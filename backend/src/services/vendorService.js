@@ -22,9 +22,7 @@ function pickWritable({ name, phone, email, ntn, address }) {
 }
 
 async function listVendors(query = {}) {
-  // The GP vendor picker and the Vendors page consume the full list (no
-  // pagination UI), so allow a far larger page size than the default cap.
-  const { page, limit, skip } = parsePagination(query, { defaultLimit: 1000, maxLimit: 100000 });
+  const { page, limit, skip } = parsePagination(query);
   const filter = {};
   if (query.search) {
     const term = escapeRegex(query.search);
@@ -48,7 +46,7 @@ async function listVendors(query = {}) {
     outstanding: toRupees(balances.get(String(v._id)) || 0),
   }));
 
-  return { vendors, total, page, limit };
+  return { vendors, total, page, limit, totalPages: Math.ceil(total / limit) };
 }
 
 async function getVendorById(id) {

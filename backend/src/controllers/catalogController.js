@@ -43,9 +43,13 @@ const createUnit = asyncHandler(async (req, res) => {
   return sendSuccess(res, 201, 'Unit saved', { unit: mapUnit(entry) });
 });
 
-const listCategories = asyncHandler(async (_req, res) => {
-  const entries = await catalogService.listEntries('category');
-  return sendSuccess(res, 200, 'Categories fetched', { categories: entries.map(mapEntry) });
+const listCategories = asyncHandler(async (req, res) => {
+  const result = await catalogService.listEntries('category', req.query);
+  const { entries, ...pagination } = result;
+  return sendSuccess(res, 200, 'Categories fetched', {
+    ...pagination,
+    categories: entries.map(mapEntry),
+  });
 });
 
 const getCategory = asyncHandler(async (req, res) => {
@@ -63,9 +67,13 @@ const deleteCategory = asyncHandler(async (req, res) => {
   return sendSuccess(res, 200, 'Category deleted');
 });
 
-const listUnits = asyncHandler(async (_req, res) => {
-  const entries = await catalogService.listEntries('unit');
-  return sendSuccess(res, 200, 'Units fetched', { units: entries.map(mapUnit) });
+const listUnits = asyncHandler(async (req, res) => {
+  const result = await catalogService.listEntries('unit', req.query);
+  const { entries, ...pagination } = result;
+  return sendSuccess(res, 200, 'Units fetched', {
+    ...pagination,
+    units: entries.map(mapUnit),
+  });
 });
 
 const getUnit = asyncHandler(async (req, res) => {

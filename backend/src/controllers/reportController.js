@@ -64,8 +64,12 @@ function serialize(type, data) {
 
 const getReport = asyncHandler(async (req, res) => {
   const { type } = req.params;
-  const { from, to, warehouse } = req.query;
-  const data = await reportService.runReport(type, { from, to, warehouse });
+  const { from, to, warehouse, page, limit } = req.query;
+  const data = await reportService.runReport(
+    type,
+    { from, to, warehouse, page, limit },
+    { paginate: true },
+  );
   const query = new URLSearchParams();
   if (from) query.set('from', from);
   if (to) query.set('to', to);

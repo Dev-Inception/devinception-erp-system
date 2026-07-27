@@ -124,7 +124,7 @@ async function listPurchaseInvoices({ vendor, status, from, to, ...query } = {})
     Invoice.countDocuments(filter),
   ]);
   await Promise.all(invoices.map((invoice) => ensureInvoiceGatePass(invoice)));
-  return { invoices, total, page, limit };
+  return { invoices, total, page, limit, totalPages: Math.ceil(total / limit) };
 }
 
 // Purchases created before the goods-in gate pass feature shipped have no

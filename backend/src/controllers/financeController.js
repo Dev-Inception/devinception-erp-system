@@ -21,10 +21,11 @@ const serializeParty = (p) => view(out(p), ['balance']);
 
 /* ----------------------------- Bank accounts ----------------------------- */
 
-const listBankAccounts = asyncHandler(async (_req, res) => {
-  const accounts = await bankAccountService.listBankAccounts();
+const listBankAccounts = asyncHandler(async (req, res) => {
+  const result = await bankAccountService.listBankAccounts(req.query);
   return sendSuccess(res, 200, 'Bank accounts fetched', {
-    accounts: accounts.map((a) => view(a, ['balance'])),
+    ...result,
+    accounts: result.accounts.map((a) => view(a, ['balance'])),
   });
 });
 
@@ -88,26 +89,28 @@ const partyStatement = asyncHandler(async (req, res) => {
   const { kind, id } = req.params;
   const { from, to } = req.query;
   const result = await ledgerService.partyStatement(kind, id, { from, to });
+  const { party, ...statement } = result;
   return sendSuccess(res, 200, 'Statement fetched', {
-    party: out(result.party),
-    ...serializeStatement({ opening: result.opening, closing: result.closing, rows: result.rows }),
+    party: out(party),
+    ...serializeStatement(statement),
   });
 });
 
 /* ------------------------------ Cash & Bank ------------------------------ */
 
 const cashLedger = asyncHandler(async (req, res) => {
-  const { from, to } = req.query;
-  const stmt = await ledgerService.cashLedger({ from, to });
+  const { from, to, page, limit } = req.query;
+  const stmt = await ledgerService.cashLedger({ from, to, page, limit });
   return sendSuccess(res, 200, 'Cash ledger fetched', serializeStatement(stmt));
 });
 
 const bankLedger = asyncHandler(async (req, res) => {
-  const { from, to } = req.query;
-  const result = await ledgerService.bankLedger(req.params.id, { from, to });
+  const { from, to, page, limit } = req.query;
+  const result = await ledgerService.bankLedger(req.params.id, { from, to, page, limit });
+  const { bank, ...statement } = result;
   return sendSuccess(res, 200, 'Bank ledger fetched', {
-    bank: out(result.bank),
-    ...serializeStatement({ opening: result.opening, closing: result.closing, rows: result.rows }),
+    bank: out(bank),
+    ...serializeStatement(statement),
   });
 });
 

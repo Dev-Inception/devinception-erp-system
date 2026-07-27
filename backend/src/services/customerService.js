@@ -20,9 +20,7 @@ function pickWritable({ name, phone, email, address, creditLimit }) {
 }
 
 async function listCustomers(query = {}) {
-  // The POS customer picker and the Customers page consume the full list (no
-  // pagination UI), so allow a far larger page size than the default cap.
-  const { page, limit, skip } = parsePagination(query, { defaultLimit: 1000, maxLimit: 100000 });
+  const { page, limit, skip } = parsePagination(query);
   const filter = {};
   if (query.search) {
     const term = escapeRegex(query.search);
@@ -45,7 +43,7 @@ async function listCustomers(query = {}) {
     outstanding: toRupees(balances.get(String(c._id)) || 0),
   }));
 
-  return { customers, total, page, limit };
+  return { customers, total, page, limit, totalPages: Math.ceil(total / limit) };
 }
 
 async function getCustomerById(id) {

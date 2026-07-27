@@ -57,9 +57,7 @@ async function attachStock(products, warehouse) {
 }
 
 async function listProducts({ search, warehouse, includeInactive = false, ...query } = {}) {
-  // The inventory list and product pickers have no pagination UI, so this
-  // endpoint allows a far larger page size than the default 100-row cap.
-  const { page, limit, skip } = parsePagination(query, { defaultLimit: 1000, maxLimit: 100000 });
+  const { page, limit, skip } = parsePagination(query);
   const filter = {};
   // Hide deactivated products from the catalog unless explicitly requested.
   if (!includeInactive) filter.isActive = true;
@@ -99,7 +97,7 @@ async function listProducts({ search, warehouse, includeInactive = false, ...que
   ]);
 
   const products = await attachStock(docs, warehouse);
-  return { products, total, page, limit };
+  return { products, total, page, limit, totalPages: Math.ceil(total / limit) };
 }
 
 async function getProductById(id) {

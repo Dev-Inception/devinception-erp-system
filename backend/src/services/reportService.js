@@ -7,6 +7,7 @@ const journalService = require('./journalService');
 const stockService = require('./stockService');
 const { parseReportDate } = require('../utils/reportDate');
 const { normalizeQuantity } = require('../utils/quantity');
+const { parsePagination } = require('../utils/query');
 
 /**
  * Reporting: date-range aggregations over transactional data and the ledger.
@@ -378,7 +379,20 @@ const REPORTS = {
   'profit-loss': profitAndLossReport,
 };
 
-async function runReport(type, params) {
+function paginateReportRows(report, query) {
+  const { page, limit, skip } = parsePagination(query);
+  const total = report.rows.length;
+  return {
+    ...report,
+    rows: report.rows.slice(skip, skip + limit),
+    total,
+    page,
+    limit,
+    totalPages: Math.ceil(total / limit),
+  };
+}
+
+async function runReport(type, params, { paginate = false } = {}) {
   if (!Object.prototype.hasOwnProperty.call(REPORTS, type)) {
     throw ApiError.badRequest(`Unknown report type: ${type}`);
   }
@@ -388,7 +402,8 @@ async function runReport(type, params) {
     warehouse = await Warehouse.findById(params.warehouse).lean();
     if (!warehouse) throw ApiError.notFound('Warehouse not found');
   }
-  const report = await fn({ ...params, warehouse: warehouse ? warehouse._id : undefined });
+  const fullReport = await fn({ ...params, warehouse: warehouse ? warehouse._id : undefined });
+  const report = paginate ? paginateReportRows(fullReport, params) : fullReport;
   return {
     ...report,
     meta: {

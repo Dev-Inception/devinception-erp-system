@@ -2,9 +2,9 @@ const labourService = require('../services/labourService');
 const asyncHandler = require('../utils/asyncHandler');
 const { sendSuccess } = require('../utils/ApiResponse');
 
-const listLabour = asyncHandler(async (_req, res) => {
-  const labour = await labourService.listLabour();
-  return sendSuccess(res, 200, 'Labour list fetched', { labour });
+const listLabour = asyncHandler(async (req, res) => {
+  const result = await labourService.listLabour(req.query);
+  return sendSuccess(res, 200, 'Labour list fetched', result);
 });
 
 const getLabour = asyncHandler(async (req, res) => {
