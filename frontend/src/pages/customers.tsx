@@ -19,6 +19,7 @@ import { api } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
 import { useAuthStore } from '@/store/auth';
 import { grantsPermission } from '@/lib/modules';
+import { Pagination } from '@/components/ui/pagination';
 
 interface Customer {
   id: string;
@@ -29,6 +30,8 @@ interface Customer {
   creditLimit: string | number;
   outstanding: number;
 }
+const SEARCH_FETCH_LIMIT = 200;
+const PAGE_SIZE = 20;
 
 const emptyForm = { name: '', phone: '', email: '', address: '', creditLimit: 0 };
 
@@ -150,11 +153,22 @@ export function CustomersPage() {
   const canUpdate = grantsPermission(perms, 'customers:update');
   const canDelete = grantsPermission(perms, 'customers:delete');
   const showActions = canUpdate || canDelete;
+  const [from, setFrom] = useState('');
+  const [to, setTo] = useState('');
+  const [page, setPage] = useState(1);
+
+  const q = search.trim().toLowerCase();
+  const isSearching = q.length > 0;
+  const fetchPage = isSearching ? 1 : page;
+  const fetchLimit = isSearching ? SEARCH_FETCH_LIMIT : PAGE_SIZE;
 
   const { data: customers = [], isLoading } = useQuery<Customer[]>({
     queryKey: ['customers', search],
     queryFn: async () => (await api.get('/customers', { params: { search } })).data,
   });
+
+  const total = customers?.length ?? 0;
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
   const del = useMutation({
     mutationFn: async (id: string) => (await api.delete(`/customers/${id}`)).data,
@@ -261,6 +275,16 @@ export function CustomersPage() {
             )}
           </tbody>
         </table>
+        {!isSearching && (
+          <Pagination
+            page={page}
+            totalPages={totalPages}
+            total={total}
+            pageSize={PAGE_SIZE}
+            onPageChange={setPage}
+            className="border-t"
+          />
+        )}
       </Card>
     </div>
   );
