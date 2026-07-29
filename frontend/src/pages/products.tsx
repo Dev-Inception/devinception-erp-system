@@ -16,6 +16,7 @@ import {
 import { api } from '@/lib/api';
 import { formatCurrency, cn } from '@/lib/utils';
 import { useWarehouses } from '@/components/layout/warehouse-switcher';
+import { Pagination } from '@/components/ui/pagination';
 
 interface Product {
   id: string;
@@ -40,6 +41,8 @@ interface Catalog {
   brands: { id: string; name: string }[];
   units: { id: string; name: string; abbreviation: string }[];
 }
+const SEARCH_FETCH_LIMIT = 200;
+const PAGE_SIZE = 20;
 
 const blank = {
   name: '',
@@ -366,11 +369,21 @@ export function ProductsPage() {
   // Resolved silently in the background (no picker) — Stock Adjustment still
   // needs a warehouse id server-side, but the user never has to think about it.
   const { currentId } = useWarehouses();
+  const [from, setFrom] = useState('');
+  const [to, setTo] = useState('');
+  const [page, setPage] = useState(1);
+
+  const q = search.trim().toLowerCase();
+  const isSearching = q.length > 0;
+  const fetchPage = isSearching ? 1 : page;
+  const fetchLimit = isSearching ? SEARCH_FETCH_LIMIT : PAGE_SIZE;
 
   const { data: products = [], isLoading } = useQuery<Product[]>({
     queryKey: ['products', search],
     queryFn: async () => (await api.get('/products', { params: { search } })).data,
   });
+  const total = products?.length ?? 0;
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
   return (
     <div className="space-y-4">
@@ -465,6 +478,16 @@ export function ProductsPage() {
               )}
             </tbody>
           </table>
+          {!isSearching && (
+            <Pagination
+              page={page}
+              totalPages={totalPages}
+              total={total}
+              pageSize={PAGE_SIZE}
+              onPageChange={setPage}
+              className="border-t"
+            />
+          )}
         </div>
       </Card>
 
