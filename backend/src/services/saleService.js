@@ -245,10 +245,11 @@ async function createSale(actor, input) {
   return sale;
 }
 
-async function listSales({ customer, from, to, ...query } = {}) {
+async function listSales({ customer, from, to, paymentMethod, ...query } = {}) {
   const { page, limit, skip } = parsePagination(query);
   const filter = {};
   if (customer) filter.customer = customer;
+  if (paymentMethod) filter.paymentMethod = paymentMethod;
   if (from || to) {
     filter.date = {};
     if (from) filter.date.$gte = new Date(from);
