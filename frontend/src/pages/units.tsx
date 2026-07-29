@@ -17,12 +17,15 @@ import {
 import { api } from '@/lib/api';
 import { useAuthStore } from '@/store/auth';
 import { grantsPermission } from '@/lib/modules';
+import { Pagination } from '@/components/ui/pagination';
 
 interface Unit {
   id: string;
   name: string;
   abbreviation: string;
 }
+const SEARCH_FETCH_LIMIT = 200;
+const PAGE_SIZE = 20;
 
 /** Create (no `editing`) or edit (with `editing`) a unit of measurement. */
 function UnitDialog({
@@ -113,6 +116,15 @@ export function UnitsPage() {
   const perms = useAuthStore((s) => s.user?.permissions);
   // Unit create/update/delete all require inventory:manage on the backend.
   const canManage = grantsPermission(perms, 'inventory:manage');
+  const [search, setSearch] = useState('');
+  const [from, setFrom] = useState('');
+  const [to, setTo] = useState('');
+  const [page, setPage] = useState(1);
+
+  const q = search.trim().toLowerCase();
+  const isSearching = q.length > 0;
+  const fetchPage = isSearching ? 1 : page;
+  const fetchLimit = isSearching ? SEARCH_FETCH_LIMIT : PAGE_SIZE;
 
   const { data: units = [], isLoading } = useQuery<Unit[]>({
     queryKey: ['units'],
@@ -121,6 +133,8 @@ export function UnitsPage() {
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<Unit | null>(null);
+  const total = units?.length ?? 0;
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
   const del = useMutation({
     mutationFn: async (id: string) => (await api.delete(`/units/${id}`)).data,
@@ -218,6 +232,16 @@ export function UnitsPage() {
             )}
           </tbody>
         </table>
+        {!isSearching && (
+          <Pagination
+            page={page}
+            totalPages={totalPages}
+            total={total}
+            pageSize={PAGE_SIZE}
+            onPageChange={setPage}
+            className="border-t"
+          />
+        )}
       </Card>
 
       {dialogOpen && (

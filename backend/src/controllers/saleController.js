@@ -32,8 +32,8 @@ const createSale = asyncHandler(async (req, res) => {
 });
 
 const listSales = asyncHandler(async (req, res) => {
-  const { page, limit, customer, from, to } = req.query;
-  const result = await saleService.listSales({ page, limit, customer, from, to });
+  const { page, limit, customer, from, to, paymentMethod } = req.query;
+  const result = await saleService.listSales({ page, limit, customer, from, to, paymentMethod });
   return sendSuccess(res, 200, 'Sales fetched', {
     ...result,
     sales: result.sales.map(serialize),

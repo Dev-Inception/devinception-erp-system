@@ -17,12 +17,15 @@ import {
 import { api } from '@/lib/api';
 import { useAuthStore } from '@/store/auth';
 import { grantsPermission } from '@/lib/modules';
+import { Pagination } from '@/components/ui/pagination';
 
 interface Category {
   id: string;
   name: string;
   description?: string;
 }
+const SEARCH_FETCH_LIMIT = 200;
+const PAGE_SIZE = 20;
 
 /** Create (no `editing`) or edit (with `editing`) a category. */
 function CategoryDialog({
@@ -109,11 +112,22 @@ export function CategoriesPage() {
   const perms = useAuthStore((s) => s.user?.permissions);
   // Category create/update/delete all require inventory:manage on the backend.
   const canManage = grantsPermission(perms, 'inventory:manage');
+  const [search, setSearch] = useState('');
+  const [from, setFrom] = useState('');
+  const [to, setTo] = useState('');
+  const [page, setPage] = useState(1);
+
+  const q = search.trim().toLowerCase();
+  const isSearching = q.length > 0;
+  const fetchPage = isSearching ? 1 : page;
+  const fetchLimit = isSearching ? SEARCH_FETCH_LIMIT : PAGE_SIZE;
 
   const { data: categories = [], isLoading } = useQuery<Category[]>({
     queryKey: ['categories'],
     queryFn: async () => (await api.get('/categories')).data,
   });
+  const total = categories?.length ?? 0;
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<Category | null>(null);
@@ -216,6 +230,16 @@ export function CategoriesPage() {
             )}
           </tbody>
         </table>
+        {!isSearching && (
+          <Pagination
+            page={page}
+            totalPages={totalPages}
+            total={total}
+            pageSize={PAGE_SIZE}
+            onPageChange={setPage}
+            className="border-t"
+          />
+        )}
       </Card>
 
       {dialogOpen && (

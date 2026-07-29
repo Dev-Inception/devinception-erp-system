@@ -6,6 +6,8 @@ import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Pagination } from '@/components/ui/pagination';
+
 import {
   Dialog,
   DialogContent,
@@ -29,6 +31,8 @@ interface Vendor {
   ntn?: string;
   outstanding: number;
 }
+const SEARCH_FETCH_LIMIT = 200;
+const PAGE_SIZE = 20;
 
 const emptyForm = { name: '', phone: '', email: '', address: '', ntn: '' };
 
@@ -157,10 +161,21 @@ export function VendorsPage() {
   const canDelete = grantsPermission(perms, 'vendors:delete');
   const showActions = canUpdate || canDelete;
 
+  const [from, setFrom] = useState('');
+  const [to, setTo] = useState('');
+  const [page, setPage] = useState(1);
+
   const { data: vendors = [], isLoading } = useQuery<Vendor[]>({
     queryKey: ['vendors', search],
     queryFn: async () => (await api.get('/vendors', { params: { search } })).data,
   });
+
+  const q = search.trim().toLowerCase();
+  const isSearching = q.length > 0;
+  const fetchPage = isSearching ? 1 : page;
+  const fetchLimit = isSearching ? SEARCH_FETCH_LIMIT : PAGE_SIZE;
+  const total = vendors?.length ?? 0;
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
   const del = useMutation({
     mutationFn: async (id: string) => (await api.delete(`/vendors/${id}`)).data,
@@ -267,6 +282,16 @@ export function VendorsPage() {
             )}
           </tbody>
         </table>
+        {!isSearching && (
+          <Pagination
+            page={page}
+            totalPages={totalPages}
+            total={total}
+            pageSize={PAGE_SIZE}
+            onPageChange={setPage}
+            className="border-t"
+          />
+        )}
       </Card>
     </div>
   );

@@ -6,6 +6,8 @@ import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Pagination } from '@/components/ui/pagination';
+
 import {
   Dialog,
   DialogContent,
@@ -22,6 +24,8 @@ interface Labour {
   name: string;
   phoneNumber: string;
 }
+const SEARCH_FETCH_LIMIT = 200;
+const PAGE_SIZE = 20;
 
 /** Create (no `editing`) or edit (with `editing`) a labour entry. */
 function LabourDialog({
@@ -36,7 +40,6 @@ function LabourDialog({
   const qc = useQueryClient();
   const isEditing = !!editing;
   const [form, setForm] = useState({ name: '', phoneNumber: '' });
-
   useEffect(() => {
     if (open) setForm({ name: editing?.name ?? '', phoneNumber: editing?.phoneNumber ?? '' });
   }, [open, editing]);
@@ -112,6 +115,15 @@ export function LabourPage() {
   // Unlike other Partner modules, the backend gates labour create/update/delete
   // by role (super admin only) rather than a permission string.
   const canManage = role === 'SUPER_ADMIN';
+  const [search, setSearch] = useState('');
+  const [from, setFrom] = useState('');
+  const [to, setTo] = useState('');
+  const [page, setPage] = useState(1);
+
+  const q = search.trim().toLowerCase();
+  const isSearching = q.length > 0;
+  const fetchPage = isSearching ? 1 : page;
+  const fetchLimit = isSearching ? SEARCH_FETCH_LIMIT : PAGE_SIZE;
 
   const { data: labour = [], isLoading } = useQuery<Labour[]>({
     queryKey: ['labour'],
@@ -120,6 +132,8 @@ export function LabourPage() {
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<Labour | null>(null);
+  const total = labour?.length ?? 0;
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
   const del = useMutation({
     mutationFn: async (id: string) => (await api.delete(`/labour/${id}`)).data,
@@ -216,6 +230,16 @@ export function LabourPage() {
             )}
           </tbody>
         </table>
+        {!isSearching && (
+          <Pagination
+            page={page}
+            totalPages={totalPages}
+            total={total}
+            pageSize={PAGE_SIZE}
+            onPageChange={setPage}
+            className="border-t"
+          />
+        )}
       </Card>
 
       {dialogOpen && (
