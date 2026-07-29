@@ -7,7 +7,9 @@ const out = (p) => (p && p.toJSON ? p.toJSON() : p);
 function serialize(purchase) {
   const p = view(out(purchase), ['subtotal', 'discount', 'tax', 'total', 'paid', 'balance']);
   if (Array.isArray(p.items)) {
-    p.items = p.items.map((it) => view(it, ['unitCost', 'tax', 'lineTotal']));
+    p.items = p.items.map((it) =>
+      view(it && it.toJSON ? it.toJSON() : it, ['unitCost', 'tax', 'lineTotal']),
+    );
   }
   return p;
 }

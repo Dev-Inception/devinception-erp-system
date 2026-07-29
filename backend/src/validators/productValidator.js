@@ -1,5 +1,5 @@
-const mongoose = require('mongoose');
 const { body, param, query } = require('express-validator');
+const { isValidId } = require('../db/id');
 
 const idParam = param('id').isMongoId().withMessage('Invalid product id');
 
@@ -27,8 +27,9 @@ const optionalFields = [
     .withMessage('Tax % must be 0–100'),
   body('minStock')
     .optional({ values: 'falsy' })
-    .isFloat({ min: 0 })
-    .withMessage('Min stock must be non-negative'),
+    .isInt({ min: 0 })
+    .toInt()
+    .withMessage('Min stock must be a non-negative whole number'),
 ];
 
 const createProductValidator = [
@@ -36,7 +37,7 @@ const createProductValidator = [
   body('sku').trim().notEmpty().withMessage('SKU is required').isLength({ max: 60 }),
   body('warehouse').custom((value, { req }) => {
     const warehouse = value || req.body.warehouseId;
-    if (!mongoose.isValidObjectId(warehouse)) {
+    if (!isValidId(warehouse)) {
       throw new Error('A valid warehouse is required');
     }
     return true;
@@ -71,9 +72,14 @@ const adjustStockValidator = [
     .withMessage('Invalid adjustment type'),
   body('quantity')
     .optional({ values: 'falsy' })
-    .isFloat({ min: 0 })
-    .withMessage('quantity must be non-negative'),
-  body('delta').optional({ values: 'falsy' }).isFloat().withMessage('delta must be a number'),
+    .isInt({ min: 0 })
+    .toInt()
+    .withMessage('quantity must be a non-negative whole number'),
+  body('delta')
+    .optional({ values: 'falsy' })
+    .isInt()
+    .toInt()
+    .withMessage('delta must be a whole number'),
   body('unitCost')
     .optional({ values: 'falsy' })
     .isFloat({ min: 0 })

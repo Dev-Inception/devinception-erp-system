@@ -1,15 +1,13 @@
 # Render Blueprint for DevInception ERP
 # Deploys the Express API (web service) and the Vite/React SPA (static site).
 #
-# NOTE: Render has no managed MongoDB. Provision a free cluster on MongoDB Atlas
-# (https://www.mongodb.com/atlas) and paste its connection string into the
-# MONGO_URI env var of the API service after the blueprint is created.
+# Provision PostgreSQL and paste its connection string into DATABASE_URL.
 #
 # Docs: https://render.com/docs/blueprint-spec
 
 services:
   # ------------------------------------------------------------------ #
-  #  Backend  —  Express + MongoDB REST API                            #
+  #  Backend  —  Express + PostgreSQL REST API                         #
   # ------------------------------------------------------------------ #
   - type: web
     name: devinception-erp-api
@@ -30,9 +28,11 @@ services:
       - key: HUSKY
         value: '0'
 
-      # ----- Database (paste your MongoDB Atlas SRV string) ----------
-      - key: MONGO_URI
+      # ----- PostgreSQL ----------------------------------------------
+      - key: DATABASE_URL
         sync: false
+      - key: DATABASE_SSL
+        value: 'true'
 
       # ----- JWT — secrets are auto-generated on first deploy --------
       - key: JWT_ACCESS_SECRET

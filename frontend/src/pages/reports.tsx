@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { api } from '@/lib/api';
-import { cn, formatCurrency } from '@/lib/utils';
+import { cn, formatCurrency, formatQuantity } from '@/lib/utils';
 
 interface ReportResult {
   title: string;
@@ -54,8 +54,14 @@ export function ReportsPage() {
     URL.revokeObjectURL(url);
   };
 
-  const fmt = (col: { numeric?: boolean }, v: any) =>
-    col.numeric && typeof v === 'number' ? formatCurrency(v) : String(v ?? '');
+  const fmt = (col: { key: string; numeric?: boolean }, value: any) => {
+    if (col.key === 'qty') return formatQuantity(value);
+    if (col.key === 'avgCost' && Number.isFinite(Number(value))) {
+      return formatCurrency(Number(value), 'PKR', 2);
+    }
+    if (col.numeric && Number.isFinite(Number(value))) return formatCurrency(Number(value));
+    return String(value ?? '');
+  };
 
   return (
     <div className="space-y-4">

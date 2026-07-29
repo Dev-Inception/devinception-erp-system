@@ -16,7 +16,9 @@ function serialize(sale) {
     'creditAmount',
   ]);
   if (Array.isArray(s.items)) {
-    s.items = s.items.map((it) => view(it, ['unitPrice', 'lineTotal', 'cost']));
+    s.items = s.items.map((it) =>
+      view(it && it.toJSON ? it.toJSON() : it, ['unitPrice', 'lineTotal', 'cost']),
+    );
   }
   if (s.gatePass) {
     s.gatePassId = String(s.gatePass._id ?? s.gatePass);

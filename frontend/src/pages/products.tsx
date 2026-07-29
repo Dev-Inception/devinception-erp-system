@@ -238,8 +238,9 @@ function ProductDialog({
             <Input
               type="number"
               min="0"
+              step="1"
               value={form.minStock || ''}
-              onChange={(e) => field('minStock', Math.max(0, Number(e.target.value)))}
+              onChange={(e) => field('minStock', Math.max(0, Math.trunc(Number(e.target.value))))}
             />
           </div>
           <div className="col-span-2 flex justify-end gap-2 pt-2">
@@ -330,12 +331,12 @@ function StockDialog({
             <Label>{type === 'ADJUSTMENT' ? 'New on-hand quantity' : 'Quantity'}</Label>
             <Input
               type="number"
-              step="0.001"
-              min={0}
+              step="1"
+              min={type === 'ADJUSTMENT' ? 0 : 1}
               required
               autoFocus
               value={quantity || ''}
-              onChange={(e) => setQuantity(Number(e.target.value))}
+              onChange={(e) => setQuantity(Math.max(0, Math.trunc(Number(e.target.value))))}
             />
           </div>
           <div className="space-y-1.5">

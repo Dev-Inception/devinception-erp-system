@@ -4,11 +4,14 @@
   "description": "Point of Sale backend with JWT auth and role-based access control",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js",
+    "start": "node src/db/migrate.js && node index.js",
     "dev": "nodemon index.js",
     "seed:roles": "node src/scripts/seedRoles.js",
     "seed:superadmin": "node src/scripts/seedSuperAdmin.js",
     "seed:catalog": "node src/scripts/seedCatalog.js",
+    "db:migrate": "node src/db/migrate.js",
+    "db:migrate:status": "node src/db/migrate.js --status",
+    "db:import:mongo": "node src/db/importMongo.js",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "test": "echo \"Error: no test specified\" && exit 1"
@@ -19,7 +22,7 @@
     "jwt",
     "rbac",
     "express",
-    "mongodb"
+    "postgresql"
   ],
   "author": "",
   "license": "ISC",
@@ -38,7 +41,9 @@
     "multer": "^2.2.0",
     "nodemailer": "^9.0.1",
     "pdfkit": "^0.19.1",
+    "pg": "^8.22.0",
     "qrcode": "^1.5.4",
+    "sequelize": "^6.37.8",
     "swagger-ui-express": "^5.0.1"
   },
   "devDependencies": {

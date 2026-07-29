@@ -5,7 +5,8 @@ function serializeInvoice(invoice) {
   const raw = invoice && invoice.toJSON ? invoice.toJSON() : invoice;
   const i = view(raw, ['subtotal', 'discount', 'tax', 'total', 'paid', 'balance']);
   i.items = (i.items || []).map((item) => {
-    const line = view(item, ['unitCost', 'tax', 'lineTotal']);
+    const rawItem = item && item.toJSON ? item.toJSON() : item;
+    const line = view(rawItem, ['unitCost', 'tax', 'lineTotal']);
     return { ...line, unitPrice: line.unitCost };
   });
 

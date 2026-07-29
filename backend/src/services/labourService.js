@@ -1,19 +1,20 @@
-const Labour = require('../models/labourModel');
+const { initializeModels } = require('../db/models');
 const ApiError = require('../utils/ApiError');
+const { Labour } = initializeModels();
 
 async function listLabour() {
-  return Labour.find().sort({ createdAt: -1 });
+  return Labour.findAll({ order: [['createdAt', 'DESC']] });
 }
 
 async function getLabourById(id) {
-  const labour = await Labour.findById(id);
+  const labour = await Labour.findByPk(id);
   if (!labour) throw ApiError.notFound('Labour not found');
   return labour;
 }
 
 async function createLabour({ name, phoneNumber }) {
   // Check for duplicate phone number
-  const existing = await Labour.findOne({ phoneNumber });
+  const existing = await Labour.findOne({ where: { phoneNumber } });
   if (existing) throw ApiError.conflict('Labour with this phone number already exists');
 
   const labour = await Labour.create({ name, phoneNumber });
@@ -25,7 +26,7 @@ async function updateLabour(id, { name, phoneNumber }) {
 
   // Check if phone number is being changed and already exists
   if (phoneNumber && phoneNumber !== labour.phoneNumber) {
-    const existing = await Labour.findOne({ phoneNumber });
+    const existing = await Labour.findOne({ where: { phoneNumber } });
     if (existing) throw ApiError.conflict('Labour with this phone number already exists');
     labour.phoneNumber = phoneNumber;
   }
@@ -38,7 +39,7 @@ async function updateLabour(id, { name, phoneNumber }) {
 
 async function deleteLabour(id) {
   const labour = await getLabourById(id);
-  await labour.deleteOne();
+  await labour.destroy();
   return labour;
 }
 

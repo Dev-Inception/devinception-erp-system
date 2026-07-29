@@ -1,10 +1,7 @@
-const mongoose = require('mongoose');
-const Category = require('../models/categoryModel');
-const Brand = require('../models/brandModel');
-const Unit = require('../models/unitModel');
-const Product = require('../models/productModel');
+const { initializeModels } = require('../db/models');
+const { isValidId } = require('../db/id');
 const ApiError = require('../utils/ApiError');
-const { escapeRegex } = require('../utils/query');
+const { Category, Brand, Unit, Product } = initializeModels();
 
 /**
  * The product catalog's classification entities — categories, brands and units
@@ -18,9 +15,9 @@ const KIND_MODEL = { category: Category, brand: Brand, unit: Unit };
 // Everything the catalog screen / product-form dropdowns need, active only.
 async function listCatalog() {
   const [categories, brands, units] = await Promise.all([
-    Category.find({ isActive: true }).sort({ name: 1 }).lean(),
-    Brand.find({ isActive: true }).sort({ name: 1 }).lean(),
-    Unit.find({ isActive: true }).sort({ name: 1 }).lean(),
+    Category.findAll({ where: { isActive: true }, order: [['name', 'ASC']] }),
+    Brand.findAll({ where: { isActive: true }, order: [['name', 'ASC']] }),
+    Unit.findAll({ where: { isActive: true }, order: [['name', 'ASC']] }),
   ]);
   return { categories, brands, units };
 }
@@ -31,15 +28,23 @@ async function findOrCreateByName(Model, name, extra = {}) {
   const trimmed = String(name || '').trim();
   if (!trimmed) return null;
   const existing = await Model.findOne({
-    name: { $regex: `^${escapeRegex(trimmed)}$`, $options: 'i' },
+    where: Model.sequelize.where(
+      Model.sequelize.fn('LOWER', Model.sequelize.col('name')),
+      trimmed.toLowerCase(),
+    ),
   });
   if (existing) return existing;
   try {
     return await Model.create({ name: trimmed, ...extra });
   } catch (err) {
     // Lost a create race against the unique index — fetch the winner.
-    if (err && err.code === 11000) {
-      return Model.findOne({ name: { $regex: `^${escapeRegex(trimmed)}$`, $options: 'i' } });
+    if (err && err.name === 'SequelizeUniqueConstraintError') {
+      return Model.findOne({
+        where: Model.sequelize.where(
+          Model.sequelize.fn('LOWER', Model.sequelize.col('name')),
+          trimmed.toLowerCase(),
+        ),
+      });
     }
     throw err;
   }
@@ -52,10 +57,10 @@ async function findOrCreateByName(Model, name, extra = {}) {
  */
 async function resolveRef(Model, id, name, extra) {
   if (id !== undefined && id !== null && id !== '') {
-    if (!mongoose.isValidObjectId(id)) {
+    if (!isValidId(id)) {
       throw ApiError.badRequest(`Invalid ${Model.modelName.toLowerCase()} id`);
     }
-    const doc = await Model.findById(id);
+    const doc = await Model.findByPk(id);
     if (!doc) throw ApiError.notFound(`${Model.modelName} not found`);
     return doc._id;
   }
@@ -104,11 +109,11 @@ function modelFor(kind) {
 }
 
 async function listEntries(kind) {
-  return modelFor(kind).find({ isActive: true }).sort({ name: 1 }).lean();
+  return modelFor(kind).findAll({ where: { isActive: true }, order: [['name', 'ASC']] });
 }
 
 async function getEntryById(kind, id) {
-  const entry = await modelFor(kind).findById(id);
+  const entry = await modelFor(kind).findByPk(id);
   if (!entry) throw ApiError.notFound(`${kind === 'unit' ? 'Unit' : 'Category'} not found`);
   return entry;
 }
@@ -129,13 +134,13 @@ async function updateEntry(kind, id, data = {}) {
 
 async function deleteEntry(kind, id) {
   const entry = await getEntryById(kind, id);
-  const productField = kind === 'unit' ? 'unit' : 'category';
-  if (await Product.exists({ [productField]: entry._id })) {
+  const productField = kind;
+  if (await Product.count({ where: { [productField]: entry.id } })) {
     throw ApiError.badRequest(
       `${kind === 'unit' ? 'Unit' : 'Category'} is used by products and cannot be deleted`,
     );
   }
-  await entry.deleteOne();
+  await entry.destroy();
 }
 
 module.exports = {

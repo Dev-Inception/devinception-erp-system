@@ -15,13 +15,14 @@ import {
 } from '@/components/ui/dialog';
 import { SignaturePad } from '@/components/signature-pad';
 import { api } from '@/lib/api';
+import { formatQuantity } from '@/lib/utils';
 
 interface GatePassItem {
   productId: string;
   name: string;
   sku?: string;
-  quantity: number;
-  loadedQuantity?: number;
+  quantity: number | string;
+  loadedQuantity?: number | string;
   loadConfirmed?: boolean;
 }
 
@@ -66,7 +67,13 @@ function EditGatePass({ gatePass, onClose }: { gatePass: GatePass | null; onClos
       vehicleNumber: gatePass.driver?.vehicleNumber ?? '',
     });
     setLoadNotes(gatePass.loadNotes ?? '');
-    setItems(gatePass.items);
+    setItems(
+      gatePass.items.map((item) => ({
+        ...item,
+        quantity: Number(item.quantity),
+        loadedQuantity: item.loadedQuantity === undefined ? undefined : Number(item.loadedQuantity),
+      })),
+    );
     setSignatureData(null);
   }, [gatePass]);
 
@@ -139,18 +146,21 @@ function EditGatePass({ gatePass, onClose }: { gatePass: GatePass | null; onClos
                   className="grid grid-cols-[1fr_6rem_auto] items-center gap-2 rounded-md border p-2 text-sm"
                 >
                   <span>
-                    {item.name} (gate qty {item.quantity})
+                    {item.name} (gate qty {formatQuantity(item.quantity)})
                   </span>
                   <Input
                     type="number"
-                    step="any"
+                    step="1"
                     min="0"
                     value={item.loadedQuantity ?? ''}
                     onChange={(event) =>
                       setItems((current) =>
                         current.map((value, itemIndex) =>
                           itemIndex === index
-                            ? { ...value, loadedQuantity: Number(event.target.value) }
+                            ? {
+                                ...value,
+                                loadedQuantity: Math.max(0, Math.trunc(Number(event.target.value))),
+                              }
                             : value,
                         ),
                       )
@@ -278,7 +288,7 @@ export function GatePassesPage() {
                 <td className="px-4 py-3">
                   {gatePass.items.map((item) => (
                     <div key={item.productId}>
-                      {item.name} × {item.quantity}
+                      {item.name} × {formatQuantity(item.quantity)}
                     </div>
                   ))}
                 </td>

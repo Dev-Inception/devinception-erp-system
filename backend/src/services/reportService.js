@@ -1,12 +1,13 @@
-const Sale = require('../models/saleModel');
-const GoodsPurchase = require('../models/goodsPurchaseModel');
-const Warehouse = require('../models/warehouseModel');
+const { Op } = require('sequelize');
+const { initializeModels } = require('../db/models');
 const ApiError = require('../utils/ApiError');
 const { ACCOUNT, REF } = require('../utils/finance');
 const journalService = require('./journalService');
 const stockService = require('./stockService');
 const { parseReportDate } = require('../utils/reportDate');
 const { normalizeQuantity } = require('../utils/quantity');
+const { Sale, SaleItem, GoodsPurchase, GoodsPurchaseItem, Warehouse, Customer, Vendor } =
+  initializeModels();
 
 /**
  * Reporting: date-range aggregations over transactional data and the ledger.
@@ -44,13 +45,13 @@ function normalizeRange({ from, to }, required = true) {
 
 function requireRange(params) {
   const range = normalizeRange(params);
-  return { date: { $gte: range.from, $lte: range.to } };
+  return { date: { [Op.gte]: range.from, [Op.lte]: range.to } };
 }
 
 function warehouseInfo(warehouse) {
   if (!warehouse) return null;
   return {
-    id: String(warehouse._id),
+    id: String(warehouse._id || warehouse.id),
     name: warehouse.name,
     location: warehouse.location || '',
     address: warehouse.address || '',
@@ -61,13 +62,26 @@ function warehouseInfo(warehouse) {
 // Sales report: Sale is the sole sales source. Purchase invoices are backed by
 // GoodsPurchase and never participate in revenue reporting.
 async function salesReport({ from, to, warehouse }) {
-  const filter = requireRange({ from, to });
-  if (warehouse) filter.warehouse = warehouse;
-  const sales = await Sale.find(filter)
-    .populate('customer', 'name phone email address')
-    .populate('warehouse', 'name location address isDefault')
-    .sort({ date: -1, createdAt: -1 })
-    .lean();
+  const where = requireRange({ from, to });
+  if (warehouse) where.warehouse = warehouse;
+  const saleModels = await Sale.findAll({
+    where,
+    include: [
+      { model: SaleItem, as: 'items' },
+      { model: Customer, as: 'customerInfo' },
+      { model: Warehouse, as: 'warehouseInfo' },
+    ],
+    order: [
+      ['date', 'DESC'],
+      ['createdAt', 'DESC'],
+    ],
+  });
+  const sales = saleModels.map((model) => {
+    const value = model.toJSON();
+    value.customer = value.customerInfo;
+    value.warehouse = value.warehouseInfo;
+    return value;
+  });
 
   const saleRows = sales.map((s) => {
     const wh = warehouseInfo(s.warehouse);
@@ -174,13 +188,26 @@ async function salesReport({ from, to, warehouse }) {
 
 // Purchases report: one row per purchase + total/paid/balance summary.
 async function purchasesReport({ from, to, warehouse }) {
-  const filter = requireRange({ from, to });
-  if (warehouse) filter.warehouse = warehouse;
-  const purchases = await GoodsPurchase.find(filter)
-    .populate('vendor', 'name phone email ntn address')
-    .populate('warehouse', 'name location address isDefault')
-    .sort({ date: -1, createdAt: -1 })
-    .lean();
+  const where = requireRange({ from, to });
+  if (warehouse) where.warehouse = warehouse;
+  const purchaseModels = await GoodsPurchase.findAll({
+    where,
+    include: [
+      { model: GoodsPurchaseItem, as: 'items' },
+      { model: Vendor, as: 'vendorInfo' },
+      { model: Warehouse, as: 'warehouseInfo' },
+    ],
+    order: [
+      ['date', 'DESC'],
+      ['createdAt', 'DESC'],
+    ],
+  });
+  const purchases = purchaseModels.map((model) => {
+    const value = model.toJSON();
+    value.vendor = value.vendorInfo;
+    value.warehouse = value.warehouseInfo;
+    return value;
+  });
 
   const rows = purchases.map((p) => {
     const wh = warehouseInfo(p.warehouse);
@@ -325,8 +352,12 @@ async function profitAndLossReport({ from, to, warehouse }) {
   const expenseRange = normalized ? { ...normalized } : {};
   if (warehouse) {
     const sourceFilter = { warehouse };
-    if (normalized) sourceFilter.date = { $gte: normalized.from, $lte: normalized.to };
-    const saleIds = await Sale.find(sourceFilter).distinct('_id');
+    if (normalized) {
+      sourceFilter.date = { [Op.gte]: normalized.from, [Op.lte]: normalized.to };
+    }
+    const saleIds = (
+      await Sale.findAll({ attributes: ['id'], where: sourceFilter, raw: true })
+    ).map((sale) => sale.id);
     range.refType = REF.SALE;
     range.refIds = saleIds;
     expenseRange.warehouse = warehouse;
@@ -385,10 +416,10 @@ async function runReport(type, params) {
   const fn = REPORTS[type];
   let warehouse = null;
   if (params.warehouse) {
-    warehouse = await Warehouse.findById(params.warehouse).lean();
+    warehouse = await Warehouse.findByPk(params.warehouse);
     if (!warehouse) throw ApiError.notFound('Warehouse not found');
   }
-  const report = await fn({ ...params, warehouse: warehouse ? warehouse._id : undefined });
+  const report = await fn({ ...params, warehouse: warehouse ? warehouse.id : undefined });
   return {
     ...report,
     meta: {

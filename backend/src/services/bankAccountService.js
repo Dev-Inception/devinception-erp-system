@@ -1,8 +1,9 @@
-const BankAccount = require('../models/bankAccountModel');
+const { initializeModels } = require('../db/models');
 const ApiError = require('../utils/ApiError');
 const { toPaisa } = require('../utils/money');
 const { ACCOUNT, REF } = require('../utils/finance');
 const journalService = require('./journalService');
+const { BankAccount } = initializeModels();
 
 /**
  * Bank account management. Balances are derived from the BANK journal lines
@@ -11,18 +12,18 @@ const journalService = require('./journalService');
  */
 
 async function listBankAccounts() {
-  const accounts = await BankAccount.find().sort({ createdAt: 1 }).lean();
+  const accounts = await BankAccount.findAll({ order: [['createdAt', 'ASC']] });
   // Attach each account's derived balance (paisa).
   return Promise.all(
     accounts.map(async (a) => ({
-      ...a,
-      balance: await journalService.accountBalance(ACCOUNT.BANK, a._id),
+      ...a.toJSON(),
+      balance: await journalService.accountBalance(ACCOUNT.BANK, a.id),
     })),
   );
 }
 
 async function getBankAccountById(id) {
-  const account = await BankAccount.findById(id);
+  const account = await BankAccount.findByPk(id);
   if (!account) throw ApiError.notFound('Bank account not found');
   return account;
 }
@@ -61,7 +62,7 @@ async function deleteBankAccount(id) {
   const balance = await journalService.accountBalance(ACCOUNT.BANK, account._id);
   if (balance !== 0)
     throw ApiError.badRequest('Bank account has a non-zero balance and cannot be deleted');
-  await account.deleteOne();
+  await account.destroy();
 }
 
 module.exports = {

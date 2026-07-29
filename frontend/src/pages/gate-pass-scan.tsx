@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { SignaturePad } from '@/components/signature-pad';
 import { api } from '@/lib/api';
+import { formatQuantity } from '@/lib/utils';
 import { useAuthStore } from '@/store/auth';
 
 interface GatePassItem {
@@ -15,8 +16,8 @@ interface GatePassItem {
   name: string;
   sku?: string;
   barcode?: string;
-  quantity: number;
-  loadedQuantity?: number;
+  quantity: number | string;
+  loadedQuantity?: number | string;
   loadConfirmed?: boolean;
 }
 
@@ -79,7 +80,7 @@ export function GatePassScanPage() {
     setItems(
       data.items.map((item) => ({
         productId: item.productId,
-        loadedQuantity: item.loadedQuantity ?? item.quantity,
+        loadedQuantity: Number(item.loadedQuantity ?? item.quantity),
         loadConfirmed: item.loadConfirmed ?? false,
       })),
     );
@@ -178,9 +179,15 @@ export function GatePassScanPage() {
                           <div className="text-xs text-muted-foreground">{item.sku}</div>
                         )}
                       </td>
-                      <td className="px-3 py-2 text-right tabular-nums">{item.quantity}</td>
+                      <td className="px-3 py-2 text-right tabular-nums">
+                        {formatQuantity(item.quantity)}
+                      </td>
                       {data.status === 'PROCESSED' && (
-                        <td className="px-3 py-2 text-right tabular-nums">{item.loadedQuantity}</td>
+                        <td className="px-3 py-2 text-right tabular-nums">
+                          {item.loadedQuantity === undefined
+                            ? '—'
+                            : formatQuantity(item.loadedQuantity)}
+                        </td>
                       )}
                     </tr>
                   ))}
@@ -265,11 +272,13 @@ export function GatePassScanPage() {
                       <Input
                         type="number"
                         min="0"
-                        step="any"
+                        step="1"
                         aria-label={`Loaded quantity for ${item.name}`}
                         value={items[index]?.loadedQuantity ?? ''}
                         onChange={(event) =>
-                          updateItem(index, { loadedQuantity: Number(event.target.value) })
+                          updateItem(index, {
+                            loadedQuantity: Math.max(0, Math.trunc(Number(event.target.value))),
+                          })
                         }
                       />
                       <input

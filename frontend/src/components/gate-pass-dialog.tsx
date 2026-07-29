@@ -11,6 +11,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { api } from '@/lib/api';
 import { buildGatePassScanQr } from '@/lib/gatePass';
+import { formatQuantity } from '@/lib/utils';
 
 interface GatePassDetail {
   id: string;
@@ -19,7 +20,11 @@ interface GatePassDetail {
   direction?: 'IN' | 'OUT';
   saleNumber: string;
   saleDate: string;
-  items: { name: string; quantity: number; loadedQuantity?: number }[];
+  items: {
+    name: string;
+    quantity: number | string;
+    loadedQuantity?: number | string;
+  }[];
   status: 'PENDING' | 'PROCESSED' | 'CANCELLED';
   processedAt?: string;
 }
@@ -118,7 +123,7 @@ export function GatePassDialog({
               {data.items.map((it, idx) => (
                 <div key={idx} className="flex justify-between">
                   <span>{it.name}</span>
-                  <span className="tabular-nums">Qty {it.quantity}</span>
+                  <span className="tabular-nums">Qty {formatQuantity(it.quantity)}</span>
                 </div>
               ))}
             </div>
