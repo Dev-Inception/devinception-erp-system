@@ -1,8 +1,6 @@
 const crypto = require('crypto');
 
-// Keep the existing 24-character hexadecimal ID contract. Existing Mongo
-// ObjectIds can be imported unchanged, while new PostgreSQL rows receive IDs
-// with the same externally-visible format.
+// Public PostgreSQL records use compact, URL-safe 24-character hexadecimal IDs.
 function createId() {
   return crypto.randomBytes(12).toString('hex');
 }

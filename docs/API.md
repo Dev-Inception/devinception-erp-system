@@ -80,7 +80,7 @@ same `inventory:read` / `inventory:manage` permissions.
 
 ```json
 {
-  "customer": "optional ObjectId (omit for walk-in)",
+  "customer": "optional customer ID (omit for walk-in)",
   "warehouse": "optional (defaults to the default warehouse)",
   "discount": 0,
   "taxPercent": 0,
@@ -89,7 +89,7 @@ same `inventory:read` / `inventory:manage` permissions.
     "method": "CASH | CARD | BANK_TRANSFER | ONLINE | MIXED | CREDIT",
     "cash": 700,
     "online": 0,
-    "bankAccount": "ObjectId (required when money lands online)",
+    "bankAccount": "bank account ID (required when money lands online)",
     "receiptRef": "transfer proof reference (required for online portion)"
   }
 }
@@ -122,7 +122,7 @@ defaults to the product's catalog `salePrice` when omitted.
   "discount": 0,
   "paid": 5000,
   "paymentMethod": "CASH | BANK_TRANSFER | ...",
-  "bankAccount": "optional ObjectId",
+  "bankAccount": "optional bank account ID",
   "notes": "optional"
 }
 ```

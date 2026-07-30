@@ -1,6 +1,8 @@
 const { body, param } = require('express-validator');
 
-const idParam = param('id').isMongoId().withMessage('Invalid labour id');
+const idParam = param('id')
+  .matches(/^[a-f\d]{24}$/i)
+  .withMessage('Invalid labour id');
 
 const createLabourValidator = [
   body('name')

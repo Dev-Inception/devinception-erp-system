@@ -1,7 +1,9 @@
 const { body, param } = require('express-validator');
 const { PERMISSION_VALUES } = require('../utils/permissions');
 
-const idParam = param('id').isMongoId().withMessage('Invalid role id');
+const idParam = param('id')
+  .matches(/^[a-f\d]{24}$/i)
+  .withMessage('Invalid role id');
 
 const permissionsRule = (field) =>
   body(field)

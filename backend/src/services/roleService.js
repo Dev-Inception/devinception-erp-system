@@ -1,7 +1,7 @@
 const { initializeModels } = require('../db/models');
 const ApiError = require('../utils/ApiError');
 const { ROLES } = require('../utils/constants');
-const { PERMISSIONS, PERMISSION_VALUES, WILDCARD } = require('../utils/permissions');
+const { PERMISSION_VALUES, WILDCARD } = require('../utils/permissions');
 const { Role, User } = initializeModels();
 
 /**
@@ -10,101 +10,6 @@ const { Role, User } = initializeModels();
  * whenever a role is mutated; in a multi-process deployment each process
  * simply rebuilds its own cache on the next request.
  */
-
-// The five built-in roles. Permissions here preserve the original
-// hard-coded authorization: managers can read users, admins manage them,
-// super_admin can do everything (including role management) via wildcard.
-const SYSTEM_ROLES = [
-  {
-    name: ROLES.CASHIER,
-    description: 'Point-of-sale operator',
-    // The POS needs to look up/add walk-in customers, read stock, and ring sales.
-    permissions: [
-      PERMISSIONS.CUSTOMERS_READ,
-      PERMISSIONS.CUSTOMERS_CREATE,
-      PERMISSIONS.INVENTORY_READ,
-      PERMISSIONS.SALES_READ,
-      PERMISSIONS.SALES_CREATE,
-    ],
-  },
-  {
-    name: ROLES.ACCOUNTANT,
-    description: 'Finance / reporting',
-    // Read-only over partners, plus full finance, ledger and report access.
-    permissions: [
-      PERMISSIONS.VENDORS_READ,
-      PERMISSIONS.CUSTOMERS_READ,
-      PERMISSIONS.INVENTORY_READ,
-      PERMISSIONS.PURCHASES_READ,
-      PERMISSIONS.SALES_READ,
-      PERMISSIONS.INVOICES_READ,
-      PERMISSIONS.FINANCE_READ,
-      PERMISSIONS.FINANCE_MANAGE,
-      PERMISSIONS.REPORTS_READ,
-    ],
-  },
-  {
-    name: ROLES.MANAGER,
-    description: 'Can view staff and run day-to-day operations',
-    permissions: [
-      PERMISSIONS.USERS_READ,
-      PERMISSIONS.VENDORS_READ,
-      PERMISSIONS.VENDORS_CREATE,
-      PERMISSIONS.VENDORS_UPDATE,
-      PERMISSIONS.CUSTOMERS_READ,
-      PERMISSIONS.CUSTOMERS_CREATE,
-      PERMISSIONS.CUSTOMERS_UPDATE,
-      PERMISSIONS.INVENTORY_READ,
-      PERMISSIONS.INVENTORY_MANAGE,
-      PERMISSIONS.PURCHASES_READ,
-      PERMISSIONS.PURCHASES_CREATE,
-      PERMISSIONS.SALES_READ,
-      PERMISSIONS.SALES_CREATE,
-      PERMISSIONS.INVOICES_READ,
-      PERMISSIONS.INVOICES_CREATE,
-      PERMISSIONS.FINANCE_READ,
-      PERMISSIONS.REPORTS_READ,
-    ],
-  },
-  {
-    name: ROLES.ADMIN,
-    description: 'Manages staff accounts, operations and finance',
-    permissions: [
-      PERMISSIONS.USERS_READ,
-      PERMISSIONS.USERS_CREATE,
-      PERMISSIONS.USERS_UPDATE,
-      PERMISSIONS.USERS_UPDATE_ROLE,
-      PERMISSIONS.USERS_SET_ACTIVE,
-      PERMISSIONS.USERS_DELETE,
-      PERMISSIONS.VENDORS_READ,
-      PERMISSIONS.VENDORS_CREATE,
-      PERMISSIONS.VENDORS_UPDATE,
-      PERMISSIONS.VENDORS_DELETE,
-      PERMISSIONS.CUSTOMERS_READ,
-      PERMISSIONS.CUSTOMERS_CREATE,
-      PERMISSIONS.CUSTOMERS_UPDATE,
-      PERMISSIONS.CUSTOMERS_DELETE,
-      PERMISSIONS.INVENTORY_READ,
-      PERMISSIONS.INVENTORY_MANAGE,
-      PERMISSIONS.PURCHASES_READ,
-      PERMISSIONS.PURCHASES_CREATE,
-      PERMISSIONS.SALES_READ,
-      PERMISSIONS.SALES_CREATE,
-      PERMISSIONS.INVOICES_READ,
-      PERMISSIONS.INVOICES_CREATE,
-      PERMISSIONS.FINANCE_READ,
-      PERMISSIONS.FINANCE_MANAGE,
-      PERMISSIONS.REPORTS_READ,
-      PERMISSIONS.SETTINGS_READ,
-      PERMISSIONS.SETTINGS_MANAGE,
-    ],
-  },
-  {
-    name: ROLES.SUPER_ADMIN,
-    description: 'Full access, including role management',
-    permissions: [WILDCARD],
-  },
-];
 
 let cache = null; // Map<roleName, Set<permission>>
 
@@ -123,18 +28,6 @@ function invalidateCache() {
 async function getPermissions(roleName) {
   const c = await getCache();
   return c.get(roleName) || new Set();
-}
-
-// Idempotently create any missing built-in roles. Existing system roles are
-// left untouched so a super admin's permission tweaks survive re-seeding.
-async function ensureSystemRoles() {
-  for (const def of SYSTEM_ROLES) {
-    await Role.findOrCreate({
-      where: { name: def.name },
-      defaults: { ...def, isSystem: true },
-    });
-  }
-  invalidateCache();
 }
 
 function validatePermissions(permissions) {
@@ -215,8 +108,6 @@ async function deleteRole(id) {
 }
 
 module.exports = {
-  SYSTEM_ROLES,
-  ensureSystemRoles,
   getPermissions,
   invalidateCache,
   listRoles,

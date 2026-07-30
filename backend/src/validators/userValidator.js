@@ -1,6 +1,8 @@
 const { body, param } = require('express-validator');
 
-const idParam = param('id').isMongoId().withMessage('Invalid user id');
+const idParam = param('id')
+  .matches(/^[a-f\d]{24}$/i)
+  .withMessage('Invalid user id');
 
 // Role names are dynamic (stored in the Role collection), so we only check
 // shape here; the service verifies the role actually exists.

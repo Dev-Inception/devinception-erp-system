@@ -21,8 +21,6 @@ const env = {
   nodeEnv: process.env.NODE_ENV || 'development',
   clientUrl: process.env.CLIENT_URL || 'http://localhost:3000',
 
-  mongoUri: process.env.MONGO_URI,
-  // MONGO_URI is optional and used only by the one-time legacy data importer.
   databaseUrl: process.env.DATABASE_URL,
   databaseSsl: process.env.DATABASE_SSL !== 'false',
 

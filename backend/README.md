@@ -10,22 +10,16 @@ accounting, reporting, PDFs, and gate passes.
 cp .env.example .env
 npm install
 npm run db:migrate
-npm run seed:roles
-npm run seed:superadmin
 npm run dev
 ```
 
-`DATABASE_URL` is required. `DATABASE_SSL=false` is typical locally. `npm
-start` applies pending migrations before listening.
+`DATABASE_URL`, `SUPER_ADMIN_EMAIL`, and `SUPER_ADMIN_PASSWORD` are required.
+`DATABASE_SSL=false` is typical locally. Migrations also bootstrap system
+roles, the starter catalog, and the first super admin. Each migration runs in
+its own PostgreSQL transaction. `npm start` applies pending migrations before
+listening.
 
-## One-time MongoDB import
-
-For an existing installation, configure `MONGO_URI` and import into an empty,
-migrated PostgreSQL database:
-
-```bash
-npm run db:import:mongo
-```
-
-The legacy `src/models` directory and Mongoose dependency are used only by this
-import command. Live requests use `src/db/models`.
+All persistence uses the normalized Sequelize models in `src/db/models`.
+Every PostgreSQL table has a separate `*Model.js` schema file; `index.js`
+provides the model registry and `associations.js` contains cross-table
+relationships.

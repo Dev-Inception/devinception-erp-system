@@ -1,10 +1,14 @@
 const { body, param } = require('express-validator');
 const { PAYMENT_METHODS } = require('../utils/finance');
 
-const idParam = param('id').isMongoId().withMessage('Invalid invoice id');
+const idParam = param('id')
+  .matches(/^[a-f\d]{24}$/i)
+  .withMessage('Invalid invoice id');
 
 const createInvoiceValidator = [
-  body('purchaseId').isMongoId().withMessage('A valid goods purchase is required'),
+  body('purchaseId')
+    .matches(/^[a-f\d]{24}$/i)
+    .withMessage('A valid goods purchase is required'),
 ];
 
 const payInvoiceValidator = [
@@ -14,7 +18,10 @@ const payInvoiceValidator = [
     .optional({ values: 'falsy' })
     .isIn(PAYMENT_METHODS)
     .withMessage('Invalid payment method'),
-  body('bankAccount').optional({ values: 'falsy' }).isMongoId().withMessage('Invalid bank account'),
+  body('bankAccount')
+    .optional({ values: 'falsy' })
+    .matches(/^[a-f\d]{24}$/i)
+    .withMessage('Invalid bank account'),
   body('date').optional({ values: 'falsy' }).isISO8601().withMessage('Invalid date'),
 ];
 

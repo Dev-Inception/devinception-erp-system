@@ -1,14 +1,23 @@
 const { body, param } = require('express-validator');
 const { PAYMENT_METHODS } = require('../utils/finance');
 
-const idParam = param('id').isMongoId().withMessage('Invalid purchase id');
+const idParam = param('id')
+  .matches(/^[a-f\d]{24}$/i)
+  .withMessage('Invalid purchase id');
 
 const createPurchaseValidator = [
-  body('vendor').isMongoId().withMessage('A valid vendor is required'),
-  body('warehouse').optional({ values: 'falsy' }).isMongoId().withMessage('Invalid warehouse'),
+  body('vendor')
+    .matches(/^[a-f\d]{24}$/i)
+    .withMessage('A valid vendor is required'),
+  body('warehouse')
+    .optional({ values: 'falsy' })
+    .matches(/^[a-f\d]{24}$/i)
+    .withMessage('Invalid warehouse'),
   body('date').optional({ values: 'falsy' }).isISO8601().withMessage('Invalid date'),
   body('items').isArray({ min: 1 }).withMessage('At least one item is required'),
-  body('items.*.product').isMongoId().withMessage('Each item needs a valid product'),
+  body('items.*.product')
+    .matches(/^[a-f\d]{24}$/i)
+    .withMessage('Each item needs a valid product'),
   body('items.*.quantity')
     .isInt({ gt: 0 })
     .toInt()
@@ -33,7 +42,10 @@ const createPurchaseValidator = [
     .optional({ values: 'falsy' })
     .isIn(PAYMENT_METHODS)
     .withMessage('Invalid payment method'),
-  body('bankAccount').optional({ values: 'falsy' }).isMongoId().withMessage('Invalid bank account'),
+  body('bankAccount')
+    .optional({ values: 'falsy' })
+    .matches(/^[a-f\d]{24}$/i)
+    .withMessage('Invalid bank account'),
   body('notes').optional({ values: 'falsy' }).trim().isLength({ max: 300 }),
 ];
 

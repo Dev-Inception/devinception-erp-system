@@ -1,6 +1,8 @@
 const { body, param } = require('express-validator');
 
-const idParam = param('id').isMongoId().withMessage('Invalid customer id');
+const idParam = param('id')
+  .matches(/^[a-f\d]{24}$/i)
+  .withMessage('Invalid customer id');
 
 // Optional fields shared by create and update.
 const optionalFields = [

@@ -4,7 +4,7 @@
  * checks in routes referring to stable constants instead of magic strings.
  *
  * A role whose permission list contains WILDCARD ("*") is treated as having
- * every permission, present and future. Only the seeded super_admin role
+ * every permission, present and future. Only the migration-managed super_admin role
  * gets the wildcard; custom roles must enumerate explicit permissions.
  */
 const WILDCARD = '*';
