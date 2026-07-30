@@ -26,7 +26,7 @@ async function settlementAccount(method, bankAccountId) {
 
 // Refuse to move more money out of a cash/bank account than it holds, so the
 // drawer or bank balance can't be driven negative. (No DB transaction here —
-// matches the rest of the standalone-Mongo flows — but it stops the obvious
+// matches the rest of the standalone transaction flows — but it stops the obvious
 // overdraft.)
 async function assertSufficientFunds(account, ref, amount) {
   const balance = await journalService.accountBalance(account, ref);

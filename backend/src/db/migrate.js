@@ -4,13 +4,16 @@ const migrations = require('./migrations');
 
 const META_TABLE = 'schema_migrations';
 
-async function ensureMetaTable(db) {
-  await db.query(`
-    CREATE TABLE IF NOT EXISTS ${META_TABLE} (
-      name VARCHAR(255) PRIMARY KEY,
-      applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )
-  `);
+async function ensureMetaTable(db, transaction) {
+  await db.query(
+    `
+      CREATE TABLE IF NOT EXISTS ${META_TABLE} (
+        name VARCHAR(255) PRIMARY KEY,
+        applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `,
+    { transaction },
+  );
 }
 
 async function appliedMigrationNames(db) {
@@ -23,7 +26,7 @@ async function appliedMigrationNames(db) {
 async function run() {
   const db = getPostgres();
   await db.authenticate();
-  await ensureMetaTable(db);
+  await db.transaction((transaction) => ensureMetaTable(db, transaction));
 
   const applied = await appliedMigrationNames(db);
   if (process.argv.includes('--status')) {

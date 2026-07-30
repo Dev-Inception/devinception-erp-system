@@ -54,13 +54,13 @@ export default tseslint.config(
 
   // Backend + electron — Node globals.
   {
-    files: ['backend/**/*.ts', 'electron/**/*.{ts,js}'],
+    files: ['backend/**/*.{ts,js}', 'electron/**/*.{ts,js}'],
     languageOptions: { globals: { ...globals.node } },
   },
 
-  // Electron main/preload are CommonJS — require() is the correct pattern there.
+  // Backend and Electron main/preload are CommonJS.
   {
-    files: ['electron/**/*.js'],
+    files: ['backend/**/*.js', 'electron/**/*.js'],
     rules: { '@typescript-eslint/no-require-imports': 'off' },
   },
 

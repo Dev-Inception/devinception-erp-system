@@ -1,6 +1,8 @@
 const { body, param } = require('express-validator');
 
-const idParam = param('id').isMongoId().withMessage('Invalid warehouse id');
+const idParam = param('id')
+  .matches(/^[a-f\d]{24}$/i)
+  .withMessage('Invalid warehouse id');
 
 const createWarehouseValidator = [
   body('name').trim().notEmpty().withMessage('Name is required').isLength({ max: 120 }),

@@ -13,7 +13,10 @@ const reportRequestValidator = [
     .optional({ values: 'falsy' })
     .matches(DATE_PATTERN)
     .withMessage("'to' must use YYYY-MM-DD"),
-  query('warehouse').optional({ values: 'falsy' }).isMongoId().withMessage('Invalid warehouse'),
+  query('warehouse')
+    .optional({ values: 'falsy' })
+    .matches(/^[a-f\d]{24}$/i)
+    .withMessage('Invalid warehouse'),
 ];
 
 module.exports = { REPORT_TYPES, reportRequestValidator };

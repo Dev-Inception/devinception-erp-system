@@ -25,7 +25,11 @@ const createUnitValidator = [
   }),
 ];
 
-const idParamValidator = [param('id').isMongoId().withMessage('Invalid catalog id')];
+const idParamValidator = [
+  param('id')
+    .matches(/^[a-f\d]{24}$/i)
+    .withMessage('Invalid catalog id'),
+];
 
 const updateCategoryValidator = [
   ...idParamValidator,

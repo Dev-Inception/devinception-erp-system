@@ -82,6 +82,7 @@ or are partially broken until the backend adds them.
 ## Setup (needed for the frontend to reach the backend)
 
 - `backend/.env`: `CLIENT_URL=http://localhost:5173` (CORS for the Vite app), `PORT=5050`,
-  Mongo running. _(Already configured locally.)_
-- Seed before first login: `npm run seed:roles && npm run seed:superadmin`. Login uses the
-  seeded `SUPER_ADMIN_EMAIL` / `SUPER_ADMIN_PASSWORD` (not the login form's demo hint).
+  PostgreSQL running. _(Already configured locally.)_
+- Run `npm run db:migrate` before first login; the transactional bootstrap migration
+  creates the roles and super admin. Login uses the
+  configured `SUPER_ADMIN_EMAIL` / `SUPER_ADMIN_PASSWORD` (not the login form's demo hint).

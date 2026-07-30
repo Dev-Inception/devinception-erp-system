@@ -52,7 +52,7 @@
 ## 3. Key design decisions
 
 - **Plain Express + a service layer** — thin routers delegate to `src/services`; controllers stay small via an `asyncHandler` wrapper and a central error middleware that normalizes validation, unique, and foreign-key errors.
-- **Permission-based RBAC, roles as data.** Routes guard on fine-grained permissions (`requirePermission(PERMISSIONS.SALES_CREATE)`), not role names. The five built-in roles (`cashier → super_admin`) are seeded `Role` documents; a super admin can create custom roles from the fixed permission catalog. `super_admin` holds the `"*"` wildcard and passes every check.
+- **Permission-based RBAC, roles as data.** Routes guard on fine-grained permissions (`requirePermission(PERMISSIONS.SALES_CREATE)`), not role names. The five built-in roles (`cashier → super_admin`) are migration-managed PostgreSQL rows; a super admin can create custom roles from the fixed permission catalog. `super_admin` holds the `"*"` wildcard and passes every check.
 - **Stock = append-only `StockMovement` + current `StockLevel`.** PostgreSQL row locks serialize concurrent changes to each product/warehouse balance and prevent overselling.
 - **Double-entry ledger.** Normalized journal lines are protected by a deferred PostgreSQL constraint that requires balanced entries at commit.
 - **Gapless document numbers** use atomic PostgreSQL upserts scoped per year.

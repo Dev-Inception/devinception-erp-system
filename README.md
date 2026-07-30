@@ -70,15 +70,16 @@ npm install                              # installs all workspaces
 cp backend/.env.example backend/.env     # then edit DATABASE_URL, JWT secrets, SMTP, super admin
 ```
 
-### 3. Migrate and seed
+### 3. Migrate
 
 ```bash
 npm run db:migrate
-npm run seed:roles      -w backend       # create system roles + permissions
-npm run seed:superadmin -w backend       # create the super admin from SUPER_ADMIN_* env vars
 ```
 
-`npm start` also applies pending PostgreSQL migrations before starting the API.
+Migrations create the schema and bootstrap the system roles, starter catalog,
+and super admin from the `SUPER_ADMIN_*` environment variables. Each migration
+is committed in its own PostgreSQL transaction. `npm start` also applies
+pending migrations before starting the API.
 
 ### 4. Run
 
@@ -106,7 +107,7 @@ The system defines five roles (lowest → highest authority):
 | Admin       | `admin`       |
 | Super Admin | `super_admin` |
 
-The `seed:superadmin` script creates the initial account from your `.env`
+The bootstrap data migration creates the initial account from your `.env`
 (`SUPER_ADMIN_EMAIL` / `SUPER_ADMIN_PASSWORD`, defaults `superadmin@devinception.com`
 / `ChangeMe123!`). Change these before deploying. All other users are created
 through the app once you're logged in.

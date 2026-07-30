@@ -13,7 +13,7 @@ Legend: ✅ done · ◑ backend done, UI still on mock data · 🚧 next · ⬜ 
 ## Phase 0 — Foundation ✅
 
 - [x] Monorepo (npm workspaces), env config + validation, separate frontend/backend.
-- [x] Sequelize models and PostgreSQL migrations; `seed:roles` + `seed:superadmin` scripts.
+- [x] Sequelize models and transactional PostgreSQL schema/data migrations.
 - [x] Express app bootstrap: `helmet`, CORS, `express-validator`, Swagger at `/api/docs`, central error handler.
 - [x] Design system: Tailwind tokens, dark/light, Radix (shadcn-style) primitives, app shell.
 
@@ -21,7 +21,7 @@ Legend: ✅ done · ◑ backend done, UI still on mock data · 🚧 next · ⬜ 
 
 - [x] JWT access/refresh (stateless), **bcrypt** hashing, forgot/reset password.
 - [x] `protect` (JWT) + permission-based `requirePermission` guards; permission catalog; `super_admin` `*` wildcard.
-- [x] Roles as data: five seeded system roles + custom-role CRUD.
+- [x] Roles as data: five migration-managed system roles + custom-role CRUD.
 - [ ] Frontend wired to the real auth API (today: mock login; `refresh()` is a no-op — build the 401-retry interceptor).
 - [ ] User & Role management UI (table + create/edit) — _API ready_.
 - [ ] Refresh-token rotation/revocation; JWT algorithm pinning; audit log.

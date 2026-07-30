@@ -1,14 +1,25 @@
 const { body, param, query } = require('express-validator');
 const { isValidId } = require('../db/id');
 
-const idParam = param('id').isMongoId().withMessage('Invalid product id');
+const idParam = param('id')
+  .matches(/^[a-f\d]{24}$/i)
+  .withMessage('Invalid product id');
 
 const optionalFields = [
   body('barcode').optional({ values: 'falsy' }).trim().isLength({ max: 60 }),
   // Catalog refs by id (preferred) ...
-  body('categoryId').optional({ values: 'falsy' }).isMongoId().withMessage('Invalid category'),
-  body('brandId').optional({ values: 'falsy' }).isMongoId().withMessage('Invalid brand'),
-  body('unitId').optional({ values: 'falsy' }).isMongoId().withMessage('Invalid unit'),
+  body('categoryId')
+    .optional({ values: 'falsy' })
+    .matches(/^[a-f\d]{24}$/i)
+    .withMessage('Invalid category'),
+  body('brandId')
+    .optional({ values: 'falsy' })
+    .matches(/^[a-f\d]{24}$/i)
+    .withMessage('Invalid brand'),
+  body('unitId')
+    .optional({ values: 'falsy' })
+    .matches(/^[a-f\d]{24}$/i)
+    .withMessage('Invalid unit'),
   // ... or by free-text name (find-or-create; also accepts legacy payloads).
   body('category').optional({ values: 'falsy' }).trim().isLength({ max: 80 }),
   body('brand').optional({ values: 'falsy' }).trim().isLength({ max: 80 }),
@@ -65,7 +76,9 @@ const ADJUST_TYPES = ['STOCK_IN', 'STOCK_OUT', 'DAMAGED', 'ADJUSTMENT'];
 // least one is supplied (and resolves the resulting change).
 const adjustStockValidator = [
   idParam,
-  body('warehouse').isMongoId().withMessage('A valid warehouse is required'),
+  body('warehouse')
+    .matches(/^[a-f\d]{24}$/i)
+    .withMessage('A valid warehouse is required'),
   body('type')
     .optional({ values: 'falsy' })
     .isIn(ADJUST_TYPES)
@@ -89,7 +102,10 @@ const adjustStockValidator = [
 
 const stockLookupValidator = [
   idParam,
-  query('warehouse').optional({ values: 'falsy' }).isMongoId().withMessage('Invalid warehouse'),
+  query('warehouse')
+    .optional({ values: 'falsy' })
+    .matches(/^[a-f\d]{24}$/i)
+    .withMessage('Invalid warehouse'),
 ];
 
 const idParamValidator = [idParam];

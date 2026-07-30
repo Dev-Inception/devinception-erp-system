@@ -1,15 +1,28 @@
 const { body, param, query } = require('express-validator');
 
 const gatePassIdParamValidator = [
-  param('gatePassId').isMongoId().withMessage('Invalid gate pass id'),
+  param('gatePassId')
+    .matches(/^[a-f\d]{24}$/i)
+    .withMessage('Invalid gate pass id'),
 ];
 
-const saleParamValidator = [param('saleId').isMongoId().withMessage('Invalid sale id')];
+const saleParamValidator = [
+  param('saleId')
+    .matches(/^[a-f\d]{24}$/i)
+    .withMessage('Invalid sale id'),
+];
 
-const purchaseParamValidator = [param('purchaseId').isMongoId().withMessage('Invalid purchase id')];
+const purchaseParamValidator = [
+  param('purchaseId')
+    .matches(/^[a-f\d]{24}$/i)
+    .withMessage('Invalid purchase id'),
+];
 
 const listGatePassValidator = [
-  query('warehouse').optional({ values: 'falsy' }).isMongoId().withMessage('Invalid warehouse'),
+  query('warehouse')
+    .optional({ values: 'falsy' })
+    .matches(/^[a-f\d]{24}$/i)
+    .withMessage('Invalid warehouse'),
   query('status')
     .optional({ values: 'falsy' })
     .toUpperCase()
@@ -47,7 +60,9 @@ const processingFieldsValidator = [
     .withMessage('Vehicle number is required'),
   body('loadNotes').optional({ values: 'falsy' }).trim().isLength({ max: 1000 }),
   body('items').isArray({ min: 1 }).withMessage('Every loaded item must be submitted'),
-  body('items.*.productId').isMongoId().withMessage('Invalid gate pass product'),
+  body('items.*.productId')
+    .matches(/^[a-f\d]{24}$/i)
+    .withMessage('Invalid gate pass product'),
   body('items.*.loadedQuantity')
     .isInt({ min: 0 })
     .toInt()

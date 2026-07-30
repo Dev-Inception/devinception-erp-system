@@ -1,7 +1,9 @@
 const { body, param } = require('express-validator');
 const { PAYMENT_METHODS } = require('../utils/finance');
 
-const idParam = param('id').isMongoId().withMessage('Invalid id');
+const idParam = param('id')
+  .matches(/^[a-f\d]{24}$/i)
+  .withMessage('Invalid id');
 
 /* Bank accounts */
 const createBankAccountValidator = [
@@ -29,25 +31,35 @@ const updateBankAccountValidator = [
 
 /* Payments */
 const payVendorValidator = [
-  body('vendor').isMongoId().withMessage('A valid vendor is required'),
+  body('vendor')
+    .matches(/^[a-f\d]{24}$/i)
+    .withMessage('A valid vendor is required'),
   body('amount').isFloat({ gt: 0 }).withMessage('Amount must be positive'),
   body('method')
     .optional({ values: 'falsy' })
     .isIn(PAYMENT_METHODS)
     .withMessage('Invalid payment method'),
-  body('bankAccount').optional({ values: 'falsy' }).isMongoId().withMessage('Invalid bank account'),
+  body('bankAccount')
+    .optional({ values: 'falsy' })
+    .matches(/^[a-f\d]{24}$/i)
+    .withMessage('Invalid bank account'),
   body('date').optional({ values: 'falsy' }).isISO8601().withMessage('Invalid date'),
   body('note').optional({ values: 'falsy' }).trim().isLength({ max: 200 }),
 ];
 
 const receiveCustomerValidator = [
-  body('customer').isMongoId().withMessage('A valid customer is required'),
+  body('customer')
+    .matches(/^[a-f\d]{24}$/i)
+    .withMessage('A valid customer is required'),
   body('amount').isFloat({ gt: 0 }).withMessage('Amount must be positive'),
   body('method')
     .optional({ values: 'falsy' })
     .isIn(PAYMENT_METHODS)
     .withMessage('Invalid payment method'),
-  body('bankAccount').optional({ values: 'falsy' }).isMongoId().withMessage('Invalid bank account'),
+  body('bankAccount')
+    .optional({ values: 'falsy' })
+    .matches(/^[a-f\d]{24}$/i)
+    .withMessage('Invalid bank account'),
   body('date').optional({ values: 'falsy' }).isISO8601().withMessage('Invalid date'),
   body('note').optional({ values: 'falsy' }).trim().isLength({ max: 200 }),
 ];
@@ -60,13 +72,19 @@ const cashEntryValidator = [
 ];
 
 const expenseValidator = [
-  body('warehouse').optional({ values: 'falsy' }).isMongoId().withMessage('Invalid warehouse'),
+  body('warehouse')
+    .optional({ values: 'falsy' })
+    .matches(/^[a-f\d]{24}$/i)
+    .withMessage('Invalid warehouse'),
   body('amount').isFloat({ gt: 0 }).withMessage('Amount must be positive'),
   body('method')
     .optional({ values: 'falsy' })
     .isIn(['CASH', 'CARD', 'BANK_TRANSFER', 'ONLINE'])
     .withMessage('Invalid expense payment method'),
-  body('bankAccount').optional({ values: 'falsy' }).isMongoId().withMessage('Invalid bank account'),
+  body('bankAccount')
+    .optional({ values: 'falsy' })
+    .matches(/^[a-f\d]{24}$/i)
+    .withMessage('Invalid bank account'),
   body('date').optional({ values: 'falsy' }).isISO8601().withMessage('Invalid date'),
   body('note').optional({ values: 'falsy' }).trim().isLength({ max: 200 }),
 ];
@@ -74,7 +92,9 @@ const expenseValidator = [
 /* Ledger statement params */
 const statementParamValidator = [
   param('kind').isIn(['customer', 'vendor']).withMessage("kind must be 'customer' or 'vendor'"),
-  param('id').isMongoId().withMessage('Invalid party id'),
+  param('id')
+    .matches(/^[a-f\d]{24}$/i)
+    .withMessage('Invalid party id'),
 ];
 
 const idParamValidator = [idParam];
