@@ -108,6 +108,7 @@ export const MODULES: ModuleDef[] = [
   },
   { key: 'customers', to: '/customers', label: 'Customers', section: 'Partners', icon: Users },
   { key: 'vendors', to: '/vendors', label: 'Vendors', section: 'Partners', icon: Truck },
+  { key: 'roles', to: '/roles', label: 'Roles', section: 'Partners', icon: Users },
   {
     key: 'labour',
     to: '/labour',

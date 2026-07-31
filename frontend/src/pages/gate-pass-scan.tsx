@@ -18,6 +18,7 @@ interface GatePassItem {
   quantity: number;
   loadedQuantity?: number;
   loadConfirmed?: boolean;
+  scannedby?: string;
 }
 
 interface GatePassDetail {
@@ -157,6 +158,7 @@ export function GatePassScanPage() {
                 value={data.saleNumber}
               />
               <Row label="Date" value={new Date(data.saleDate).toLocaleString()} />
+              <Row label="Scaned By" value={new Date(data.saleDate).toLocaleString()} />
             </div>
 
             <div className="overflow-x-auto rounded-lg border">
@@ -164,7 +166,7 @@ export function GatePassScanPage() {
                 <thead>
                   <tr className="border-b bg-muted/50 text-left text-xs uppercase tracking-wide text-muted-foreground">
                     <th className="px-3 py-2 font-medium">Product</th>
-                    <th className="px-3 py-2 text-right font-medium">Gate Qty</th>
+                    <th className="px-3 py-2 text-right font-medium">Qty</th>
                     {data.status === 'PROCESSED' && (
                       <th className="px-3 py-2 text-right font-medium">Loaded</th>
                     )}

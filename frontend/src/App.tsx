@@ -25,6 +25,7 @@ import { ReportsPage } from '@/pages/reports';
 import { WarehousesPage } from '@/pages/warehouses';
 import { PermissionsPage } from '@/pages/permissions';
 import { GatePassesPage } from '@/pages/gate-passes';
+import { RolePage } from '@/pages/roles';
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { refetchOnWindowFocus: false, retry: 1 } },
@@ -69,6 +70,7 @@ const MODULE_ROUTES: { path: string; element: React.ReactElement }[] = [
   { path: 'customers', element: <CustomersPage /> },
   { path: 'vendors', element: <VendorsPage /> },
   { path: 'labour', element: <LabourPage /> },
+  { path: 'roles', element: <RolePage /> },
   { path: 'ledgers', element: <LedgersPage /> },
   { path: 'reports', element: <ReportsPage /> },
   { path: 'cash', element: <CashPage /> },

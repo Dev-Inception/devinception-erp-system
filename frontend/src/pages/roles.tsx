@@ -19,7 +19,7 @@ import {
 import { api } from '@/lib/api';
 import { useAuthStore } from '@/store/auth';
 
-interface Labour {
+interface Role {
   id: string;
   name: string;
   phoneNumber: string;
@@ -27,43 +27,42 @@ interface Labour {
 const SEARCH_FETCH_LIMIT = 200;
 const PAGE_SIZE = 20;
 
-/** Create (no `editing`) or edit (with `editing`) a labour entry. */
-function LabourDialog({
+function RoleDialog({
   open,
   onOpenChange,
   editing,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
-  editing: Labour | null;
+  editing: Role | null;
 }) {
   const qc = useQueryClient();
   const isEditing = !!editing;
-  const [form, setForm] = useState({ name: '', phoneNumber: '' });
+  const [form, setForm] = useState({ name: '' });
   useEffect(() => {
-    if (open) setForm({ name: editing?.name ?? '', phoneNumber: editing?.phoneNumber ?? '' });
+    if (open) setForm({ name: editing?.name ?? '' });
   }, [open, editing]);
 
   const save = useMutation({
     mutationFn: async () =>
       isEditing
-        ? (await api.patch(`/labour/${editing!.id}`, form)).data
-        : (await api.post('/labour', form)).data,
+        ? (await api.patch(`/roles/${editing!.id}`, form)).data
+        : (await api.post('/roles', form)).data,
     onSuccess: () => {
-      toast.success(isEditing ? 'Labour updated' : 'Labour created');
-      qc.invalidateQueries({ queryKey: ['labour'] });
+      toast.success(isEditing ? 'Role updated' : 'Role created');
+      qc.invalidateQueries({ queryKey: ['role'] });
       onOpenChange(false);
     },
-    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Could not save labour'),
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Could not save Role'),
   });
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>{isEditing ? 'Edit Labour' : 'New Labour'}</DialogTitle>
+          <DialogTitle>{isEditing ? 'Edit Role' : 'New Role'}</DialogTitle>
           <DialogDescription>
-            {isEditing ? 'Update this worker’s details.' : 'Add a labourer/worker.'}
+            {isEditing ? 'Update this Role’s details.' : 'Add a Role.'}
           </DialogDescription>
         </DialogHeader>
         <form
@@ -81,18 +80,10 @@ function LabourDialog({
               maxLength={100}
               value={form.name}
               onChange={(e) => setForm({ ...form, name: e.target.value })}
-              placeholder="e.g. Labour"
+              placeholder="e.g. Admin"
             />
           </div>
-          <div className="space-y-1.5">
-            <Label>Phone Number *</Label>
-            <Input
-              required
-              value={form.phoneNumber}
-              onChange={(e) => setForm({ ...form, phoneNumber: e.target.value })}
-              placeholder="e.g. 0300-1234567"
-            />
-          </div>
+
           <div className="flex justify-end gap-2 pt-1">
             <DialogClose asChild>
               <Button type="button" variant="outline">
@@ -109,11 +100,9 @@ function LabourDialog({
   );
 }
 
-export function LabourPage() {
+export function RolePage() {
   const qc = useQueryClient();
   const role = useAuthStore((s) => s.user?.role);
-  // Unlike other Partner modules, the backend gates labour create/update/delete
-  // by role (super admin only) rather than a permission string.
   const canManage = role === 'SUPER_ADMIN';
   const [search, setSearch] = useState('');
   const [from, setFrom] = useState('');
@@ -125,33 +114,33 @@ export function LabourPage() {
   const fetchPage = isSearching ? 1 : page;
   const fetchLimit = isSearching ? SEARCH_FETCH_LIMIT : PAGE_SIZE;
 
-  const { data: labour = [], isLoading } = useQuery<Labour[]>({
-    queryKey: ['labour'],
-    queryFn: async () => (await api.get('/labour')).data,
+  const { data: roles = [], isLoading } = useQuery<Role[]>({
+    queryKey: ['roles'],
+    queryFn: async () => (await api.get('/roles')).data,
   });
 
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [editing, setEditing] = useState<Labour | null>(null);
-  const total = labour?.length ?? 0;
+  const [editing, setEditing] = useState<Role | null>(null);
+  const total = role?.length ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
   const del = useMutation({
-    mutationFn: async (id: string) => (await api.delete(`/labour/${id}`)).data,
+    mutationFn: async (id: string) => (await api.delete(`/roles/${id}`)).data,
     onSuccess: () => {
-      toast.success('Labour deleted');
-      qc.invalidateQueries({ queryKey: ['labour'] });
+      toast.success('Role deleted');
+      qc.invalidateQueries({ queryKey: ['Role'] });
     },
-    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Could not delete labour'),
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Could not delete Role'),
   });
 
-  const remove = (l: Labour) => {
-    if (window.confirm(`Delete labour "${l.name}"? This cannot be undone.`)) del.mutate(l.id);
+  const remove = (l: Role) => {
+    if (window.confirm(`Delete role "${l.name}"? This cannot be undone.`)) del.mutate(l.id);
   };
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <p className="text-sm text-muted-foreground">{labour.length} labour(s)</p>
+        <p className="text-sm text-muted-foreground">{roles.length} role(s)</p>
         {canManage && (
           <Button
             onClick={() => {
@@ -159,7 +148,7 @@ export function LabourPage() {
               setDialogOpen(true);
             }}
           >
-            <Plus className="h-4 w-4" /> Add Labour
+            <Plus className="h-4 w-4" /> Add Role
           </Button>
         )}
       </div>
@@ -169,7 +158,6 @@ export function LabourPage() {
           <thead>
             <tr className="border-b bg-muted/50 text-left text-xs uppercase tracking-wide text-muted-foreground">
               <th className="px-4 py-3 font-medium">Name</th>
-              <th className="px-4 py-3 font-medium">Phone Number</th>
               {canManage && <th className="px-4 py-3 text-right font-medium">Actions</th>}
             </tr>
           </thead>
@@ -182,7 +170,7 @@ export function LabourPage() {
               </tr>
             )}
             {!isLoading &&
-              labour.map((l) => (
+              roles.map((l) => (
                 <tr key={l.id} className="border-b last:border-0 hover:bg-muted/30">
                   <td className="px-4 py-3 font-medium">
                     <div className="flex items-center gap-2">
@@ -221,10 +209,10 @@ export function LabourPage() {
                   )}
                 </tr>
               ))}
-            {!isLoading && labour.length === 0 && (
+            {!isLoading && roles.length === 0 && (
               <tr>
                 <td colSpan={3} className="px-4 py-10 text-center text-muted-foreground">
-                  No labour records yet.
+                  No role records yet.
                 </td>
               </tr>
             )}
@@ -243,7 +231,7 @@ export function LabourPage() {
       </Card>
 
       {dialogOpen && (
-        <LabourDialog
+        <RoleDialog
           key={editing?.id ?? 'new'}
           open={dialogOpen}
           onOpenChange={setDialogOpen}

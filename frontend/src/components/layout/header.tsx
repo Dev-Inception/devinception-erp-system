@@ -17,6 +17,7 @@ const TITLES: Record<string, string> = {
   '/customers': 'Customers',
   '/vendors': 'Vendors',
   '/labour': 'Labour',
+  '/roles': 'Role',
   '/ledgers': 'Ledgers',
   '/reports': 'Reports',
   '/cash': 'Cash & Bank',

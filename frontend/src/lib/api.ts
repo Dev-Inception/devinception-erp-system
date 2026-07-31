@@ -921,6 +921,10 @@ async function realCreateLabour(body: any) {
   const res = await http.post('/labour', { name: body.name, phoneNumber: body.phoneNumber });
   return mapLabour(res.data.labour);
 }
+async function realCreateRole(body: any) {
+  const res = await http.post('/roles', { name: body.name });
+  return mapRole(res.data.roles);
+}
 async function realUpdateLabour(id: string, body: any) {
   const res = await http.patch(`/labour/${id}`, {
     name: body.name,
@@ -1044,6 +1048,10 @@ async function realUpdateVendor(id: string, body: any) {
 }
 async function realDeleteVendor(id: string) {
   await http.delete(`/vendors/${id}`);
+  return { success: true };
+}
+async function realDeleteRoles(id: string) {
+  await http.delete(`/roles/${id}`);
   return { success: true };
 }
 
@@ -1628,6 +1636,7 @@ async function tryReal(
     if (url === '/categories') return wrap(await realCreateCategory(body));
     if (url === '/units') return wrap(await realCreateUnit(body));
     if (url === '/labour') return wrap(await realCreateLabour(body));
+    if (url === '/roles') return wrap(await realCreateRole(body));
     if (url === '/stock/adjust') return wrap(await realAdjustStock(body));
     if (url === '/customers') return wrap(await realCreateCustomer(body));
     if (url === '/vendors') return wrap(await realCreateVendor(body));
@@ -1674,6 +1683,7 @@ async function tryReal(
   if (method === 'delete') {
     if (seg[0] === 'users' && seg[1] && !seg[2]) return wrap(await realDeleteUser(seg[1]));
     if (seg[0] === 'vendors' && seg[1] && !seg[2]) return wrap(await realDeleteVendor(seg[1]));
+    if (seg[0] === 'roles' && seg[1] && !seg[2]) return wrap(await realDeleteRoles(seg[1]));
     if (seg[0] === 'customers' && seg[1] && !seg[2]) return wrap(await realDeleteCustomer(seg[1]));
     if (seg[0] === 'warehouses' && seg[1] && !seg[2])
       return wrap(await realDeleteWarehouse(seg[1]));
