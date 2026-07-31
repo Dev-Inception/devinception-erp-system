@@ -158,7 +158,10 @@ export function GatePassScanPage() {
                 value={data.saleNumber}
               />
               <Row label="Date" value={new Date(data.saleDate).toLocaleString()} />
-              <Row label="Scaned By" value={new Date(data.saleDate).toLocaleString()} />
+              <Row
+                label="Scaned By"
+                value={data.scannedBy?.name ?? data.processedBy?.name ?? '—'}
+              />
             </div>
 
             <div className="overflow-x-auto rounded-lg border">
