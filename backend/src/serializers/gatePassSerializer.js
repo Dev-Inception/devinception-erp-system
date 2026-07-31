@@ -16,6 +16,12 @@ function serializeGatePass(gatePass) {
   const gatePassId = idOf(g._id);
   const isPurchase = g.sourceType === 'PURCHASE';
   const status = g.status === 'ACTIVE' ? 'PENDING' : g.status === 'USED' ? 'PROCESSED' : g.status;
+  const processor = g.processedBy
+    ? withoutEmptyValues({
+        id: idOf(g.processedBy),
+        name: g.processedBy?.name,
+      })
+    : null;
 
   return {
     id: gatePassId,
@@ -47,14 +53,7 @@ function serializeGatePass(gatePass) {
           }),
         }
       : {}),
-    ...(g.processedBy
-      ? {
-          processedBy: withoutEmptyValues({
-            id: idOf(g.processedBy),
-            name: g.processedBy?.name,
-          }),
-        }
-      : {}),
+    ...(processor ? { processedBy: processor, scannedBy: processor } : {}),
     status,
     ...(g.processedAt ? { processedAt: g.processedAt } : {}),
     ...(g.lastEditedAt ? { lastEditedAt: g.lastEditedAt } : {}),

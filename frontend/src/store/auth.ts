@@ -19,7 +19,7 @@ interface AuthState {
   accessToken: string | null;
   refreshToken: string | null; // unused: the refresh token is an httpOnly cookie
   login: (email: string, password: string) => Promise<void>;
-  logout: () => void;
+  logout: () => Promise<void>;
   refresh: () => Promise<string | null>;
   hasRole: (...roles: Role[]) => boolean;
 }
@@ -67,13 +67,28 @@ export const useAuthStore = create<AuthState>()(
         set({ user: mapUser(user), accessToken, refreshToken: null });
       },
 
-      logout: () => {
-        // Fire-and-forget: clear the server refresh cookie, but don't block the UI.
-        http.post('/auth/logout', {}, { skipAuthRefresh: true }).catch(() => {});
+      logout: async () => {
+        // Clear local/persisted state first so this tab and other open tabs stop
+        // offering protected actions while the backend invalidates the JWTs.
+        const token = get().accessToken;
+        const request = http.post(
+          '/auth/logout',
+          {},
+          {
+            skipAuthRefresh: true,
+            ...(token ? { headers: { Authorization: `Bearer ${token}` } } : {}),
+          },
+        );
         set({ user: null, accessToken: null, refreshToken: null });
+        try {
+          await request;
+        } catch {
+          // The local session must still close if the server is unavailable.
+        }
       },
 
       refresh: async () => {
+        if (!get().user) return null;
         try {
           const res = await http.post('/auth/refresh', {}, { skipAuthRefresh: true });
           const { accessToken } = res.data as { accessToken: string };
@@ -109,3 +124,20 @@ configureAuth({
   refreshToken: () => useAuthStore.getState().refresh(),
   onAuthFailure: () => useAuthStore.getState().logout(),
 });
+
+// Zustand persistence does not automatically update an already-open tab when
+// another tab logs out. Mirror logout events so a QR tab cannot retain a stale
+// in-memory access token after logout elsewhere in the ERP.
+if (typeof window !== 'undefined') {
+  window.addEventListener('storage', (event) => {
+    if (event.key !== 'devinception-auth') return;
+    try {
+      const persisted = event.newValue ? JSON.parse(event.newValue) : null;
+      if (!persisted?.state?.user) {
+        useAuthStore.setState({ user: null, accessToken: null, refreshToken: null });
+      }
+    } catch {
+      useAuthStore.setState({ user: null, accessToken: null, refreshToken: null });
+    }
+  });
+}

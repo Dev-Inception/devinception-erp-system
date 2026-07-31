@@ -37,6 +37,7 @@ interface GatePassDetail {
   status: 'PENDING' | 'PROCESSED' | 'CANCELLED';
   processedAt?: string;
   processedBy?: { name?: string };
+  scannedBy?: { name?: string };
 }
 
 type LoadedItem = Pick<GatePassItem, 'productId' | 'loadedQuantity' | 'loadConfirmed'>;
@@ -320,6 +321,14 @@ export function GatePassScanPage() {
                   <span className="font-medium">Already processed</span>
                   {data.processedAt && <span>{new Date(data.processedAt).toLocaleString()}</span>}
                 </div>
+                {(data.scannedBy?.name || data.processedBy?.name) && (
+                  <div className="border-t pt-3">
+                    <Row
+                      label="Scanned by"
+                      value={data.scannedBy?.name ?? data.processedBy?.name ?? '—'}
+                    />
+                  </div>
+                )}
                 {data.driver && (
                   <div className="space-y-1 border-t pt-3">
                     <Row label="Driver" value={data.driver.name} />

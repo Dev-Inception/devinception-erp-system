@@ -244,7 +244,9 @@ async function getGatePassById(id) {
 async function getGatePassByToken(token) {
   const normalized = normalizeToken(token);
   if (!normalized) throw ApiError.badRequest('A gate pass token is required');
-  const gatePass = await GatePass.findOne({ token: normalized }).populate('createdBy', 'name');
+  const gatePass = await GatePass.findOne({ token: normalized })
+    .populate('createdBy', 'name')
+    .populate('processedBy', 'name');
   if (!gatePass) throw ApiError.notFound('Invalid gate pass token');
   return refreshSourceIfNeeded(gatePass);
 }

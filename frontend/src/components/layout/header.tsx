@@ -63,8 +63,8 @@ export function Header() {
             variant="ghost"
             size="icon"
             aria-label="Log out"
-            onClick={() => {
-              logout();
+            onClick={async () => {
+              await logout();
               navigate('/login');
             }}
           >

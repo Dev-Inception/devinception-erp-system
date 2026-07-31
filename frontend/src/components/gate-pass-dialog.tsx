@@ -22,6 +22,8 @@ interface GatePassDetail {
   items: { name: string; quantity: number; loadedQuantity?: number }[];
   status: 'PENDING' | 'PROCESSED' | 'CANCELLED';
   processedAt?: string;
+  processedBy?: { name?: string };
+  scannedBy?: { name?: string };
 }
 
 const STATUS_STYLE: Record<string, string> = {
@@ -112,6 +114,14 @@ export function GatePassDialog({
                     : ''}
                 </span>
               </div>
+              {(data.scannedBy?.name || data.processedBy?.name) && (
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Scanned by</span>
+                  <span className="font-medium">
+                    {data.scannedBy?.name ?? data.processedBy?.name}
+                  </span>
+                </div>
+              )}
             </div>
 
             <div className="max-h-40 space-y-1 overflow-y-auto rounded-lg border p-2 text-sm">

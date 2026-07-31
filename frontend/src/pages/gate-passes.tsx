@@ -42,6 +42,7 @@ interface GatePass {
   loadNotes?: string;
   processedAt?: string;
   processedBy?: { name?: string };
+  scannedBy?: { name?: string };
   lastEditedAt?: string;
 }
 
@@ -304,6 +305,11 @@ export function GatePassesPage() {
                   {gatePass.processedAt && (
                     <div className="mt-1 text-xs text-muted-foreground">
                       {new Date(gatePass.processedAt).toLocaleString()}
+                    </div>
+                  )}
+                  {(gatePass.scannedBy?.name || gatePass.processedBy?.name) && (
+                    <div className="mt-1 text-xs text-muted-foreground">
+                      Scanned by {gatePass.scannedBy?.name ?? gatePass.processedBy?.name}
                     </div>
                   )}
                 </td>

@@ -12,7 +12,7 @@ const { sendPasswordResetEmail } = require('./emailService');
 
 async function login({ email, password }) {
   // Password is select:false, so request it explicitly.
-  const user = await User.findOne({ email }).select('+password');
+  const user = await User.findOne({ email }).select('+password +tokenVersion');
   if (!user || !(await user.comparePassword(password))) {
     throw ApiError.unauthorized('Invalid email or password');
   }
@@ -36,15 +36,37 @@ async function refresh(refreshToken) {
     throw ApiError.unauthorized('Invalid or expired refresh token');
   }
 
-  const user = await User.findById(payload.sub).select('+passwordChangedAt');
+  const user = await User.findById(payload.sub).select('+passwordChangedAt +tokenVersion');
   if (!user || !user.isActive) {
     throw ApiError.unauthorized('User no longer exists or is inactive');
   }
   if (user.passwordChangedAfter(payload.iat)) {
     throw ApiError.unauthorized('Password changed, please log in again');
   }
+  if (Number(payload.tv || 0) !== Number(user.tokenVersion || 0)) {
+    throw ApiError.unauthorized('Session has ended, please log in again');
+  }
 
   return tokenService.generateAuthTokens(user);
+}
+
+async function logout({ accessToken, refreshToken }) {
+  let payload = null;
+  try {
+    if (accessToken) payload = tokenService.verifyAccessToken(accessToken);
+  } catch {
+    // An expired access token can still be paired with a valid refresh cookie.
+  }
+  if (!payload) {
+    try {
+      if (refreshToken) payload = tokenService.verifyRefreshToken(refreshToken);
+    } catch {
+      // Logout remains idempotent when the session has already expired.
+    }
+  }
+  if (payload?.sub) {
+    await User.updateOne({ _id: payload.sub }, { $inc: { tokenVersion: 1 } });
+  }
 }
 
 async function forgotPassword(email) {
@@ -76,7 +98,7 @@ async function resetPassword(rawToken, newPassword) {
   const user = await User.findOne({
     passwordResetToken: hashed,
     passwordResetExpires: { $gt: new Date() },
-  }).select('+password');
+  }).select('+password +tokenVersion');
 
   if (!user) {
     throw ApiError.badRequest('Token is invalid or has expired');
@@ -92,7 +114,7 @@ async function resetPassword(rawToken, newPassword) {
 }
 
 async function changePassword(userId, currentPassword, newPassword) {
-  const user = await User.findById(userId).select('+password');
+  const user = await User.findById(userId).select('+password +tokenVersion');
   if (!user) throw ApiError.notFound('User not found');
 
   if (!(await user.comparePassword(currentPassword))) {
@@ -108,6 +130,7 @@ async function changePassword(userId, currentPassword, newPassword) {
 module.exports = {
   login,
   refresh,
+  logout,
   forgotPassword,
   resetPassword,
   changePassword,
