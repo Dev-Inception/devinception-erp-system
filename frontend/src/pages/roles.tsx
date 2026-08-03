@@ -22,7 +22,7 @@ import { useAuthStore } from '@/store/auth';
 interface Role {
   id: string;
   name: string;
-  phoneNumber: string;
+  description: string;
 }
 const SEARCH_FETCH_LIMIT = 200;
 const PAGE_SIZE = 20;
@@ -38,19 +38,19 @@ function RoleDialog({
 }) {
   const qc = useQueryClient();
   const isEditing = !!editing;
-  const [form, setForm] = useState({ name: '' });
+  const [form, setForm] = useState({ name: '', description: '' });
   useEffect(() => {
-    if (open) setForm({ name: editing?.name ?? '' });
+    if (open) setForm({ name: editing?.name ?? '', description: editing?.description ?? '' });
   }, [open, editing]);
 
   const save = useMutation({
     mutationFn: async () =>
       isEditing
-        ? (await api.patch(`/roles/${editing!.id}`, form)).data
+        ? (await api.patch(`/roles/${editing!.id}`, { description: form.description })).data
         : (await api.post('/roles', form)).data,
     onSuccess: () => {
       toast.success(isEditing ? 'Role updated' : 'Role created');
-      qc.invalidateQueries({ queryKey: ['role'] });
+      qc.invalidateQueries({ queryKey: ['roles'] });
       onOpenChange(false);
     },
     onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Could not save Role'),
@@ -76,11 +76,26 @@ function RoleDialog({
             <Label>Name *</Label>
             <Input
               required
+              disabled={isEditing}
               minLength={2}
               maxLength={100}
               value={form.name}
               onChange={(e) => setForm({ ...form, name: e.target.value })}
-              placeholder="e.g. Admin"
+              placeholder="e.g. Store Manager"
+            />
+            {isEditing && (
+              <p className="text-xs text-muted-foreground">
+                A role's name can't be changed after creation.
+              </p>
+            )}
+          </div>
+          <div className="space-y-1.5">
+            <Label>Description</Label>
+            <Input
+              maxLength={200}
+              value={form.description}
+              onChange={(e) => setForm({ ...form, description: e.target.value })}
+              placeholder="What this role is for"
             />
           </div>
 
@@ -121,14 +136,14 @@ export function RolePage() {
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<Role | null>(null);
-  const total = role?.length ?? 0;
+  const total = roles.length;
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
   const del = useMutation({
     mutationFn: async (id: string) => (await api.delete(`/roles/${id}`)).data,
     onSuccess: () => {
       toast.success('Role deleted');
-      qc.invalidateQueries({ queryKey: ['Role'] });
+      qc.invalidateQueries({ queryKey: ['roles'] });
     },
     onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Could not delete Role'),
   });
@@ -158,13 +173,17 @@ export function RolePage() {
           <thead>
             <tr className="border-b bg-muted/50 text-left text-xs uppercase tracking-wide text-muted-foreground">
               <th className="px-4 py-3 font-medium">Name</th>
+              <th className="px-4 py-3 font-medium">Description</th>
               {canManage && <th className="px-4 py-3 text-right font-medium">Actions</th>}
             </tr>
           </thead>
           <tbody>
             {isLoading && (
               <tr>
-                <td colSpan={3} className="px-4 py-10 text-center text-muted-foreground">
+                <td
+                  colSpan={canManage ? 3 : 2}
+                  className="px-4 py-10 text-center text-muted-foreground"
+                >
                   Loading…
                 </td>
               </tr>
@@ -178,7 +197,7 @@ export function RolePage() {
                       {l.name}
                     </div>
                   </td>
-                  <td className="px-4 py-3 text-muted-foreground">{l.phoneNumber}</td>
+                  <td className="px-4 py-3 text-muted-foreground">{l.description}</td>
                   {canManage && (
                     <td className="px-4 py-3 text-right">
                       <div className="flex justify-end gap-1">
@@ -211,7 +230,10 @@ export function RolePage() {
               ))}
             {!isLoading && roles.length === 0 && (
               <tr>
-                <td colSpan={3} className="px-4 py-10 text-center text-muted-foreground">
+                <td
+                  colSpan={canManage ? 3 : 2}
+                  className="px-4 py-10 text-center text-muted-foreground"
+                >
                   No role records yet.
                 </td>
               </tr>

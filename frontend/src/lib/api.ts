@@ -922,8 +922,8 @@ async function realCreateLabour(body: any) {
   return mapLabour(res.data.labour);
 }
 async function realCreateRole(body: any) {
-  const res = await http.post('/roles', { name: body.name });
-  return mapRole(res.data.roles);
+  const res = await http.post('/roles', { name: body.name, description: body.description });
+  return mapRole(res.data.role);
 }
 async function realUpdateLabour(id: string, body: any) {
   const res = await http.patch(`/labour/${id}`, {
@@ -1514,6 +1514,7 @@ function mapRole(r: any) {
   return {
     id: String(r._id ?? r.id),
     name: r.name as string, // backend role names are lowercase (e.g. 'cashier')
+    description: (r.description as string) ?? '',
     permissions: (r.permissions as string[]) ?? [],
   };
 }
@@ -1522,7 +1523,11 @@ async function realRoles() {
   return (res.data.roles as any[]).map(mapRole);
 }
 async function realUpdateRole(id: string, body: any) {
-  const res = await http.patch(`/roles/${id}`, { permissions: body.permissions });
+  // `name` is immutable server-side once a role is created, so it's never sent here.
+  const res = await http.patch(`/roles/${id}`, {
+    description: body.description,
+    permissions: body.permissions,
+  });
   return mapRole(res.data.role);
 }
 

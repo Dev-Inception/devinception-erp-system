@@ -233,9 +233,6 @@ export function LoginPage() {
                 {loading && <Loader2 className="h-4 w-4 animate-spin" />}
                 Sign in
               </Button>
-              <p className="animate-fade-in delay-500 text-center text-xs text-muted-foreground">
-                Demo: admin@devinception.com / Password123!
-              </p>
             </form>
           </CardContent>
         </Card>

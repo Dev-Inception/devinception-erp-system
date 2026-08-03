@@ -29,7 +29,6 @@ import { cn } from '@/lib/utils';
 import { useAuthStore, type Role } from '@/store/auth';
 import { type ManagedUser } from '@/store/permissions';
 import {
-  ROLES,
   CONFIGURABLE_ROLES,
   CONFIGURABLE_MODULES,
   MODULE_PERMISSION,
@@ -44,14 +43,28 @@ const ROLE_LABELS: Record<Role, string> = {
   ACCOUNTANT: 'Accountant',
 };
 
-/** Native select styled to match the Input component. */
+/** "store manager" -> "Store Manager"; falls back to the built-in label if known. */
+function roleLabel(name: string): string {
+  const known = ROLE_LABELS[name.toUpperCase() as Role];
+  if (known) return known;
+  return name
+    .split(/[\s_]+/)
+    .filter(Boolean)
+    .map((w) => w[0].toUpperCase() + w.slice(1))
+    .join(' ');
+}
+
+/** Native select styled to match the Input component. Options come from the live role list
+ *  (built-in + any custom roles created on the Roles page), not a hardcoded set. */
 function RoleSelect({
   value,
   onChange,
+  roles,
   id,
 }: {
-  value: Role;
-  onChange: (role: Role) => void;
+  value: string;
+  onChange: (role: string) => void;
+  roles: { name: string }[];
   id?: string;
 }) {
   return (
@@ -59,12 +72,12 @@ function RoleSelect({
       <select
         id={id}
         value={value}
-        onChange={(e) => onChange(e.target.value as Role)}
+        onChange={(e) => onChange(e.target.value)}
         className="flex h-9 w-full appearance-none rounded-md border border-input bg-transparent py-1 pl-3 pr-9 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:border-input"
       >
-        {ROLES.map((r) => (
-          <option key={r} value={r}>
-            {ROLE_LABELS[r]}
+        {roles.map((r) => (
+          <option key={r.name} value={r.name}>
+            {roleLabel(r.name)}
           </option>
         ))}
       </select>
@@ -73,27 +86,35 @@ function RoleSelect({
   );
 }
 
-function CreateUserDialog() {
+function CreateUserDialog({ roles }: { roles: { name: string }[] }) {
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState<{
     fullName: string;
     email: string;
     password: string;
-    role: Role;
+    role: string;
   }>({
     fullName: '',
     email: '',
     password: '',
-    role: 'CASHIER',
+    role: 'cashier',
   });
+
+  // Once roles load, make sure the selected role is actually one that exists.
+  useEffect(() => {
+    if (roles.length && !roles.some((r) => r.name === form.role)) {
+      setForm((f) => ({ ...f, role: roles[0].name }));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [roles]);
 
   const create = useMutation({
     mutationFn: async () => (await api.post('/users', form)).data,
     onSuccess: () => {
-      toast.success(`${form.fullName} added as ${ROLE_LABELS[form.role]}`);
+      toast.success(`${form.fullName} added as ${roleLabel(form.role)}`);
       qc.invalidateQueries({ queryKey: ['users'] });
-      setForm({ fullName: '', email: '', password: '', role: 'CASHIER' });
+      setForm({ fullName: '', email: '', password: '', role: roles[0]?.name ?? 'cashier' });
       setOpen(false);
     },
     onError: (e: any) =>
@@ -156,6 +177,7 @@ function CreateUserDialog() {
               id="new-user-role"
               value={form.role}
               onChange={(role) => setForm({ ...form, role })}
+              roles={roles}
             />
           </div>
           <div className="flex justify-end gap-2 pt-2">
@@ -258,9 +280,14 @@ function UsersCard() {
     queryKey: ['users'],
     queryFn: async () => (await api.get('/users')).data,
   });
+  // Live role list (built-in + custom roles added on the Roles page) for the assign-role dropdown.
+  const { data: roles = [] } = useQuery<{ name: string }[]>({
+    queryKey: ['roles'],
+    queryFn: async () => (await api.get('/roles')).data,
+  });
 
   const setRole = useMutation({
-    mutationFn: async ({ id, role }: { id: string; role: Role }) =>
+    mutationFn: async ({ id, role }: { id: string; role: string }) =>
       (await api.patch(`/users/${id}/role`, { role })).data,
     onSuccess: invalidate,
     onError,
@@ -280,7 +307,7 @@ function UsersCard() {
     onError,
   });
 
-  const updateUser = (id: string, patch: { role?: Role; active?: boolean }) => {
+  const updateUser = (id: string, patch: { role?: string; active?: boolean }) => {
     if (patch.role !== undefined) setRole.mutate({ id, role: patch.role });
     if (patch.active !== undefined) setActive.mutate({ id, active: patch.active });
   };
@@ -293,7 +320,7 @@ function UsersCard() {
           <CardTitle>Users</CardTitle>
           <CardDescription>Create users and assign each one a role.</CardDescription>
         </div>
-        <CreateUserDialog />
+        <CreateUserDialog roles={roles} />
       </CardHeader>
       <CardContent className="px-0 pb-0">
         <table className="w-full text-sm">
@@ -322,7 +349,11 @@ function UsersCard() {
                   <td className="px-4 py-3 text-muted-foreground">{u.email}</td>
                   <td className="px-4 py-3">
                     <div className="w-40">
-                      <RoleSelect value={u.role} onChange={(role) => updateUser(u.id, { role })} />
+                      <RoleSelect
+                        value={u.role.toLowerCase()}
+                        onChange={(role) => updateUser(u.id, { role })}
+                        roles={roles}
+                      />
                     </div>
                   </td>
                   <td className="px-4 py-3">
