@@ -59,7 +59,7 @@ export function ReportsPage() {
 
   return (
     <div className="space-y-4">
-      <Card>
+      <Card className="no-print">
         <CardContent className="flex flex-wrap items-end gap-3 p-4">
           <div className="space-y-1.5">
             <Label>Report</Label>
@@ -101,7 +101,7 @@ export function ReportsPage() {
             </>
           )}
           <div className="ml-auto flex gap-2">
-            <Button variant="outline" onClick={() => window.print()}>
+            <Button variant="outline" onClick={() => window.print()} disabled={!data}>
               <Printer className="h-4 w-4" /> Print / PDF
             </Button>
             <Button onClick={downloadCsv}>
@@ -114,6 +114,11 @@ export function ReportsPage() {
       <Card className="overflow-hidden">
         <CardHeader>
           <CardTitle>{data?.title ?? 'Report'}</CardTitle>
+          {type !== 'stock' && (
+            <p className="text-sm text-muted-foreground">
+              {from} to {to}
+            </p>
+          )}
         </CardHeader>
         <CardContent className="p-0">
           <div className="overflow-x-auto">
