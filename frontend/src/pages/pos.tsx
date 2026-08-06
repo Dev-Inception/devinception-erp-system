@@ -13,6 +13,7 @@ import {
   ArrowLeft,
   ArrowRight,
   CheckCircle2,
+  NotepadTextDashed,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Card } from '@/components/ui/card';
@@ -962,7 +963,6 @@ export function PosPage() {
                   {!labourCreating ? (
                     <Button
                       type="button"
-                      variant="outline"
                       size="sm"
                       className="w-full"
                       onClick={() => {
@@ -1351,15 +1351,14 @@ export function PosPage() {
         <div className="flex items-center justify-between border-t pt-4">
           <div className="flex items-center gap-2">
             <Button
-              variant="outline"
               disabled={step === 1 || step === 5 || completeSale.isPending}
               onClick={() => setStep((s) => (s - 1) as Step)}
             >
               <ArrowLeft className="h-4 w-4" /> Back
             </Button>
             {step > 1 && step < 5 && (
-              <Button variant="ghost" onClick={parkSale}>
-                Draft
+              <Button variant="destructive">
+                <NotepadTextDashed className="h-4 w-4" /> Save as Draft
               </Button>
             )}
           </div>
