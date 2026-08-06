@@ -32,19 +32,14 @@ const publicTokenParamValidator = [
     .withMessage('Invalid gate pass token'),
 ];
 
+// Driver/vehicle capture is optional — the gatekeeper flow no longer asks for
+// it (accountability comes from the logged-in gatekeeper's identity instead),
+// but the admin edit form may still record it for a delivery.
 const processingFieldsValidator = [
-  body('driver.name')
-    .trim()
-    .notEmpty()
-    .isLength({ max: 120 })
-    .withMessage('Driver name is required'),
+  body('driver.name').optional({ values: 'falsy' }).trim().isLength({ max: 120 }),
   body('driver.phone').optional({ values: 'falsy' }).trim().isLength({ max: 40 }),
   body('driver.licenseNumber').optional({ values: 'falsy' }).trim().isLength({ max: 80 }),
-  body('driver.vehicleNumber')
-    .trim()
-    .notEmpty()
-    .isLength({ max: 80 })
-    .withMessage('Vehicle number is required'),
+  body('driver.vehicleNumber').optional({ values: 'falsy' }).trim().isLength({ max: 80 }),
   body('loadNotes').optional({ values: 'falsy' }).trim().isLength({ max: 1000 }),
   body('items').isArray({ min: 1 }).withMessage('Every loaded item must be submitted'),
   body('items.*.productId').isMongoId().withMessage('Invalid gate pass product'),

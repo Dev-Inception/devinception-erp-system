@@ -1,7 +1,16 @@
 import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
-import { ShoppingCart, FileText, MoreHorizontal, QrCode, Search } from 'lucide-react';
+import {
+  ShoppingCart,
+  FileText,
+  MoreHorizontal,
+  QrCode,
+  Search,
+  Pencil,
+  RotateCcw,
+  Wallet,
+} from 'lucide-react';
 import { toast } from 'sonner';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -14,16 +23,26 @@ import {
   DropdownMenuItem,
 } from '@/components/ui/dropdown-menu';
 import { GatePassDialog } from '@/components/gate-pass-dialog';
+import { UpdateSaleDialog } from '@/components/update-sale-dialog';
+import { ReturnProductDialog } from '@/components/return-product-dialog';
+import { RecordPaymentDialog } from '@/components/record-payment-dialog';
 import { Pagination } from '@/components/ui/pagination';
 import { api } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
 import { openSaleInvoicePopup } from '@/lib/invoicePopup';
+import { useAuthStore } from '@/store/auth';
+import { grantsPermission } from '@/lib/modules';
 
 interface SaleItem {
+  productId: string;
   name: string;
   quantity: number;
   unitPrice: string | number;
   amount: string | number;
+  source?: 'WAREHOUSE' | 'VENDOR';
+  vendorId?: string;
+  vendorName?: string;
+  warehouseId?: string;
 }
 
 interface Sale {
@@ -33,9 +52,15 @@ interface Sale {
   grandTotal: string;
   subtotal: string;
   taxTotal: string;
+  taxPercent: string;
   discountTotal: string;
   paidCash: string;
   paidBank: string;
+  paidAmount: string;
+  balanceDue: string;
+  transportFare?: string;
+  labourRentTotal?: string;
+  transport?: { driverName?: string; driverPhone?: string; vehicleNumber?: string };
   paymentMethod: string;
   status: string;
   customer?: { name: string };
@@ -59,6 +84,9 @@ const PAGE_SIZE = 20;
 const SEARCH_FETCH_LIMIT = 200;
 
 export function SalesPage() {
+  const authUser = useAuthStore((s) => s.user);
+  const canManageSales = grantsPermission(authUser?.permissions, 'sales:update');
+
   const [search, setSearch] = useState('');
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
@@ -93,6 +121,9 @@ export function SalesPage() {
   const total = data?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const [gatePassSale, setGatePassSale] = useState<Sale | null>(null);
+  const [editingSale, setEditingSale] = useState<Sale | null>(null);
+  const [returningSale, setReturningSale] = useState<Sale | null>(null);
+  const [payingSale, setPayingSale] = useState<Sale | null>(null);
 
   const filteredSales = isSearching
     ? sales.filter(
@@ -181,9 +212,9 @@ export function SalesPage() {
               <th className="px-4 py-3 font-medium">Date</th>
               <th className="px-4 py-3 font-medium">Customer</th>
               <th className="px-4 py-3 font-medium">Payment</th>
-              <th className="px-4 py-3 text-right font-medium">Cash</th>
-              <th className="px-4 py-3 text-right font-medium">Online</th>
-              <th className="px-4 py-3 text-right font-medium">Total</th>
+              <th className="px-4 py-3 text-right font-medium">Advance Payment</th>
+              <th className="px-4 py-3 text-right font-medium">Remaining Amount</th>
+              <th className="px-4 py-3 text-right font-medium">Total Amount</th>
               <th className="px-4 py-3 text-right font-medium">Actions</th>
             </tr>
           </thead>
@@ -209,10 +240,16 @@ export function SalesPage() {
                     {PAYMENT_LABEL[s.paymentMethod] ?? s.paymentMethod}
                   </td>
                   <td className="px-4 py-3 text-right tabular-nums text-muted-foreground">
-                    {Number(s.paidCash) > 0 ? formatCurrency(Number(s.paidCash)) : '—'}
+                    {Number(s.paidAmount) > 0 ? formatCurrency(Number(s.paidAmount)) : '—'}
                   </td>
-                  <td className="px-4 py-3 text-right tabular-nums text-muted-foreground">
-                    {Number(s.paidBank) > 0 ? formatCurrency(Number(s.paidBank)) : '—'}
+                  <td className="px-4 py-3 text-right tabular-nums">
+                    <span
+                      className={
+                        Number(s.balanceDue) > 0 ? 'font-medium text-destructive' : 'text-success'
+                      }
+                    >
+                      {formatCurrency(Number(s.balanceDue))}
+                    </span>
                   </td>
                   <td className="px-4 py-3 text-right font-medium">
                     {formatCurrency(Number(s.grandTotal))}
@@ -231,6 +268,21 @@ export function SalesPage() {
                         <DropdownMenuItem onSelect={() => setGatePassSale(s)}>
                           <QrCode className="h-4 w-4" /> View Gate Pass
                         </DropdownMenuItem>
+                        {canManageSales && (
+                          <>
+                            <DropdownMenuItem onSelect={() => setEditingSale(s)}>
+                              <Pencil className="h-4 w-4" /> Update Sale
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onSelect={() => setReturningSale(s)}>
+                              <RotateCcw className="h-4 w-4" /> Return Product
+                            </DropdownMenuItem>
+                            {Number(s.balanceDue) > 0 && (
+                              <DropdownMenuItem onSelect={() => setPayingSale(s)}>
+                                <Wallet className="h-4 w-4" /> Record Payment
+                              </DropdownMenuItem>
+                            )}
+                          </>
+                        )}
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </td>
@@ -269,6 +321,60 @@ export function SalesPage() {
         gatePassQrUrl={gatePassSale?.gatePassQrUrl}
         open={gatePassSale !== null}
         onOpenChange={(o) => !o && setGatePassSale(null)}
+      />
+
+      <UpdateSaleDialog
+        sale={
+          editingSale && {
+            id: editingSale.id,
+            saleNumber: editingSale.saleNumber,
+            items: editingSale.items.map((it) => ({
+              productId: it.productId,
+              name: it.name,
+              quantity: it.quantity,
+              unitPrice: Number(it.unitPrice),
+              source: it.source,
+              vendorId: it.vendorId,
+              vendorName: it.vendorName,
+              warehouseId: it.warehouseId,
+            })),
+            discountTotal: Number(editingSale.discountTotal),
+            taxPercent: Number(editingSale.taxPercent),
+            transportFare: Number(editingSale.transportFare ?? 0),
+            labourRentTotal: Number(editingSale.labourRentTotal ?? 0),
+            transport: editingSale.transport,
+          }
+        }
+        open={editingSale !== null}
+        onOpenChange={(o) => !o && setEditingSale(null)}
+      />
+
+      <ReturnProductDialog
+        sale={
+          returningSale && {
+            id: returningSale.id,
+            saleNumber: returningSale.saleNumber,
+            items: returningSale.items.map((it) => ({
+              productId: it.productId,
+              name: it.name,
+              quantity: it.quantity,
+            })),
+          }
+        }
+        open={returningSale !== null}
+        onOpenChange={(o) => !o && setReturningSale(null)}
+      />
+
+      <RecordPaymentDialog
+        sale={
+          payingSale && {
+            id: payingSale.id,
+            saleNumber: payingSale.saleNumber,
+            balanceDue: Number(payingSale.balanceDue),
+          }
+        }
+        open={payingSale !== null}
+        onOpenChange={(o) => !o && setPayingSale(null)}
       />
     </div>
   );

@@ -17,12 +17,18 @@ interface SaleItemForInvoice {
 export interface SaleForInvoice {
   saleNumber: string;
   date: string;
-  customer?: { name: string };
+  customer?: { name: string; phone?: string };
   items: SaleItemForInvoice[];
   subtotal: number | string;
   taxTotal: number | string;
   discountTotal: number | string;
+  transportFare?: number | string;
+  labourRentTotal?: number | string;
   grandTotal: number | string;
+  paidAmount?: number | string;
+  balanceDue?: number | string;
+  labour?: { name: string }[];
+  transport?: { driverName?: string; driverPhone?: string; vehicleNumber?: string };
 }
 
 const COMPANY = { name: 'DevInception Retail', address: 'HQ, Lahore', phone: '+92 300 1234567' };
@@ -33,6 +39,7 @@ function buildInvoiceHtml(sale: SaleForInvoice) {
     number: sale.saleNumber,
     date: new Date(sale.date).toLocaleString(),
     partyName: sale.customer?.name ?? 'Walk-in Customer',
+    partyPhone: sale.customer?.phone || undefined,
     items: sale.items.map((i) => ({
       name: i.name,
       qty: Number(i.quantity),
@@ -42,7 +49,13 @@ function buildInvoiceHtml(sale: SaleForInvoice) {
     subtotal: Number(sale.subtotal),
     tax: Number(sale.taxTotal),
     discount: Number(sale.discountTotal),
+    transportFare: sale.transportFare ? Number(sale.transportFare) : undefined,
+    labourRentTotal: sale.labourRentTotal ? Number(sale.labourRentTotal) : undefined,
     total: Number(sale.grandTotal),
+    paidAmount: sale.paidAmount !== undefined ? Number(sale.paidAmount) : undefined,
+    balanceDue: sale.balanceDue !== undefined ? Number(sale.balanceDue) : undefined,
+    labour: sale.labour,
+    transport: sale.transport,
   });
 }
 

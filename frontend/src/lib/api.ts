@@ -801,11 +801,16 @@ function mapProduct(p: any) {
       : null,
   };
 }
-async function realFetchProducts(params: { search?: unknown; warehouse?: unknown }) {
+async function realFetchProducts(params: {
+  search?: unknown;
+  warehouse?: unknown;
+  perWarehouse?: unknown;
+}) {
   const res = await http.get('/products', {
     params: {
       search: params.search || undefined,
       warehouse: params.warehouse || undefined,
+      perWarehouse: params.perWarehouse || undefined,
       limit: 100,
     },
   });
@@ -815,6 +820,10 @@ async function realProductsList(params: any) {
   const products = await realFetchProducts({
     search: params.search,
     warehouse: params.warehouseId,
+    // The POS product search asks for one row per warehouse actually
+    // stocking the product, instead of one row totalled across all of them,
+    // so it can offer a per-line warehouse picker with real availability.
+    perWarehouse: params.perWarehouse,
   });
   return products.map(mapProduct);
 }
@@ -1071,12 +1080,28 @@ function mapSale(s: any) {
     subtotal: s.subtotal,
     discountTotal: s.discount,
     taxTotal: s.tax,
+    taxPercent: s.taxPercent ?? 0,
+    transportFare: s.transportFare ?? 0,
+    labourRentTotal: s.labourRent ?? 0,
+    transport: s.transport
+      ? {
+          driverName: s.transport.driverName || '',
+          driverPhone: s.transport.driverPhone || '',
+          vehicleNumber: s.transport.vehicleNumber || '',
+        }
+      : undefined,
     grandTotal: s.total,
     paymentMethod: s.paymentMethod,
     paidCash: s.cashAmount ?? 0,
     paidCard: 0,
     paidBank: s.onlineAmount ?? 0,
     changeDue: 0,
+    // Advance/Remaining for the sales listing — paidAmount includes anything
+    // settled later via "Record Payment"; balanceDue accounts for returns too.
+    paidAmount: s.paidAmount ?? 0,
+    balanceDue: s.balanceDue ?? 0,
+    additionalPaidAmount: s.additionalPaidAmount ?? 0,
+    returnedTotal: s.returnedTotal ?? 0,
     items: (s.items ?? []).map((it: any) => ({
       productId: String(it.product?._id ?? it.product),
       name: it.name,
@@ -1085,11 +1110,28 @@ function mapSale(s: any) {
       discount: 0,
       taxRate: s.taxPercent ?? 0,
       amount: it.lineTotal,
+      source: it.source,
+      vendorId: it.vendor ? String(it.vendor?._id ?? it.vendor) : undefined,
+      vendorName: it.vendorName || '',
+      warehouseId: it.warehouse ? String(it.warehouse?._id ?? it.warehouse) : undefined,
     })),
-    customer: cname ? { name: cname } : undefined,
+    customer: cname ? { name: cname, phone: s.customer?.phone || undefined } : undefined,
+    labour: Array.isArray(s.labour) ? s.labour.map((l: any) => ({ name: l.name })) : undefined,
     gatePassId: s.gatePassId,
     gatePassUrl: s.gatePassUrl,
     gatePassQrUrl: s.gatePassQrUrl,
+    // One entry per warehouse the sale actually drew stock from — a sale
+    // spanning several warehouses gets a separate gate pass for each.
+    warehouseGatePasses: Array.isArray(s.warehouseGatePasses)
+      ? s.warehouseGatePasses.map((g: any) => ({
+          warehouseId: g.warehouseId,
+          gatePassId: g.gatePassId,
+          gatePassQrUrl: g.gatePassQrUrl,
+        }))
+      : [],
+    vendorGatePassId: s.vendorGatePassId,
+    vendorGatePassUrl: s.vendorGatePassUrl,
+    vendorGatePassQrUrl: s.vendorGatePassQrUrl,
   };
 }
 async function realSales(params: any = {}) {
@@ -1116,13 +1158,19 @@ async function realCreateSale(body: any) {
     product: l.productId,
     quantity: l.quantity,
     unitPrice: l.unitPrice,
+    source: l.source || undefined,
+    vendor: l.vendor || undefined,
+    warehouse: l.warehouseId || undefined,
   }));
   const res = await http.post('/sales', {
     customer: body.customerId || undefined,
     warehouse: body.warehouseId || undefined,
     discount: body.discountTotal || 0,
     taxPercent: body.items?.[0]?.taxRate ?? 0,
+    transportFare: body.transportFare || 0,
+    transport: body.transport || undefined,
     items,
+    labour: body.labour || undefined,
     payment: {
       method: body.paymentMethod,
       cash: body.paidCash,
@@ -1131,6 +1179,178 @@ async function realCreateSale(body: any) {
     },
   });
   return mapSale(res.data.sale);
+}
+async function realUpdateSale(id: string, body: any) {
+  // Same item shape as realCreateSale — a full invoice edit resolves lines
+  // the same way a fresh checkout does, minus the payment-method fields.
+  const items = (body.items ?? []).map((l: any) => ({
+    product: l.productId,
+    quantity: l.quantity,
+    unitPrice: l.unitPrice,
+    source: l.source || undefined,
+    vendor: l.vendor || undefined,
+    warehouse: l.warehouseId || undefined,
+  }));
+  const res = await http.patch(`/sales/${id}`, {
+    warehouse: body.warehouseId || undefined,
+    discount: body.discountTotal || 0,
+    taxPercent: body.taxPercent ?? 0,
+    transportFare: body.transportFare || 0,
+    transport: body.transport || undefined,
+    items,
+    labour: body.labour || undefined,
+  });
+  return mapSale(res.data.sale);
+}
+async function realRecordSalePayment(id: string, body: any) {
+  const res = await http.post(`/sales/${id}/payments`, {
+    amount: body.amount,
+    method: body.method,
+    bankAccount: body.bankAccount || undefined,
+    note: body.note || undefined,
+  });
+  return mapSale(res.data.sale);
+}
+function mapSaleReturn(r: any) {
+  return {
+    id: String(r._id ?? r.id),
+    number: r.number,
+    saleId: String(r.sale?._id ?? r.sale),
+    saleNumber: r.saleNumber,
+    date: r.date,
+    items: (r.items ?? []).map((it: any) => ({
+      productId: String(it.product?._id ?? it.product),
+      name: it.name,
+      quantity: it.quantity,
+      unitPrice: it.unitPrice,
+      lineTotal: it.lineTotal,
+    })),
+    subtotal: r.subtotal,
+    discount: r.discount,
+    tax: r.tax,
+    total: r.total,
+    note: r.note,
+  };
+}
+async function realCreateSaleReturn(saleId: string, body: any) {
+  const res = await http.post(`/sales/${saleId}/returns`, {
+    items: (body.items ?? []).map((it: any) => ({ product: it.productId, quantity: it.quantity })),
+    note: body.note || undefined,
+  });
+  return mapSaleReturn(res.data.saleReturn);
+}
+async function realListSaleReturns(saleId: string) {
+  const res = await http.get(`/sales/${saleId}/returns`);
+  return (res.data.returns ?? []).map(mapSaleReturn);
+}
+async function realReceiveCustomerPayment(body: any) {
+  const res = await http.post('/finance/payments/customer', {
+    customer: body.customer,
+    amount: body.amount,
+    method: body.method || undefined,
+    bankAccount: body.bankAccount || undefined,
+    note: body.note || undefined,
+  });
+  return res.data;
+}
+
+/* ── POS sale drafts ("parked sales") — private to the cashier ── */
+function mapSaleDraft(d: any) {
+  return {
+    id: String(d._id ?? d.id),
+    savedAt: d.updatedAt || d.createdAt,
+    step: d.step ?? 1,
+    customer: {
+      id: String(d.customer?.id ?? ''),
+      name: d.customer?.name ?? '',
+      phone: d.customer?.phone || undefined,
+    },
+    cart: (d.items ?? []).map((it: any) => {
+      const product = {
+        id: String(it.productId),
+        name: it.name,
+        sku: it.sku || '',
+        salePrice: String(it.salePrice),
+        currentStock: it.currentStock ?? 0,
+        taxRate: String(it.taxRate ?? 0),
+        warehouseId: it.warehouseId ? String(it.warehouseId) : undefined,
+      };
+      return {
+        key: (it.sku || it.name || it.productId).toLowerCase(),
+        variants: [product],
+        product,
+        vendorId: it.vendorId ? String(it.vendorId) : null,
+        vendorName: it.vendorName || '',
+        price: Number(it.salePrice),
+        qty: it.qty,
+      };
+    }),
+    selectedLabour: (d.labour ?? []).map((l: any) => ({
+      id: String(l.id),
+      name: l.name,
+      phoneNumber: l.phoneNumber || '',
+      rent: l.rent ?? 0,
+    })),
+    driver: {
+      name: d.driver?.name || '',
+      phone: d.driver?.phone || '',
+      vehicleNumber: d.driver?.vehicleNumber || '',
+    },
+    transportFare: d.transportFare ?? 0,
+    discountValue: d.discountValue ?? 0,
+    discountType: d.discountType ?? 'amount',
+    taxPct: d.taxPct ?? 0,
+    advanceAmount: d.advanceAmount ?? 0,
+  };
+}
+function draftPayload(body: any) {
+  return {
+    step: body.step,
+    customer: body.customer
+      ? { id: body.customer.id || undefined, name: body.customer.name, phone: body.customer.phone }
+      : undefined,
+    items: (body.cart ?? []).map((l: any) => ({
+      productId: l.product.id,
+      name: l.product.name,
+      sku: l.product.sku,
+      salePrice: Number(l.price ?? l.product.salePrice),
+      currentStock: l.product.currentStock,
+      taxRate: Number(l.product.taxRate) || 0,
+      warehouseId: l.product.warehouseId || undefined,
+      qty: l.qty,
+      source: l.vendorId ? 'VENDOR' : 'WAREHOUSE',
+      vendorId: l.vendorId || undefined,
+      vendorName: l.vendorName || undefined,
+    })),
+    labour: (body.selectedLabour ?? []).map((l: any) => ({
+      id: l.id,
+      name: l.name,
+      phoneNumber: l.phoneNumber,
+      rent: l.rent || 0,
+    })),
+    driver: body.driver,
+    transportFare: body.transportFare,
+    discountValue: body.discountValue,
+    discountType: body.discountType,
+    taxPct: body.taxPct,
+    advanceAmount: body.advanceAmount,
+  };
+}
+async function realListSaleDrafts() {
+  const res = await http.get('/sale-drafts');
+  return (res.data.drafts as any[]).map(mapSaleDraft);
+}
+async function realCreateSaleDraft(body: any) {
+  const res = await http.post('/sale-drafts', draftPayload(body));
+  return mapSaleDraft(res.data.draft);
+}
+async function realUpdateSaleDraft(id: string, body: any) {
+  const res = await http.patch(`/sale-drafts/${id}`, draftPayload(body));
+  return mapSaleDraft(res.data.draft);
+}
+async function realDeleteSaleDraft(id: string) {
+  await http.delete(`/sale-drafts/${id}`);
+  return { success: true };
 }
 async function realGatePassQr(id: string) {
   const res = await http.get(`/gate-passes/${id}/qr`, { responseType: 'blob' });
@@ -1616,6 +1836,9 @@ async function tryReal(
     if (url === '/customers') return wrap(await realCustomers(params));
     if (url === '/vendors') return wrap(await realVendors(params));
     if (url === '/sales') return wrap(await realSales(params));
+    if (seg[0] === 'sales' && seg[1] && seg[2] === 'returns')
+      return wrap(await realListSaleReturns(seg[1]));
+    if (url === '/sale-drafts') return wrap(await realListSaleDrafts());
     if (url === '/cash') return wrap(await realCashLedger());
     if (url === '/bank/accounts') return wrap(await realBankAccounts());
     if (url === '/users') return wrap(await realUsers());
@@ -1646,6 +1869,12 @@ async function tryReal(
     if (url === '/customers') return wrap(await realCreateCustomer(body));
     if (url === '/vendors') return wrap(await realCreateVendor(body));
     if (url === '/sales') return wrap(await realCreateSale(body));
+    if (seg[0] === 'sales' && seg[1] && seg[2] === 'payments')
+      return wrap(await realRecordSalePayment(seg[1], body));
+    if (seg[0] === 'sales' && seg[1] && seg[2] === 'returns')
+      return wrap(await realCreateSaleReturn(seg[1], body));
+    if (url === '/finance/payments/customer') return wrap(await realReceiveCustomerPayment(body));
+    if (url === '/sale-drafts') return wrap(await realCreateSaleDraft(body));
     if (url === '/purchases') return wrap(await realCreatePurchase(body));
     if (url === '/cash') return wrap(await realCashEntry(body));
     if (url === '/bank/accounts') return wrap(await realCreateBankAccount(body));
@@ -1663,6 +1892,7 @@ async function tryReal(
       return wrap(await realProcessGatePass(seg[2], body));
   }
   if (method === 'patch') {
+    if (seg[0] === 'sales' && seg[1] && !seg[2]) return wrap(await realUpdateSale(seg[1], body));
     if (seg[0] === 'products' && seg[1]) return wrap(await realUpdateProduct(seg[1], body));
     if (seg[0] === 'vendors' && seg[1] && !seg[2])
       return wrap(await realUpdateVendor(seg[1], body));
@@ -1681,6 +1911,7 @@ async function tryReal(
     if (seg[0] === 'roles' && seg[1] && !seg[2]) return wrap(await realUpdateRole(seg[1], body));
     if (seg[0] === 'gate-passes' && seg[1] && !seg[2])
       return wrap(await realUpdateGatePass(seg[1], body));
+    if (seg[0] === 'sale-drafts' && seg[1]) return wrap(await realUpdateSaleDraft(seg[1], body));
   }
   if (method === 'put') {
     if (url === '/settings') return wrap(await realUpdateSettings(body));
@@ -1695,6 +1926,7 @@ async function tryReal(
     if (seg[0] === 'categories' && seg[1]) return wrap(await realDeleteCategory(seg[1]));
     if (seg[0] === 'units' && seg[1]) return wrap(await realDeleteUnit(seg[1]));
     if (seg[0] === 'labour' && seg[1]) return wrap(await realDeleteLabour(seg[1]));
+    if (seg[0] === 'sale-drafts' && seg[1]) return wrap(await realDeleteSaleDraft(seg[1]));
   }
   return undefined;
 }

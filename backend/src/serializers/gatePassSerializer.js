@@ -27,11 +27,13 @@ function serializeGatePass(gatePass) {
     id: gatePassId,
     number: g.number,
     sourceType: g.sourceType,
+    kind: g.kind || 'CUSTOMER',
     direction: isPurchase ? 'IN' : 'OUT',
     saleId: idOf(g.sale),
     purchaseId: idOf(g.purchase),
     saleNumber: g.documentNumber,
     saleDate: g.saleDate,
+    partyName: g.partyName || '',
     items: (g.items || []).map((item) =>
       withoutEmptyValues({
         productId: idOf(item.product),
@@ -45,6 +47,18 @@ function serializeGatePass(gatePass) {
     ),
     ...(g.driver ? { driver: withoutEmptyValues(g.driver) } : {}),
     ...(g.loadNotes ? { loadNotes: g.loadNotes } : {}),
+    // Captured at POS time (Sale.transport / Sale.labour) for SALE-sourced
+    // passes — the scan page shows these read-only instead of asking again.
+    ...(g.saleTransport && Object.keys(withoutEmptyValues(g.saleTransport)).length
+      ? { transport: withoutEmptyValues(g.saleTransport) }
+      : {}),
+    ...(Array.isArray(g.saleLabour) && g.saleLabour.length
+      ? {
+          labour: g.saleLabour.map((l) =>
+            withoutEmptyValues({ name: l.name, phoneNumber: l.phoneNumber }),
+          ),
+        }
+      : {}),
     ...(g.createdBy
       ? {
           createdBy: withoutEmptyValues({

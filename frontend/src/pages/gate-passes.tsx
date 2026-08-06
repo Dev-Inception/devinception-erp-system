@@ -1,19 +1,9 @@
-import { useEffect, useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { CheckCircle2, Clock3, Pencil } from 'lucide-react';
-import { toast } from 'sonner';
+import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { CheckCircle2, Clock3, Search } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
-import { SignaturePad } from '@/components/signature-pad';
 import { api } from '@/lib/api';
 
 interface GatePassItem {
@@ -21,8 +11,6 @@ interface GatePassItem {
   name: string;
   sku?: string;
   quantity: number;
-  loadedQuantity?: number;
-  loadConfirmed?: boolean;
 }
 
 interface GatePass {
@@ -33,176 +21,14 @@ interface GatePass {
   saleDate: string;
   status: 'PENDING' | 'PROCESSED' | 'CANCELLED';
   items: GatePassItem[];
-  driver?: {
-    name: string;
-    phone?: string;
-    licenseNumber?: string;
-    vehicleNumber: string;
-  };
-  loadNotes?: string;
   processedAt?: string;
   processedBy?: { name?: string };
   scannedBy?: { name?: string };
-  lastEditedAt?: string;
-}
-
-function EditGatePass({ gatePass, onClose }: { gatePass: GatePass | null; onClose: () => void }) {
-  const qc = useQueryClient();
-  const [driver, setDriver] = useState({
-    name: '',
-    phone: '',
-    licenseNumber: '',
-    vehicleNumber: '',
-  });
-  const [loadNotes, setLoadNotes] = useState('');
-  const [items, setItems] = useState<GatePassItem[]>([]);
-  const [signatureData, setSignatureData] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!gatePass) return;
-    setDriver({
-      name: gatePass.driver?.name ?? '',
-      phone: gatePass.driver?.phone ?? '',
-      licenseNumber: gatePass.driver?.licenseNumber ?? '',
-      vehicleNumber: gatePass.driver?.vehicleNumber ?? '',
-    });
-    setLoadNotes(gatePass.loadNotes ?? '');
-    setItems(gatePass.items);
-    setSignatureData(null);
-  }, [gatePass]);
-
-  const save = useMutation({
-    mutationFn: async () =>
-      (
-        await api.patch(`/gate-passes/${gatePass!.id}`, {
-          driver,
-          loadNotes,
-          items: items.map((item) => ({
-            productId: item.productId,
-            loadedQuantity: item.loadedQuantity,
-            loadConfirmed: item.loadConfirmed,
-          })),
-          ...(signatureData ? { signatureData } : {}),
-        })
-      ).data,
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['gate-passes'] });
-      toast.success('Gate pass updated');
-      onClose();
-    },
-    onError: (error: any) =>
-      toast.error(error?.response?.data?.message ?? 'Could not update gate pass'),
-  });
-
-  return (
-    <Dialog open={Boolean(gatePass)} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>Edit processed gate pass</DialogTitle>
-          <DialogDescription>
-            Admin corrections are timestamped. Leave the signature blank to retain the existing
-            signature.
-          </DialogDescription>
-        </DialogHeader>
-        {gatePass && (
-          <form
-            className="space-y-4"
-            onSubmit={(event) => {
-              event.preventDefault();
-              save.mutate();
-            }}
-          >
-            <div className="grid gap-3 sm:grid-cols-2">
-              {[
-                ['Driver name', 'name'],
-                ['Vehicle number', 'vehicleNumber'],
-                ['Driver phone', 'phone'],
-                ['License number', 'licenseNumber'],
-              ].map(([label, key]) => (
-                <div key={key} className="space-y-1">
-                  <Label>{label}</Label>
-                  <Input
-                    required={key === 'name' || key === 'vehicleNumber'}
-                    value={driver[key as keyof typeof driver]}
-                    onChange={(event) =>
-                      setDriver((current) => ({ ...current, [key]: event.target.value }))
-                    }
-                  />
-                </div>
-              ))}
-            </div>
-
-            <div className="space-y-2">
-              <Label>Loaded products</Label>
-              {items.map((item, index) => (
-                <div
-                  key={item.productId}
-                  className="grid grid-cols-[1fr_6rem_auto] items-center gap-2 rounded-md border p-2 text-sm"
-                >
-                  <span>
-                    {item.name} (gate qty {item.quantity})
-                  </span>
-                  <Input
-                    type="number"
-                    step="any"
-                    min="0"
-                    value={item.loadedQuantity ?? ''}
-                    onChange={(event) =>
-                      setItems((current) =>
-                        current.map((value, itemIndex) =>
-                          itemIndex === index
-                            ? { ...value, loadedQuantity: Number(event.target.value) }
-                            : value,
-                        ),
-                      )
-                    }
-                  />
-                  <input
-                    type="checkbox"
-                    className="h-4 w-4"
-                    checked={item.loadConfirmed ?? false}
-                    onChange={(event) =>
-                      setItems((current) =>
-                        current.map((value, itemIndex) =>
-                          itemIndex === index
-                            ? { ...value, loadConfirmed: event.target.checked }
-                            : value,
-                        ),
-                      )
-                    }
-                  />
-                </div>
-              ))}
-            </div>
-
-            <div className="space-y-1">
-              <Label>Load notes</Label>
-              <textarea
-                className="min-h-20 w-full rounded-md border bg-transparent px-3 py-2 text-sm"
-                maxLength={1000}
-                value={loadNotes}
-                onChange={(event) => setLoadNotes(event.target.value)}
-              />
-            </div>
-
-            <div className="space-y-1">
-              <Label>Replacement signature (optional)</Label>
-              <SignaturePad onChange={setSignatureData} />
-            </div>
-
-            <Button className="w-full" disabled={save.isPending}>
-              Save Admin Correction
-            </Button>
-          </form>
-        )}
-      </DialogContent>
-    </Dialog>
-  );
 }
 
 export function GatePassesPage() {
   const [status, setStatus] = useState<'ALL' | 'PENDING' | 'PROCESSED'>('ALL');
-  const [editing, setEditing] = useState<GatePass | null>(null);
+  const [search, setSearch] = useState('');
   const { data, isLoading } = useQuery<{
     gatePasses: GatePass[];
     total: number;
@@ -217,6 +43,11 @@ export function GatePassesPage() {
   });
   const gatePasses = data?.gatePasses ?? [];
 
+  const q = search.trim().toLowerCase();
+  const filteredGatePasses = q
+    ? gatePasses.filter((g) => g.number.toLowerCase().includes(q))
+    : gatePasses;
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -226,7 +57,16 @@ export function GatePassesPage() {
             Review pending and processed vehicle loads.
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="relative w-64">
+            <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search by gate pass #…"
+              className="pl-8"
+            />
+          </div>
           {(['ALL', 'PENDING', 'PROCESSED'] as const).map((value) => (
             <Button
               key={value}
@@ -247,27 +87,26 @@ export function GatePassesPage() {
               <th className="px-4 py-3 font-medium">Gate Pass</th>
               <th className="px-4 py-3 font-medium">Document</th>
               <th className="px-4 py-3 font-medium">Products / Qty</th>
-              <th className="px-4 py-3 font-medium">Driver / Vehicle</th>
+              <th className="px-4 py-3 font-medium">Scanned By</th>
               <th className="px-4 py-3 font-medium">Status</th>
-              <th className="px-4 py-3 text-right font-medium">Action</th>
             </tr>
           </thead>
           <tbody>
             {isLoading && (
               <tr>
-                <td colSpan={6} className="px-4 py-10 text-center text-muted-foreground">
+                <td colSpan={5} className="px-4 py-10 text-center text-muted-foreground">
                   Loading…
                 </td>
               </tr>
             )}
-            {!isLoading && gatePasses.length === 0 && (
+            {!isLoading && filteredGatePasses.length === 0 && (
               <tr>
-                <td colSpan={6} className="px-4 py-10 text-center text-muted-foreground">
-                  No gate passes found.
+                <td colSpan={5} className="px-4 py-10 text-center text-muted-foreground">
+                  {q ? `No gate passes match "${search}".` : 'No gate passes found.'}
                 </td>
               </tr>
             )}
-            {gatePasses.map((gatePass) => (
+            {filteredGatePasses.map((gatePass) => (
               <tr key={gatePass.id} className="border-b last:border-0">
                 <td className="px-4 py-3 font-medium">{gatePass.number}</td>
                 <td className="px-4 py-3">
@@ -284,14 +123,7 @@ export function GatePassesPage() {
                   ))}
                 </td>
                 <td className="px-4 py-3 text-muted-foreground">
-                  {gatePass.driver ? (
-                    <>
-                      <div>{gatePass.driver.name}</div>
-                      <div>{gatePass.driver.vehicleNumber}</div>
-                    </>
-                  ) : (
-                    '—'
-                  )}
+                  {gatePass.scannedBy?.name ?? gatePass.processedBy?.name ?? '—'}
                 </td>
                 <td className="px-4 py-3">
                   <div className="flex items-center gap-2">
@@ -307,27 +139,12 @@ export function GatePassesPage() {
                       {new Date(gatePass.processedAt).toLocaleString()}
                     </div>
                   )}
-                  {(gatePass.scannedBy?.name || gatePass.processedBy?.name) && (
-                    <div className="mt-1 text-xs text-muted-foreground">
-                      Scanned by {gatePass.scannedBy?.name ?? gatePass.processedBy?.name}
-                    </div>
-                  )}
-                </td>
-                <td className="px-4 py-3 text-right">
-                  {gatePass.status === 'PROCESSED' && (
-                    <Button size="sm" variant="outline" onClick={() => setEditing(gatePass)}>
-                      <Pencil className="h-4 w-4" />
-                      Edit
-                    </Button>
-                  )}
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
       </Card>
-
-      <EditGatePass gatePass={editing} onClose={() => setEditing(null)} />
     </div>
   );
 }

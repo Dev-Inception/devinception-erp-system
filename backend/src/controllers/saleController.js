@@ -5,23 +5,55 @@ const { view } = require('../utils/money');
 
 const out = (s) => (s && s.toJSON ? s.toJSON() : s);
 function serialize(sale) {
-  const s = view(out(sale), [
+  const raw = out(sale);
+  // Paid so far = collected at checkout + anything settled later against this
+  // sale specifically. Remaining = total owed after returns and payments.
+  const paidAmount =
+    (raw.cashAmount || 0) + (raw.onlineAmount || 0) + (raw.additionalPaidAmount || 0);
+  const balanceDue = Math.max(0, (raw.total || 0) - (raw.returnedTotal || 0) - paidAmount);
+
+  const s = view({ ...raw, paidAmount, balanceDue }, [
     'subtotal',
     'discount',
     'tax',
+    'transportFare',
+    'labourRent',
     'total',
     'cost',
     'cashAmount',
     'onlineAmount',
     'creditAmount',
+    'additionalPaidAmount',
+    'returnedTotal',
+    'paidAmount',
+    'balanceDue',
   ]);
   if (Array.isArray(s.items)) {
     s.items = s.items.map((it) => view(it, ['unitPrice', 'lineTotal', 'cost']));
+  }
+  if (Array.isArray(s.labour)) {
+    s.labour = s.labour.map((l) => view(l, ['rent']));
   }
   if (s.gatePass) {
     s.gatePassId = String(s.gatePass._id ?? s.gatePass);
     s.gatePassUrl = `/gate-passes/${s.gatePassId}`;
     s.gatePassQrUrl = `/gate-passes/${s.gatePassId}/qr`;
+  }
+  if (Array.isArray(s.warehouseGatePasses)) {
+    s.warehouseGatePasses = s.warehouseGatePasses.map((entry) => {
+      const gatePassId = String(entry.gatePass?._id ?? entry.gatePass);
+      return {
+        warehouseId: String(entry.warehouse?._id ?? entry.warehouse),
+        gatePassId,
+        gatePassUrl: `/gate-passes/${gatePassId}`,
+        gatePassQrUrl: `/gate-passes/${gatePassId}/qr`,
+      };
+    });
+  }
+  if (s.vendorGatePass) {
+    s.vendorGatePassId = String(s.vendorGatePass._id ?? s.vendorGatePass);
+    s.vendorGatePassUrl = `/gate-passes/${s.vendorGatePassId}`;
+    s.vendorGatePassQrUrl = `/gate-passes/${s.vendorGatePassId}/qr`;
   }
   return s;
 }
@@ -29,6 +61,16 @@ function serialize(sale) {
 const createSale = asyncHandler(async (req, res) => {
   const sale = await saleService.createSale(req.user, req.body);
   return sendSuccess(res, 201, 'Sale recorded', { sale: serialize(sale) });
+});
+
+const updateSale = asyncHandler(async (req, res) => {
+  const sale = await saleService.updateSale(req.user, req.params.id, req.body);
+  return sendSuccess(res, 200, 'Sale updated', { sale: serialize(sale) });
+});
+
+const recordPayment = asyncHandler(async (req, res) => {
+  const sale = await saleService.recordPayment(req.user, req.params.id, req.body);
+  return sendSuccess(res, 200, 'Payment recorded', { sale: serialize(sale) });
 });
 
 const listSales = asyncHandler(async (req, res) => {
@@ -45,4 +87,4 @@ const getSale = asyncHandler(async (req, res) => {
   return sendSuccess(res, 200, 'Sale fetched', { sale: serialize(sale) });
 });
 
-module.exports = { createSale, listSales, getSale };
+module.exports = { createSale, updateSale, recordPayment, listSales, getSale };

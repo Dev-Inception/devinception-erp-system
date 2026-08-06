@@ -41,7 +41,19 @@ const gatePassSchema = new mongoose.Schema(
     },
     sale: { type: mongoose.Schema.Types.ObjectId, ref: 'Sale', default: null },
     purchase: { type: mongoose.Schema.Types.ObjectId, ref: 'GoodsPurchase', default: null },
+    // Only meaningful for sourceType SALE. CUSTOMER = goods leaving a
+    // warehouse against this sale — scoped to ONE warehouse (`warehouse`
+    // below), so a sale spanning several warehouses gets several CUSTOMER
+    // passes, one per warehouse. VENDOR = the sale's vendor-sourced lines
+    // (all of them, regardless of how many vendors) — a single additional
+    // pass, since that portion never touched warehouse stock. See
+    // gatePassService's `createGatePassesForSale`.
+    kind: { type: String, enum: ['CUSTOMER', 'VENDOR'], default: 'CUSTOMER', required: true },
     documentNumber: { type: String, required: true },
+    // Snapshot of who this gate pass is against — the sale's customer (SALE)
+    // or the purchase's vendor (PURCHASE) — so the list can show/filter by
+    // party without joining back to the sale/purchase.
+    partyName: { type: String, trim: true, default: '' },
     warehouse: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Warehouse',
@@ -71,8 +83,11 @@ const gatePassSchema = new mongoose.Schema(
   { timestamps: true },
 );
 
+// A sale can have multiple CUSTOMER-kind passes (one per warehouse) but only
+// one per (kind, warehouse) pair — the VENDOR pass always uses the same
+// (primary) warehouse value, so this still guarantees exactly one of those.
 gatePassSchema.index(
-  { sale: 1 },
+  { sale: 1, kind: 1, warehouse: 1 },
   { unique: true, partialFilterExpression: { sale: { $type: 'objectId' } } },
 );
 gatePassSchema.index(

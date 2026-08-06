@@ -29,7 +29,12 @@ function refObject(ref, withAbbrev) {
 
 function serialize(product) {
   const p = view(out(product), ['purchasePrice', 'salePrice', 'stockValue']);
-  p.warehouseId = p.warehouse ? String(p.warehouse._id || p.warehouse) : undefined;
+  // A per-warehouse search row (see productService.attachStockByWarehouse)
+  // already carries the stock LOCATION's warehouseId — don't clobber it with
+  // the product's own owning warehouse, which is a different thing.
+  if (p.warehouseId === undefined) {
+    p.warehouseId = p.warehouse ? String(p.warehouse._id || p.warehouse) : undefined;
+  }
   const c = refObject(p.category);
   const b = refObject(p.brand);
   const u = refObject(p.unit, true);
@@ -43,7 +48,7 @@ function serialize(product) {
 }
 
 const listProducts = asyncHandler(async (req, res) => {
-  const { page, limit, search, warehouse, warehouseId, includeInactive } = req.query;
+  const { page, limit, search, warehouse, warehouseId, includeInactive, perWarehouse } = req.query;
   const selectedWarehouse = warehouse || warehouseId;
   const result = await productService.listProducts({
     page,
@@ -53,6 +58,10 @@ const listProducts = asyncHandler(async (req, res) => {
     // alias so clients using the UI field name are still correctly scoped.
     warehouse: selectedWarehouse,
     includeInactive: includeInactive === 'true',
+    // Opt-in: one row per warehouse the product actually has stock in,
+    // instead of one row with the total summed across every warehouse. The
+    // POS product search needs this to offer a per-line warehouse picker.
+    perWarehouse: perWarehouse === 'true',
   });
   return sendSuccess(res, 200, 'Products fetched', {
     ...result,

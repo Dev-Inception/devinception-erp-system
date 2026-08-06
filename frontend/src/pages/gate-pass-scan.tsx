@@ -34,6 +34,10 @@ interface GatePassDetail {
     licenseNumber?: string;
     vehicleNumber: string;
   };
+  // Captured at POS time for SALE-sourced passes — display-only, distinct
+  // from `driver` above (which only formal purchase-side processing sets).
+  transport?: { driverName?: string; driverPhone?: string; vehicleNumber?: string };
+  labour?: { name: string; phoneNumber?: string }[];
   loadNotes?: string;
   status: 'PENDING' | 'PROCESSED' | 'CANCELLED';
   processedAt?: string;
@@ -59,12 +63,6 @@ export function GatePassScanPage() {
   const login = useAuthStore((state) => state.login);
   const [credentials, setCredentials] = useState({ email: '', password: '' });
   const [loginError, setLoginError] = useState('');
-  const [driver, setDriver] = useState({
-    name: '',
-    phone: '',
-    licenseNumber: '',
-    vehicleNumber: '',
-  });
   const [items, setItems] = useState<LoadedItem[]>([]);
   const [loadNotes, setLoadNotes] = useState('');
   const [signatureData, setSignatureData] = useState<string | null>(null);
@@ -98,7 +96,6 @@ export function GatePassScanPage() {
     mutationFn: async () =>
       (
         await api.post(`/gate-passes/public/${token}/process`, {
-          driver,
           items,
           loadNotes,
           signatureData,
@@ -119,12 +116,7 @@ export function GatePassScanPage() {
         items[index]?.loadConfirmed &&
         Number(items[index]?.loadedQuantity) === Number(item.quantity),
     );
-  const canProcess =
-    driver.name.trim() &&
-    driver.vehicleNumber.trim() &&
-    signatureData &&
-    allConfirmed &&
-    !processPass.isPending;
+  const canProcess = Boolean(signatureData) && allConfirmed && !processPass.isPending;
   const apiError = (error as any)?.response?.data?.message;
   const processError = (processPass.error as any)?.response?.data?.message;
 
@@ -158,10 +150,6 @@ export function GatePassScanPage() {
                 value={data.saleNumber}
               />
               <Row label="Date" value={new Date(data.saleDate).toLocaleString()} />
-              <Row
-                label="Scaned By"
-                value={data.scannedBy?.name ?? data.processedBy?.name ?? '—'}
-              />
             </div>
 
             <div className="overflow-x-auto rounded-lg border">
@@ -193,6 +181,31 @@ export function GatePassScanPage() {
                 </tbody>
               </table>
             </div>
+
+            {data.sourceType === 'SALE' && (
+              <div className="space-y-2 rounded-lg border bg-muted/20 p-4 text-sm">
+                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  Captured at Point of Sale
+                </p>
+                {data.labour && data.labour.length > 0 && (
+                  <Row label="Labour" value={data.labour.map((l) => l.name).join(', ')} />
+                )}
+                {data.transport?.driverName && (
+                  <Row label="Driver" value={data.transport.driverName} />
+                )}
+                {data.transport?.vehicleNumber && (
+                  <Row label="Vehicle" value={data.transport.vehicleNumber} />
+                )}
+                {data.transport?.driverPhone && (
+                  <Row label="Phone" value={data.transport.driverPhone} />
+                )}
+                {!data.labour?.length && !data.transport?.driverName && (
+                  <p className="text-muted-foreground">
+                    No labour or transport details were recorded.
+                  </p>
+                )}
+              </div>
+            )}
 
             {data.status === 'PENDING' && !user && (
               <form
@@ -240,28 +253,8 @@ export function GatePassScanPage() {
                   if (canProcess) processPass.mutate();
                 }}
               >
-                <div className="grid gap-3 sm:grid-cols-2">
-                  {[
-                    ['Driver name', 'name'],
-                    ['Vehicle number', 'vehicleNumber'],
-                    ['Driver phone', 'phone'],
-                    ['License number', 'licenseNumber'],
-                  ].map(([label, key]) => (
-                    <div key={key} className="space-y-1">
-                      <Label>{label}</Label>
-                      <Input
-                        required={key === 'name' || key === 'vehicleNumber'}
-                        value={driver[key as keyof typeof driver]}
-                        onChange={(event) =>
-                          setDriver((current) => ({ ...current, [key]: event.target.value }))
-                        }
-                      />
-                    </div>
-                  ))}
-                </div>
-
                 <div className="space-y-2">
-                  <Label>Confirm vehicle load</Label>
+                  <Label>Confirm items</Label>
                   {data.items.map((item, index) => (
                     <div
                       key={item.productId}

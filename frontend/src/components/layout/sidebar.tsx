@@ -14,15 +14,15 @@ export function Sidebar() {
   })).filter((g) => g.items.length > 0);
 
   return (
-    <aside className="hidden md:flex w-64 shrink-0 flex-col border-r bg-card">
-      <div className="flex h-16 items-center gap-2 border-b px-6">
+    <aside className="hidden md:flex h-screen w-64 shrink-0 flex-col border-r bg-card">
+      <div className="flex h-16 shrink-0 items-center gap-2 border-b px-6">
         <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground font-bold">
           D
         </div>
         <span className="font-semibold tracking-tight">DevInception</span>
       </div>
 
-      <nav className="flex-1 overflow-y-auto px-3 py-4">
+      <nav className="min-h-0 flex-1 overflow-y-auto px-3 py-4">
         {groups.map((group) => (
           <div key={group.section} className="mb-4">
             <p className="px-3 pb-1 text-xs font-medium uppercase tracking-wider text-muted-foreground">

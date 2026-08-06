@@ -47,6 +47,9 @@ const PERMISSIONS = {
   // POS sales
   SALES_READ: 'sales:read',
   SALES_CREATE: 'sales:create',
+  // Editing an already-completed sale, recording a later payment against it,
+  // and processing product returns against it.
+  SALES_UPDATE: 'sales:update',
 
   // Invoices (vendor purchase documents)
   INVOICES_READ: 'invoices:read',

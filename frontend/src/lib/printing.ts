@@ -20,11 +20,18 @@ interface DocData {
   number: string;
   date: string;
   partyName?: string;
+  partyPhone?: string;
   items: LineItem[];
   subtotal: number;
   tax: number;
   discount?: number;
+  transportFare?: number;
+  labourRentTotal?: number;
   total: number;
+  paidAmount?: number;
+  balanceDue?: number;
+  labour?: { name: string; phone?: string }[];
+  transport?: { driverName?: string; driverPhone?: string; vehicleNumber?: string };
   notes?: string;
 }
 
@@ -107,17 +114,33 @@ export function renderTemplate(type: TemplateType, d: DocData): string {
     }
     <div class="head">
       <div><h1>${heading}</h1><p>${d.company.name}<br/>${d.company.address ?? ''}<br/>${d.company.phone ?? ''}</p></div>
-      <div class="r"><strong>${d.number}</strong><br/>${d.date}${d.partyName ? `<br/>${d.partyName}` : ''}</div>
+      <div class="r"><strong>${d.number}</strong><br/>${d.date}${d.partyName ? `<br/>${d.partyName}` : ''}${d.partyPhone ? `<br/>${d.partyPhone}` : ''}</div>
     </div>
     <table>
       <thead><tr><th>Item</th><th class="r">Qty</th><th class="r">Rate</th><th class="r">Amount</th></tr></thead>
       <tbody>${rows(d.items)}</tbody>
     </table>
+    ${
+      d.labour?.length || d.transport?.driverName
+        ? `<div style="margin-top:16px;font-size:12px;color:#333;">
+      ${d.labour?.length ? `<p style="margin:2px 0;"><strong>Labour:</strong> ${d.labour.map((l) => l.name).join(', ')}</p>` : ''}
+      ${
+        d.transport?.driverName
+          ? `<p style="margin:2px 0;"><strong>Transport:</strong> ${d.transport.driverName}${d.transport.vehicleNumber ? ` (${d.transport.vehicleNumber})` : ''}${d.transport.driverPhone ? ` · ${d.transport.driverPhone}` : ''}</p>`
+          : ''
+      }
+    </div>`
+        : ''
+    }
     <table class="totals">
       <tr><td>Subtotal</td><td class="r">${formatCurrency(d.subtotal)}</td></tr>
       ${d.discount ? `<tr><td>Discount</td><td class="r">-${formatCurrency(d.discount)}</td></tr>` : ''}
       <tr><td>Tax</td><td class="r">${formatCurrency(d.tax)}</td></tr>
+      ${d.transportFare ? `<tr><td>Transport Fare</td><td class="r">${formatCurrency(d.transportFare)}</td></tr>` : ''}
+      ${d.labourRentTotal ? `<tr><td>Labour Rent</td><td class="r">${formatCurrency(d.labourRentTotal)}</td></tr>` : ''}
       <tr class="grand"><td>Total</td><td class="r">${formatCurrency(d.total)}</td></tr>
+      ${d.paidAmount !== undefined ? `<tr><td>Paid</td><td class="r">${formatCurrency(d.paidAmount)}</td></tr>` : ''}
+      ${d.balanceDue !== undefined ? `<tr><td>Balance Due</td><td class="r">${formatCurrency(d.balanceDue)}</td></tr>` : ''}
     </table>
     ${d.notes ? `<p style="margin-top:24px;color:#666">${d.notes}</p>` : ''}
   </body></html>`;

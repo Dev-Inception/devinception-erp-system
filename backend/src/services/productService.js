@@ -56,7 +56,62 @@ async function attachStock(products, warehouse) {
   });
 }
 
-async function listProducts({ search, warehouse, includeInactive = false, ...query } = {}) {
+// Like attachStock, but expands each product into one row per warehouse that
+// actually has a StockLevel record for it (instead of one row with the
+// total summed across every warehouse). Used by the POS product search,
+// which needs to know per-warehouse availability to offer a per-line
+// warehouse picker — a plain product listing has no use for this shape.
+// Falls back to a single row on the product's own owning warehouse (0 stock)
+// for a product that has never been stocked anywhere, so it still shows up
+// in search results (the cashier can still source it from a vendor).
+async function attachStockByWarehouse(products) {
+  const ids = products.map((p) => p._id);
+  const levels = await StockLevel.find({
+    product: { $in: ids },
+    $expr: { $gt: [{ $round: ['$quantity', QUANTITY_DECIMALS] }, 0] },
+  }).lean();
+
+  const levelsByProduct = new Map();
+  for (const l of levels) {
+    const key = String(l.product);
+    if (!levelsByProduct.has(key)) levelsByProduct.set(key, []);
+    levelsByProduct.get(key).push(l);
+  }
+
+  const rows = [];
+  for (const p of products) {
+    const productLevels = levelsByProduct.get(String(p._id));
+    if (!productLevels || productLevels.length === 0) {
+      rows.push({
+        ...p,
+        stock: 0,
+        stockValue: 0,
+        lowStock: true,
+        warehouseId: p.warehouse ? String(p.warehouse) : null,
+      });
+      continue;
+    }
+    for (const l of productLevels) {
+      const stock = normalizeQuantity(l.quantity);
+      rows.push({
+        ...p,
+        stock,
+        stockValue: Math.round(stock * (l.avgCost || 0)),
+        lowStock: stock <= (p.minStock || 0),
+        warehouseId: String(l.warehouse),
+      });
+    }
+  }
+  return rows;
+}
+
+async function listProducts({
+  search,
+  warehouse,
+  includeInactive = false,
+  perWarehouse = false,
+  ...query
+} = {}) {
   // The inventory list and product pickers have no pagination UI, so this
   // endpoint allows a far larger page size than the default 100-row cap.
   const { page, limit, skip } = parsePagination(query, { defaultLimit: 1000, maxLimit: 100000 });
@@ -98,7 +153,12 @@ async function listProducts({ search, warehouse, includeInactive = false, ...que
     Product.countDocuments(filter),
   ]);
 
-  const products = await attachStock(docs, warehouse);
+  const products = perWarehouse
+    ? await attachStockByWarehouse(docs)
+    : await attachStock(docs, warehouse);
+  // A per-warehouse expansion can turn N products into more than N rows
+  // (one per stocked warehouse) — `total` stays the product count, matching
+  // what the search UI actually cares about ("N products matched").
   return { products, total, page, limit };
 }
 

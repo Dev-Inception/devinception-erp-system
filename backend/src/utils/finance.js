@@ -47,6 +47,7 @@ function naturalBalance(kind, debit, credit) {
 // Source document types a journal entry can reference.
 const REF = {
   SALE: 'SALE',
+  SALE_RETURN: 'SALE_RETURN', // goods returned against a sale
   PURCHASE: 'PURCHASE',
   PAYMENT: 'PAYMENT', // money paid to a vendor
   RECEIPT: 'RECEIPT', // money received from a customer

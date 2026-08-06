@@ -18,13 +18,15 @@ const SYSTEM_ROLES = [
   {
     name: ROLES.CASHIER,
     description: 'Point-of-sale operator',
-    // The POS needs to look up/add walk-in customers, read stock, and ring sales.
+    // The POS needs to look up/add customers, read stock, ring sales, and
+    // record advance payments taken against an on-account sale at checkout.
     permissions: [
       PERMISSIONS.CUSTOMERS_READ,
       PERMISSIONS.CUSTOMERS_CREATE,
       PERMISSIONS.INVENTORY_READ,
       PERMISSIONS.SALES_READ,
       PERMISSIONS.SALES_CREATE,
+      PERMISSIONS.FINANCE_MANAGE,
     ],
   },
   {
@@ -60,6 +62,7 @@ const SYSTEM_ROLES = [
       PERMISSIONS.PURCHASES_CREATE,
       PERMISSIONS.SALES_READ,
       PERMISSIONS.SALES_CREATE,
+      PERMISSIONS.SALES_UPDATE,
       PERMISSIONS.INVOICES_READ,
       PERMISSIONS.INVOICES_CREATE,
       PERMISSIONS.FINANCE_READ,
@@ -90,6 +93,7 @@ const SYSTEM_ROLES = [
       PERMISSIONS.PURCHASES_CREATE,
       PERMISSIONS.SALES_READ,
       PERMISSIONS.SALES_CREATE,
+      PERMISSIONS.SALES_UPDATE,
       PERMISSIONS.INVOICES_READ,
       PERMISSIONS.INVOICES_CREATE,
       PERMISSIONS.FINANCE_READ,
