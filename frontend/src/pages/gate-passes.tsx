@@ -5,6 +5,7 @@ import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { api } from '@/lib/api';
+import { useStorefrontFilter } from '@/store/storefront';
 
 interface GatePassItem {
   productId: string;
@@ -29,15 +30,16 @@ interface GatePass {
 export function GatePassesPage() {
   const [status, setStatus] = useState<'ALL' | 'PENDING' | 'PROCESSED'>('ALL');
   const [search, setSearch] = useState('');
+  const storefront = useStorefrontFilter();
   const { data, isLoading } = useQuery<{
     gatePasses: GatePass[];
     total: number;
   }>({
-    queryKey: ['gate-passes', status],
+    queryKey: ['gate-passes', status, storefront.store],
     queryFn: async () =>
       (
         await api.get('/gate-passes', {
-          params: { limit: 100, ...(status === 'ALL' ? {} : { status }) },
+          params: { limit: 100, ...(status === 'ALL' ? {} : { status }), ...storefront },
         })
       ).data,
   });

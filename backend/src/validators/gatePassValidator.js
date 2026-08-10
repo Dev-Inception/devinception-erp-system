@@ -8,6 +8,7 @@ const saleParamValidator = [param('saleId').isMongoId().withMessage('Invalid sal
 
 const listGatePassValidator = [
   query('warehouse').optional({ values: 'falsy' }).isMongoId().withMessage('Invalid warehouse'),
+  query('store').optional({ values: 'falsy' }).isMongoId().withMessage('Invalid store'),
   query('status')
     .optional({ values: 'falsy' })
     .toUpperCase()

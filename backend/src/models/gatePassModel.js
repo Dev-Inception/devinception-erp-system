@@ -50,6 +50,9 @@ const gatePassSchema = new mongoose.Schema(
     // Snapshot of the sale's customer name, so the list can show/filter by
     // party without joining back to the sale.
     partyName: { type: String, trim: true, default: '' },
+    // Copied from the originating sale's own `store` — gate passes are always
+    // derived from a sale, so this is never captured independently.
+    store: { type: mongoose.Schema.Types.ObjectId, ref: 'Store', default: null, index: true },
     warehouse: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Warehouse',

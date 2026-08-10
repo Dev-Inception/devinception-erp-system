@@ -46,6 +46,14 @@ const REPORT_COLUMNS = {
     ['Item', 'item'],
     ['Amount', 'amount', 'money'],
   ],
+  'day-book': [
+    ['Date', 'date', 'datetime'],
+    ['Type', 'voucherLabel'],
+    ['Voucher #', 'voucherNo'],
+    ['Description', 'description'],
+    ['Warehouse', 'warehouse'],
+    ['Amount', 'amount', 'money'],
+  ],
 };
 
 const SUMMARY_COLUMNS = {
@@ -78,6 +86,21 @@ const SUMMARY_COLUMNS = {
     ['Operating Expenses', 'expenses', 'money'],
     ['Net Profit', 'netProfit', 'money'],
   ],
+  'day-book': [
+    ['Transactions', 'transactionCount'],
+    ['Total Sales', 'totalSales', 'money'],
+    ['Total COGS', 'totalCOGS', 'money'],
+    ['Total Purchases', 'totalPurchases', 'money'],
+    ['Total Expenses', 'totalExpenses', 'money'],
+    ['Vendor Payments', 'totalVendorPayments', 'money'],
+    ['Customer Receipts', 'totalCustomerReceipts', 'money'],
+    ['Cash In', 'cashIn', 'money'],
+    ['Cash Out', 'cashOut', 'money'],
+    ['Net Cash', 'netCash', 'money'],
+    ['Bank In', 'bankIn', 'money'],
+    ['Bank Out', 'bankOut', 'money'],
+    ['Net Bank', 'netBank', 'money'],
+  ],
 };
 
 function formatValue(value, type) {
@@ -87,6 +110,10 @@ function formatValue(value, type) {
   if (type === 'date') {
     const date = new Date(value);
     return Number.isNaN(date.getTime()) ? '' : formatReportDate(date);
+  }
+  if (type === 'datetime') {
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? '' : date.toISOString().replace('T', ' ').slice(0, 19);
   }
   return String(value);
 }

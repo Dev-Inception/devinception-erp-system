@@ -32,6 +32,7 @@ import { formatCurrency, cn } from '@/lib/utils';
 import { openSaleInvoicePopup } from '@/lib/invoicePopup';
 import { useAuthStore } from '@/store/auth';
 import { grantsPermission } from '@/lib/modules';
+import { useStorefrontFilter } from '@/store/storefront';
 
 interface SaleItem {
   productId: string;
@@ -64,6 +65,7 @@ interface Sale {
   paymentMethod: string;
   status: string;
   customer?: { name: string };
+  storeName?: string;
   items: SaleItem[];
   gatePassId?: string;
   gatePassQrUrl?: string;
@@ -117,6 +119,7 @@ export function SalesPage() {
   const [to, setTo] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('');
   const [page, setPage] = useState(1);
+  const storefront = useStorefrontFilter();
 
   const q = search.trim().toLowerCase();
   const isSearching = q.length > 0;
@@ -128,7 +131,7 @@ export function SalesPage() {
   }, [from, to, paymentMethod, search]);
 
   const { data, isLoading } = useQuery({
-    queryKey: ['sales', from, to, paymentMethod, fetchPage, fetchLimit],
+    queryKey: ['sales', from, to, paymentMethod, fetchPage, fetchLimit, storefront.store],
     queryFn: async () =>
       (
         await api.get('/sales', {
@@ -138,6 +141,7 @@ export function SalesPage() {
             paymentMethod: paymentMethod || undefined,
             page: fetchPage,
             limit: fetchLimit,
+            ...storefront,
           },
         })
       ).data as { sales: Sale[]; total: number; page: number; limit: number },
@@ -305,6 +309,7 @@ export function SalesPage() {
                   <th className="px-4 py-3 font-medium">Sale #</th>
                   <th className="px-4 py-3 font-medium">Date</th>
                   <th className="px-4 py-3 font-medium">Customer</th>
+                  <th className="px-4 py-3 font-medium">Store</th>
                   <th className="px-4 py-3 font-medium">Payment</th>
                   <th className="px-4 py-3 text-right font-medium">Advance Payment</th>
                   <th className="px-4 py-3 text-right font-medium">Remaining Amount</th>
@@ -315,7 +320,7 @@ export function SalesPage() {
               <tbody>
                 {isLoading && (
                   <tr>
-                    <td colSpan={8} className="px-4 py-10 text-center text-muted-foreground">
+                    <td colSpan={9} className="px-4 py-10 text-center text-muted-foreground">
                       Loading…
                     </td>
                   </tr>
@@ -330,6 +335,7 @@ export function SalesPage() {
                       <td className="px-4 py-3 text-muted-foreground">
                         {s.customer?.name ?? 'Walk-in'}
                       </td>
+                      <td className="px-4 py-3 text-muted-foreground">{s.storeName ?? '—'}</td>
                       <td className="px-4 py-3 text-muted-foreground">
                         {PAYMENT_LABEL[s.paymentMethod] ?? s.paymentMethod}
                       </td>
@@ -386,14 +392,14 @@ export function SalesPage() {
                   ))}
                 {!isLoading && isSearching && filteredSales.length === 0 && (
                   <tr>
-                    <td colSpan={8} className="px-4 py-10 text-center text-muted-foreground">
+                    <td colSpan={9} className="px-4 py-10 text-center text-muted-foreground">
                       No sales match “{search}”.
                     </td>
                   </tr>
                 )}
                 {!isLoading && total === 0 && (
                   <tr>
-                    <td colSpan={8} className="px-4 py-10 text-center text-muted-foreground">
+                    <td colSpan={9} className="px-4 py-10 text-center text-muted-foreground">
                       No sales yet — ring one up in the POS.
                     </td>
                   </tr>

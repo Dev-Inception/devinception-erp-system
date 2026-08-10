@@ -41,6 +41,18 @@ const journalEntrySchema = new mongoose.Schema(
       default: null,
       index: true,
     },
+    // Which physical storefront this money movement belongs to — set
+    // directly (not derived from `warehouse`) for entries with no natural
+    // warehouse/inventory angle: vendor payments, customer receipts, manual
+    // cash in/out, and operating expenses. Required going forward for those;
+    // null on entries that predate store tracking or are genuinely
+    // business-wide (e.g. a bank account opening balance).
+    store: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Store',
+      default: null,
+      index: true,
+    },
 
     lines: {
       type: [lineSchema],

@@ -21,6 +21,7 @@ import { api } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
 import { useAuthStore } from '@/store/auth';
 import { grantsPermission } from '@/lib/modules';
+import { useStorefrontFilter } from '@/store/storefront';
 
 interface Vendor {
   id: string;
@@ -165,9 +166,10 @@ export function VendorsPage() {
   const [to, setTo] = useState('');
   const [page, setPage] = useState(1);
 
+  const storefront = useStorefrontFilter();
   const { data: vendors = [], isLoading } = useQuery<Vendor[]>({
-    queryKey: ['vendors', search],
-    queryFn: async () => (await api.get('/vendors', { params: { search } })).data,
+    queryKey: ['vendors', search, storefront.store],
+    queryFn: async () => (await api.get('/vendors', { params: { search, ...storefront } })).data,
   });
 
   const q = search.trim().toLowerCase();

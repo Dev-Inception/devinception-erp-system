@@ -17,6 +17,8 @@ interface SaleItemForInvoice {
 export interface SaleForInvoice {
   saleNumber: string;
   date: string;
+  storeName?: string;
+  storeAddress?: string;
   customer?: { name: string; phone?: string };
   items: SaleItemForInvoice[];
   subtotal: number | string;
@@ -34,8 +36,14 @@ export interface SaleForInvoice {
 const COMPANY = { name: 'DevInception Retail', address: 'HQ, Lahore', phone: '+92 300 1234567' };
 
 function buildInvoiceHtml(sale: SaleForInvoice) {
+  // The invoice header identifies the physical storefront the sale happened
+  // at, not a single generic company block — falls back to the generic
+  // identity only for legacy sales that predate the store field.
+  const company = sale.storeName
+    ? { name: sale.storeName, address: sale.storeAddress || COMPANY.address, phone: COMPANY.phone }
+    : COMPANY;
   return renderTemplate('INVOICE_A4', {
-    company: COMPANY,
+    company,
     number: sale.saleNumber,
     date: new Date(sale.date).toLocaleString(),
     partyName: sale.customer?.name ?? 'Walk-in Customer',

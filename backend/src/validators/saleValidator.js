@@ -69,6 +69,7 @@ const itemsAndTermsValidator = [
 ];
 
 const createSaleValidator = [
+  body('store').isMongoId().withMessage('A store is required'),
   body('customer').optional({ values: 'falsy' }).isMongoId().withMessage('Invalid customer'),
   body('date').optional({ values: 'falsy' }).isISO8601().withMessage('Invalid date'),
   ...itemsAndTermsValidator,

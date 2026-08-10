@@ -86,8 +86,8 @@ const vendorLedgers = asyncHandler(async (_req, res) => {
 
 const partyStatement = asyncHandler(async (req, res) => {
   const { kind, id } = req.params;
-  const { from, to } = req.query;
-  const result = await ledgerService.partyStatement(kind, id, { from, to });
+  const { from, to, store } = req.query;
+  const result = await ledgerService.partyStatement(kind, id, { from, to, store });
   return sendSuccess(res, 200, 'Statement fetched', {
     party: out(result.party),
     ...serializeStatement({ opening: result.opening, closing: result.closing, rows: result.rows }),
@@ -97,14 +97,14 @@ const partyStatement = asyncHandler(async (req, res) => {
 /* ------------------------------ Cash & Bank ------------------------------ */
 
 const cashLedger = asyncHandler(async (req, res) => {
-  const { from, to } = req.query;
-  const stmt = await ledgerService.cashLedger({ from, to });
+  const { from, to, store } = req.query;
+  const stmt = await ledgerService.cashLedger({ from, to, store });
   return sendSuccess(res, 200, 'Cash ledger fetched', serializeStatement(stmt));
 });
 
 const bankLedger = asyncHandler(async (req, res) => {
-  const { from, to } = req.query;
-  const result = await ledgerService.bankLedger(req.params.id, { from, to });
+  const { from, to, store } = req.query;
+  const result = await ledgerService.bankLedger(req.params.id, { from, to, store });
   return sendSuccess(res, 200, 'Bank ledger fetched', {
     bank: out(result.bank),
     ...serializeStatement({ opening: result.opening, closing: result.closing, rows: result.rows }),

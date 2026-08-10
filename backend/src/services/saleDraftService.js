@@ -1,8 +1,11 @@
+const mongoose = require('mongoose');
 const SaleDraft = require('../models/saleDraftModel');
 const ApiError = require('../utils/ApiError');
 
-async function listDrafts(actor) {
-  return SaleDraft.find({ createdBy: actor._id }).sort({ updatedAt: -1 });
+async function listDrafts(actor, store) {
+  const filter = { createdBy: actor._id };
+  if (store && mongoose.isValidObjectId(store)) filter.store = store;
+  return SaleDraft.find(filter).sort({ updatedAt: -1 });
 }
 
 async function getOwnedDraft(actor, id) {
@@ -16,6 +19,7 @@ async function getOwnedDraft(actor, id) {
 // Whitelist so a client can never smuggle `createdBy` or other fields in.
 function pickFields(body) {
   const fields = {};
+  if (body.store !== undefined) fields.store = body.store;
   if (body.step !== undefined) fields.step = body.step;
   if (body.customer !== undefined) fields.customer = body.customer;
   if (body.items !== undefined) fields.items = body.items;

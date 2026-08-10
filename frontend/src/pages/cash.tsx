@@ -1,6 +1,14 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { ArrowDownLeft, ArrowUpRight, Loader2, Plus, Wallet, Landmark } from 'lucide-react';
+import {
+  ArrowDownLeft,
+  ArrowUpRight,
+  Loader2,
+  Plus,
+  Wallet,
+  Landmark,
+  AlertTriangle,
+} from 'lucide-react';
 import { toast } from 'sonner';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -16,6 +24,7 @@ import {
 } from '@/components/ui/dialog';
 import { api } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
+import { useStorefrontFilter, useStorefrontStore } from '@/store/storefront';
 
 interface CashRow {
   id: string;
@@ -37,16 +46,25 @@ function AddCashDialog() {
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({ type: 'CASH_IN', amount: 0, description: '' });
+  const currentStoreId = useStorefrontStore((s) => s.currentStoreId);
+  // A cash entry always affects one physical store's till — "All Stores"
+  // isn't a real drawer it can be recorded against.
+  const hasSpecificStore = !!currentStoreId && currentStoreId !== 'ALL';
 
   const create = useMutation({
-    mutationFn: async () => (await api.post('/cash', form)).data,
+    mutationFn: async () => {
+      if (!hasSpecificStore) {
+        throw new Error('Select a specific store from the header before recording a cash entry.');
+      }
+      return (await api.post('/cash', { ...form, storeId: currentStoreId })).data;
+    },
     onSuccess: () => {
       toast.success('Recorded');
       qc.invalidateQueries({ queryKey: ['cash'] });
       setForm({ type: 'CASH_IN', amount: 0, description: '' });
       setOpen(false);
     },
-    onError: () => toast.error('Failed'),
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? e?.message ?? 'Failed'),
   });
 
   return (
@@ -67,6 +85,12 @@ function AddCashDialog() {
             create.mutate();
           }}
         >
+          {!hasSpecificStore && (
+            <div className="flex items-center gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+              <AlertTriangle className="h-4 w-4 shrink-0" />
+              Select a specific store from the header first.
+            </div>
+          )}
           <div className="grid grid-cols-2 gap-2">
             {(['CASH_IN', 'CASH_OUT'] as const).map((t) => (
               <Button
@@ -102,7 +126,7 @@ function AddCashDialog() {
                 Cancel
               </Button>
             </DialogClose>
-            <Button type="submit" disabled={create.isPending}>
+            <Button type="submit" disabled={create.isPending || !hasSpecificStore}>
               {create.isPending && <Loader2 className="h-4 w-4 animate-spin" />}Save
             </Button>
           </div>
@@ -176,9 +200,10 @@ function AddBankDialog() {
 }
 
 export function CashPage() {
+  const storefront = useStorefrontFilter();
   const { data: cash } = useQuery<{ balance: number; rows: CashRow[] }>({
-    queryKey: ['cash'],
-    queryFn: async () => (await api.get('/cash')).data,
+    queryKey: ['cash', storefront.store],
+    queryFn: async () => (await api.get('/cash', { params: storefront })).data,
   });
   const { data: banks = [] } = useQuery<BankAccount[]>({
     queryKey: ['bank-accounts'],

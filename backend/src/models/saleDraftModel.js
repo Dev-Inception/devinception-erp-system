@@ -38,6 +38,9 @@ const draftLabourSchema = new mongoose.Schema(
 const saleDraftSchema = new mongoose.Schema(
   {
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, index: true },
+    // Which storefront this draft was started at — set from the header
+    // selection, same as the real Sale it will become.
+    store: { type: mongoose.Schema.Types.ObjectId, ref: 'Store', default: null, index: true },
     step: { type: Number, min: 1, max: 5, default: 1 },
     customer: {
       id: { type: mongoose.Schema.Types.ObjectId, ref: 'Customer', default: null },

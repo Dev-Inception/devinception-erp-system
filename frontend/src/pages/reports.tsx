@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { api } from '@/lib/api';
 import { cn, formatCurrency } from '@/lib/utils';
+import { useStorefrontFilter } from '@/store/storefront';
 
 interface ReportResult {
   title: string;
@@ -27,15 +28,17 @@ export function ReportsPage() {
   const monthAgo = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
   const [from, setFrom] = useState(monthAgo);
   const [to, setTo] = useState(today);
+  const storefront = useStorefrontFilter();
 
   const { data, isLoading } = useQuery<ReportResult>({
-    queryKey: ['report', type, from, to],
-    queryFn: async () => (await api.get(`/reports/${type}`, { params: { from, to } })).data,
+    queryKey: ['report', type, from, to, storefront.store],
+    queryFn: async () =>
+      (await api.get(`/reports/${type}`, { params: { from, to, ...storefront } })).data,
   });
 
   const downloadCsv = async () => {
     // Build the CSV client-side from the mock report data (no backend).
-    const report = (await api.get(`/reports/${type}`, { params: { from, to } }))
+    const report = (await api.get(`/reports/${type}`, { params: { from, to, ...storefront } }))
       .data as ReportResult;
     const escape = (v: any) => {
       const s = String(v ?? '').replace(/"/g, '""');

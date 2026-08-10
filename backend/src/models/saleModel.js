@@ -66,6 +66,11 @@ const saleSchema = new mongoose.Schema(
     number: { type: String, required: true, unique: true, index: true }, // SALE-2026-000010
     customer: { type: mongoose.Schema.Types.ObjectId, ref: 'Customer', default: null, index: true },
     customerName: { type: String, default: 'Walk-in' }, // snapshot
+    // The physical storefront this sale was made at — set once at checkout
+    // from whichever store the cashier had selected, and never changed by a
+    // later edit. Distinct from `warehouse` below (where the stock came
+    // from): a store can draw stock from more than one warehouse.
+    store: { type: mongoose.Schema.Types.ObjectId, ref: 'Store', required: true, index: true },
     // The "primary" warehouse — the first warehouse-sourced line's warehouse
     // (or the resolved default if the sale is entirely vendor-sourced). Kept
     // for reports/dashboards/filters that assume one warehouse per sale; the

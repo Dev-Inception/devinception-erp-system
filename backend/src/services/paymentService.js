@@ -1,6 +1,7 @@
 const Vendor = require('../models/vendorModel');
 const Customer = require('../models/customerModel');
 const BankAccount = require('../models/bankAccountModel');
+const Store = require('../models/storeModel');
 const ApiError = require('../utils/ApiError');
 const { toPaisa, toRupees } = require('../utils/money');
 const { ACCOUNT, REF, PAYMENT_METHOD, BANK_METHODS } = require('../utils/finance');
@@ -12,6 +13,14 @@ const counterService = require('./counterService');
  * payable, receiving against a customer's receivable, and manual cash
  * in/out entries. Each posts one balanced journal entry.
  */
+
+// Every money movement here happens at one physical storefront's till —
+// required so the Cash & Bank ledger can be scoped accurately per store.
+async function requireStore(store) {
+  const storeDoc = await Store.findById(store);
+  if (!storeDoc) throw ApiError.badRequest('A store is required');
+  return storeDoc;
+}
 
 // Resolve the cash/bank account a payment leaves from or arrives into.
 async function settlementAccount(method, bankAccountId) {
@@ -42,10 +51,11 @@ async function assertSufficientFunds(account, ref, amount) {
 // Pay a vendor: Dr Accounts-Payable (vendor) / Cr Cash|Bank.
 async function payVendor(
   actor,
-  { vendor, amount, method = PAYMENT_METHOD.CASH, bankAccount, date, note },
+  { vendor, store, amount, method = PAYMENT_METHOD.CASH, bankAccount, date, note },
 ) {
   const vendorDoc = await Vendor.findById(vendor);
   if (!vendorDoc) throw ApiError.notFound('Vendor not found');
+  const storeDoc = await requireStore(store);
 
   const amt = toPaisa(amount);
   if (amt <= 0) throw ApiError.badRequest('Amount must be positive');
@@ -60,6 +70,7 @@ async function payVendor(
     description: note || `Payment to ${vendorDoc.name}`,
     refType: REF.PAYMENT,
     refNo: number,
+    store: storeDoc._id,
     createdBy: actor ? actor._id : null,
     lines: [
       journalService.line(ACCOUNT.AP, { debit: amt, ref: vendorDoc._id }),
@@ -71,10 +82,11 @@ async function payVendor(
 // Receive from a customer: Dr Cash|Bank / Cr Accounts-Receivable (customer).
 async function receiveFromCustomer(
   actor,
-  { customer, amount, method = PAYMENT_METHOD.CASH, bankAccount, date, note },
+  { customer, store, amount, method = PAYMENT_METHOD.CASH, bankAccount, date, note },
 ) {
   const customerDoc = await Customer.findById(customer);
   if (!customerDoc) throw ApiError.notFound('Customer not found');
+  const storeDoc = await requireStore(store);
 
   const amt = toPaisa(amount);
   if (amt <= 0) throw ApiError.badRequest('Amount must be positive');
@@ -88,6 +100,7 @@ async function receiveFromCustomer(
     description: note || `Receipt from ${customerDoc.name}`,
     refType: REF.RECEIPT,
     refNo: number,
+    store: storeDoc._id,
     createdBy: actor ? actor._id : null,
     lines: [
       journalService.line(settle.account, { debit: amt, ref: settle.ref }),
@@ -100,12 +113,13 @@ async function receiveFromCustomer(
  * Manual cash entry. `direction` is "IN" (cash added to the drawer) or "OUT"
  * (cash removed). The other side is equity, so the books stay balanced.
  */
-async function cashEntry(actor, { direction, amount, date, note }) {
+async function cashEntry(actor, { direction, store, amount, date, note }) {
   const amt = toPaisa(amount);
   if (amt <= 0) throw ApiError.badRequest('Amount must be positive');
   if (direction !== 'IN' && direction !== 'OUT') {
     throw ApiError.badRequest('Direction must be IN or OUT');
   }
+  const storeDoc = await requireStore(store);
   // Taking cash out can't drive the drawer negative.
   if (direction === 'OUT') await assertSufficientFunds(ACCOUNT.CASH, null, amt);
   const when = date ? new Date(date) : new Date();
@@ -125,6 +139,7 @@ async function cashEntry(actor, { direction, amount, date, note }) {
     date: when,
     description: note || (direction === 'IN' ? 'Cash in' : 'Cash out'),
     refType: REF.CASH_ADJUST,
+    store: storeDoc._id,
     createdBy: actor ? actor._id : null,
     lines,
   });
@@ -132,14 +147,16 @@ async function cashEntry(actor, { direction, amount, date, note }) {
 
 // Record an operating expense: Dr Operating Expense / Cr Cash|Bank. A
 // warehouse is attached to the journal entry so warehouse-scoped P&L reports
-// include only expenses attributable to that location.
+// include only expenses attributable to that location, and a store so the
+// Cash & Bank ledger can be scoped per storefront.
 async function recordExpense(
   actor,
-  { warehouse, amount, method = PAYMENT_METHOD.CASH, bankAccount, date, note },
+  { warehouse, store, amount, method = PAYMENT_METHOD.CASH, bankAccount, date, note },
 ) {
   const wh = warehouse
     ? await require('./warehouseService').getWarehouseById(warehouse)
     : await require('./stockService').ensureDefaultWarehouse();
+  const storeDoc = await requireStore(store);
   const amt = toPaisa(amount);
   if (amt <= 0) throw ApiError.badRequest('Amount must be positive');
 
@@ -154,6 +171,7 @@ async function recordExpense(
     refType: REF.EXPENSE,
     refNo: number,
     warehouse: wh._id,
+    store: storeDoc._id,
     createdBy: actor ? actor._id : null,
     lines: [
       journalService.line(ACCOUNT.OPERATING_EXPENSE, { debit: amt }),

@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useAuthStore } from '@/store/auth';
+import { useStorefrontStore } from '@/store/storefront';
 import { landingPath } from '@/lib/modules';
 
 /* ── Faux dashboard shown on the brand panel ── */
@@ -134,6 +135,9 @@ export function LoginPage() {
     setLoading(true);
     try {
       await login(email, password);
+      // Fresh login — the store picker modal should prompt again if there's
+      // more than one storefront, even if a selection was already persisted.
+      useStorefrontStore.getState().markLoggedIn();
       // Land on the first module this user can actually see (a cashier, for
       // example, can't open the dashboard, so send them to their first module).
       const user = useAuthStore.getState().user;

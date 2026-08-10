@@ -3,6 +3,7 @@ import { Sidebar } from './sidebar';
 import { Header } from './header';
 import { useAuthStore } from '@/store/auth';
 import { useWarehouses } from './warehouse-switcher';
+import { StorePickerModal } from './store-picker-modal';
 
 export function AppLayout() {
   const user = useAuthStore((s) => s.user);
@@ -12,7 +13,9 @@ export function AppLayout() {
 
 function AuthenticatedShell() {
   // Keeps the current-warehouse store pointed at the default warehouse for
-  // every page (POS, Products, Purchases) — there is no top-bar picker anymore.
+  // every page (POS, Products, Purchases) — there is no top-bar picker for
+  // this one; the storefront switcher below is a separate, higher-level
+  // "which store am I viewing" concept.
   useWarehouses();
 
   return (
@@ -28,6 +31,7 @@ function AuthenticatedShell() {
           <Outlet />
         </main>
       </div>
+      <StorePickerModal />
     </div>
   );
 }

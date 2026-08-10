@@ -14,6 +14,7 @@ import {
   ArrowRight,
   CheckCircle2,
   NotepadTextDashed,
+  AlertTriangle,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Card } from '@/components/ui/card';
@@ -23,6 +24,7 @@ import { Label } from '@/components/ui/label';
 import { api } from '@/lib/api';
 import { formatCurrency, cn } from '@/lib/utils';
 import { useWarehouseStore } from '@/store/warehouse';
+import { useStorefrontStore } from '@/store/storefront';
 import { useAuthStore } from '@/store/auth';
 import { grantsPermission } from '@/lib/modules';
 import { openSaleInvoicePopup, type SaleForInvoice } from '@/lib/invoicePopup';
@@ -128,6 +130,18 @@ export function PosPage() {
   const authUser = useAuthStore((s) => s.user);
   const canTakeAdvance = grantsPermission(authUser?.permissions, 'finance:manage');
   const defaultWarehouseId = useWarehouseStore((s) => s.currentId);
+  const currentStoreId = useStorefrontStore((s) => s.currentStoreId);
+  // The checkout response's `store` isn't populated, so look the name/address
+  // up client-side for the invoice popup shown immediately after checkout
+  // (any later reprint from the Sales list gets it from the server instead).
+  const { data: stores = [] } = useQuery<{ id: string; name: string; address?: string }[]>({
+    queryKey: ['stores'],
+    queryFn: async () => (await api.get('/stores')).data,
+  });
+  const currentStore = stores.find((s) => s.id === currentStoreId);
+  // A real customer is always physically in one specific shop — "All Stores"
+  // is a reporting view, not a place a sale can happen at.
+  const hasSpecificStore = !!currentStoreId && currentStoreId !== 'ALL';
 
   const [step, setStep] = useState<Step>(1);
 
@@ -166,8 +180,13 @@ export function PosPage() {
   // steps, so nothing is lost even if they never click Draft explicitly.
   const [draftId, setDraftId] = useState<string | null>(null);
   const { data: drafts = [] } = useQuery<DraftSale[]>({
-    queryKey: ['sale-drafts'],
-    queryFn: async () => (await api.get('/sale-drafts')).data,
+    queryKey: ['sale-drafts', hasSpecificStore ? currentStoreId : undefined],
+    queryFn: async () =>
+      (
+        await api.get('/sale-drafts', {
+          params: { store: hasSpecificStore ? currentStoreId : undefined },
+        })
+      ).data,
     enabled: step === 1,
   });
 
@@ -369,6 +388,7 @@ export function PosPage() {
   const autosaveDraft = useMutation({
     mutationFn: async () => {
       const payload = {
+        storeId: hasSpecificStore ? currentStoreId : undefined,
         step,
         customer,
         cart,
@@ -434,9 +454,13 @@ export function PosPage() {
 
   const completeSale = useMutation({
     mutationFn: async (): Promise<CompletedSale> => {
+      if (!hasSpecificStore) {
+        throw new Error('Select a specific store from the header before completing a sale.');
+      }
       const sale: CompletedSale = (
         await api.post('/sales', {
           paymentMethod: 'CREDIT',
+          storeId: currentStoreId,
           warehouseId: saleWarehouseId,
           customerId: customer!.id,
           labour: selectedLabour.map((l) => ({ labour: l.id, rent: l.rent || 0 })),
@@ -480,6 +504,8 @@ export function PosPage() {
       return {
         ...sale,
         customer: { name: customer!.name, phone: customer!.phone },
+        storeName: currentStore?.name,
+        storeAddress: currentStore?.address,
         labour: selectedLabour.map((l) => ({ name: l.name })),
         labourRentTotal,
         paidAmount: advance,
@@ -498,7 +524,7 @@ export function PosPage() {
       setCompletedSale(sale);
       setStep(5);
     },
-    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Checkout failed'),
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? e?.message ?? 'Checkout failed'),
   });
 
   // Gate pass detail/QR is only fetched once the cashier asks to see it —
@@ -1095,6 +1121,13 @@ export function PosPage() {
 
           {step === 4 && (
             <div className="mx-auto max-w-md space-y-3">
+              {!hasSpecificStore && (
+                <div className="flex items-center gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                  <AlertTriangle className="h-4 w-4 shrink-0" />
+                  Select a specific store from the header before completing this sale — "All Stores"
+                  can't be recorded on an invoice.
+                </div>
+              )}
               <div className="space-y-2">
                 <div className="flex items-center gap-2">
                   <span className="w-16 shrink-0 text-sm text-muted-foreground">Discount</span>
@@ -1409,7 +1442,10 @@ export function PosPage() {
             </Button>
           )}
           {step === 4 && (
-            <Button disabled={completeSale.isPending} onClick={() => completeSale.mutate()}>
+            <Button
+              disabled={completeSale.isPending || !hasSpecificStore}
+              onClick={() => completeSale.mutate()}
+            >
               {completeSale.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
               Complete Sale
             </Button>

@@ -16,6 +16,7 @@ import {
 import { api } from '@/lib/api';
 import { formatCurrency, cn } from '@/lib/utils';
 import { useWarehouses } from '@/components/layout/warehouse-switcher';
+import { useStorefrontFilter } from '@/store/storefront';
 import { Pagination } from '@/components/ui/pagination';
 
 interface Product {
@@ -371,6 +372,7 @@ export function ProductsPage() {
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [page, setPage] = useState(1);
+  const storefront = useStorefrontFilter();
 
   const q = search.trim().toLowerCase();
   const isSearching = q.length > 0;
@@ -378,8 +380,8 @@ export function ProductsPage() {
   const fetchLimit = isSearching ? SEARCH_FETCH_LIMIT : PAGE_SIZE;
 
   const { data: products = [], isLoading } = useQuery<Product[]>({
-    queryKey: ['products', search],
-    queryFn: async () => (await api.get('/products', { params: { search } })).data,
+    queryKey: ['products', search, storefront.store],
+    queryFn: async () => (await api.get('/products', { params: { search, ...storefront } })).data,
   });
   const total = products?.length ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));

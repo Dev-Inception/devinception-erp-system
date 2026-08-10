@@ -1,6 +1,11 @@
-const { body, query } = require('express-validator');
+const { body, query, param } = require('express-validator');
 
-const createReceiptValidator = [
+const idParam = param('id').isMongoId().withMessage('Invalid stock receipt id');
+
+// Shared by create and update — `store` is deliberately excluded here: it's
+// required on create only (updateReceipt never changes which storefront a
+// delivery was received for).
+const receiptFieldsValidator = [
   body('vendor').isMongoId().withMessage('A valid vendor is required'),
   body('warehouse').isMongoId().withMessage('A valid warehouse is required'),
   body('date').optional({ values: 'falsy' }).isISO8601().withMessage('Invalid date'),
@@ -24,9 +29,24 @@ const createReceiptValidator = [
   body('note').optional({ values: 'falsy' }).trim().isLength({ max: 500 }),
 ];
 
+const createReceiptValidator = [
+  body('store').isMongoId().withMessage('A store is required'),
+  ...receiptFieldsValidator,
+];
+
+const updateReceiptValidator = [idParam, ...receiptFieldsValidator];
+
+const idParamValidator = [idParam];
+
 const listReceiptsValidator = [
   query('vendor').optional({ values: 'falsy' }).isMongoId().withMessage('Invalid vendor'),
   query('warehouse').optional({ values: 'falsy' }).isMongoId().withMessage('Invalid warehouse'),
+  query('store').optional({ values: 'falsy' }).isMongoId().withMessage('Invalid store'),
 ];
 
-module.exports = { createReceiptValidator, listReceiptsValidator };
+module.exports = {
+  createReceiptValidator,
+  updateReceiptValidator,
+  idParamValidator,
+  listReceiptsValidator,
+};

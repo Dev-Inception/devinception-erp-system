@@ -3,6 +3,7 @@ import { Bell, Moon, Sun, LogOut } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useTheme } from '@/components/theme-provider';
 import { useAuthStore } from '@/store/auth';
+import { StoreSwitcher } from './store-switcher';
 
 const TITLES: Record<string, string> = {
   '/': 'Dashboard',
@@ -12,12 +13,14 @@ const TITLES: Record<string, string> = {
   '/categories': 'Categories',
   '/units': 'Units',
   '/warehouses': 'Warehouses',
+  '/stores': 'Stores',
   '/customers': 'Customers',
   '/vendors': 'Vendors',
   '/labour': 'Labour',
   '/roles': 'Role',
   '/ledgers': 'Ledgers',
   '/reports': 'Reports',
+  '/day-book': 'Day Book',
   '/cash': 'Cash & Bank',
   '/settings': 'Settings',
   '/permissions': 'Permissions',
@@ -40,6 +43,8 @@ export function Header() {
       </div>
 
       <div className="flex items-center gap-2">
+        <StoreSwitcher />
+
         <Button variant="ghost" size="icon" onClick={toggle} aria-label="Toggle theme">
           <Sun className="h-4 w-4 dark:hidden" />
           <Moon className="hidden h-4 w-4 dark:block" />

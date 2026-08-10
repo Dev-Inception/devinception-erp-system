@@ -22,6 +22,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { api } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
+import { useStorefrontFilter } from '@/store/storefront';
 
 interface Kpis {
   todaySales: number;
@@ -64,17 +65,18 @@ function KpiCard({
 }
 
 export function DashboardPage() {
+  const storefront = useStorefrontFilter();
   const { data: kpis } = useQuery<Kpis>({
-    queryKey: ['kpis'],
-    queryFn: async () => (await api.get('/dashboard/kpis')).data,
+    queryKey: ['kpis', storefront.store],
+    queryFn: async () => (await api.get('/dashboard/kpis', { params: storefront })).data,
   });
   const { data: trend } = useQuery<{ date: string; total: number }[]>({
-    queryKey: ['sales-trend'],
-    queryFn: async () => (await api.get('/dashboard/sales-trend')).data,
+    queryKey: ['sales-trend', storefront.store],
+    queryFn: async () => (await api.get('/dashboard/sales-trend', { params: storefront })).data,
   });
   const { data: top } = useQuery<{ name: string; revenue: number }[]>({
-    queryKey: ['top-products'],
-    queryFn: async () => (await api.get('/dashboard/top-products')).data,
+    queryKey: ['top-products', storefront.store],
+    queryFn: async () => (await api.get('/dashboard/top-products', { params: storefront })).data,
   });
 
   const k = kpis ?? ({} as Kpis);

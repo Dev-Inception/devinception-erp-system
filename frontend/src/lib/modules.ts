@@ -17,6 +17,8 @@ import {
   HardHat,
   ClipboardCheck,
   PackagePlus,
+  BookText,
+  Store,
 } from 'lucide-react';
 import type { Role } from '@/store/auth';
 
@@ -104,6 +106,15 @@ export const MODULES: ModuleDef[] = [
     icon: Warehouse,
     defaultRoles: ['MANAGER', 'ADMIN'],
   },
+  {
+    key: 'stores',
+    to: '/stores',
+    label: 'Stores',
+    section: 'Catalog',
+    icon: Store,
+    defaultRoles: ['ADMIN'],
+    adminOnly: true,
+  },
   { key: 'customers', to: '/customers', label: 'Customers', section: 'Partners', icon: Users },
   { key: 'vendors', to: '/vendors', label: 'Vendors', section: 'Partners', icon: Truck },
   { key: 'roles', to: '/roles', label: 'Roles', section: 'Partners', icon: Users },
@@ -124,6 +135,14 @@ export const MODULES: ModuleDef[] = [
     defaultRoles: ['ACCOUNTANT', 'MANAGER', 'ADMIN'],
   },
   { key: 'reports', to: '/reports', label: 'Reports', section: 'Finance', icon: BarChart3 },
+  {
+    key: 'day-book',
+    to: '/day-book',
+    label: 'Day Book',
+    section: 'Finance',
+    icon: BookText,
+    superAdminOnly: true,
+  },
   {
     key: 'cash',
     to: '/cash',
@@ -177,6 +196,7 @@ export const MODULE_PERMISSION: Record<string, string> = {
   categories: 'inventory:manage',
   units: 'inventory:manage',
   warehouses: 'inventory:manage',
+  stores: 'stores:manage',
   customers: 'customers:read',
   vendors: 'vendors:read',
   // Matches the backend's /labour read routes, which require sales:create

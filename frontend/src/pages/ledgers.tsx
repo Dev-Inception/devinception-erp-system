@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { api } from '@/lib/api';
+import { useStorefrontFilter } from '@/store/storefront';
 
 type Kind = 'customers' | 'vendors';
 interface Party {
@@ -25,18 +26,19 @@ export function LedgersPage() {
   const [selected, setSelected] = useState<Party | null>(null);
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
+  const storefront = useStorefrontFilter();
 
   const { data: parties = [] } = useQuery<Party[]>({
-    queryKey: [kind],
-    queryFn: async () => (await api.get(`/${kind}`)).data,
+    queryKey: [kind, storefront.store],
+    queryFn: async () => (await api.get(`/${kind}`, { params: storefront })).data,
   });
 
   const { data: ledger } = useQuery<{ balance: number; opening: number; entries: LedgerRow[] }>({
-    queryKey: ['ledger', kind, selected?.id, from, to],
+    queryKey: ['ledger', kind, selected?.id, from, to, storefront.store],
     queryFn: async () =>
       (
         await api.get(`/${kind}/${selected!.id}/ledger`, {
-          params: { from: from || undefined, to: to || undefined },
+          params: { from: from || undefined, to: to || undefined, ...storefront },
         })
       ).data,
     enabled: !!selected,

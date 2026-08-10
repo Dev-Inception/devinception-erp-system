@@ -588,6 +588,53 @@ async function realDeleteWarehouse(id: string) {
   return { success: true };
 }
 
+/* ── Stores (storefronts — group one or more warehouses) ── */
+function mapStore(s: any) {
+  return {
+    id: String(s._id ?? s.id),
+    name: s.name,
+    code: s.code || '',
+    address: s.address || '',
+    warehouseIds: (s.warehouses ?? []).map((w: any) => String(w._id ?? w)),
+    warehouseNames: (s.warehouses ?? []).map((w: any) => w.name).filter(Boolean) as string[],
+    isDefault: !!s.isDefault,
+    isActive: s.isActive !== false,
+  };
+}
+async function realListStores() {
+  const res = await http.get('/stores');
+  return (res.data.stores as any[]).map(mapStore);
+}
+async function realCreateStore(body: any) {
+  const res = await http.post('/stores', {
+    name: body.name,
+    code: body.code || undefined,
+    address: body.address || undefined,
+    warehouses: body.warehouseIds ?? [],
+    isDefault: !!body.isDefault,
+  });
+  return mapStore(res.data.store);
+}
+async function realUpdateStore(id: string, body: any) {
+  const res = await http.patch(`/stores/${id}`, {
+    name: body.name,
+    code: body.code,
+    address: body.address,
+    warehouses: body.warehouseIds,
+    isDefault: body.isDefault,
+  });
+  return mapStore(res.data.store);
+}
+async function realDeleteStore(id: string) {
+  await http.delete(`/stores/${id}`);
+  return { success: true };
+}
+async function realSetDefaultStore(id: string) {
+  // No /set-default route on the backend — PATCH with isDefault=true does it.
+  await http.patch(`/stores/${id}`, { isDefault: true });
+  return { success: true };
+}
+
 /* ── Products ── */
 function mapProduct(p: any) {
   return {
@@ -619,12 +666,14 @@ function mapProduct(p: any) {
 async function realFetchProducts(params: {
   search?: unknown;
   warehouse?: unknown;
+  store?: unknown;
   perWarehouse?: unknown;
 }) {
   const res = await http.get('/products', {
     params: {
       search: params.search || undefined,
       warehouse: params.warehouse || undefined,
+      store: params.store || undefined,
       perWarehouse: params.perWarehouse || undefined,
       limit: 100,
     },
@@ -635,6 +684,7 @@ async function realProductsList(params: any) {
   const products = await realFetchProducts({
     search: params.search,
     warehouse: params.warehouseId,
+    store: params.store,
     // The POS product search asks for one row per warehouse actually
     // stocking the product, instead of one row totalled across all of them,
     // so it can offer a per-line warehouse picker with real availability.
@@ -803,7 +853,7 @@ function mapCustomer(c: any) {
 }
 async function realCustomers(params: any) {
   const res = await http.get('/customers', {
-    params: { search: params.search || undefined, limit: 100 },
+    params: { search: params.search || undefined, store: params.store || undefined, limit: 100 },
   });
   return (res.data.customers as any[]).map(mapCustomer);
 }
@@ -846,7 +896,7 @@ function mapVendor(v: any) {
 }
 async function realVendors(params: any) {
   const res = await http.get('/vendors', {
-    params: { search: params.search || undefined, limit: 100 },
+    params: { search: params.search || undefined, store: params.store || undefined, limit: 100 },
   });
   return (res.data.vendors as any[]).map(mapVendor);
 }
@@ -889,6 +939,9 @@ function mapSale(s: any) {
     id: String(s._id ?? s.id),
     saleNumber: s.number,
     customerId: s.customer ? String(s.customer._id ?? s.customer) : undefined,
+    storeId: s.store ? String(s.store._id ?? s.store) : undefined,
+    storeName: s.store && typeof s.store === 'object' ? s.store.name : undefined,
+    storeAddress: s.store && typeof s.store === 'object' ? s.store.address : undefined,
     warehouseId: s.warehouse ? String(s.warehouse._id ?? s.warehouse) : undefined,
     date: s.date,
     status: 'COMPLETED',
@@ -957,6 +1010,7 @@ async function realSales(params: any = {}) {
       from: params.from || undefined,
       to: params.to || undefined,
       paymentMethod: params.paymentMethod || undefined,
+      store: params.store || undefined,
     },
   });
   return {
@@ -978,6 +1032,7 @@ async function realCreateSale(body: any) {
     warehouse: l.warehouseId || undefined,
   }));
   const res = await http.post('/sales', {
+    store: body.storeId || undefined,
     customer: body.customerId || undefined,
     warehouse: body.warehouseId || undefined,
     discount: body.discountTotal || 0,
@@ -1094,6 +1149,8 @@ function mapStockReceipt(r: any) {
     number: r.number,
     vendorId: String(r.vendor?._id ?? r.vendor),
     vendorName: r.vendorName || '',
+    storeId: r.store ? String(r.store._id ?? r.store) : undefined,
+    storeName: r.store && typeof r.store === 'object' ? r.store.name : undefined,
     warehouseId: String(r.warehouse?._id ?? r.warehouse),
     warehouseName: r.warehouse?.name || '',
     date: r.date,
@@ -1120,6 +1177,7 @@ async function realListStockReceipts(params: any = {}) {
       to: params.to || undefined,
       search: params.search || undefined,
       warehouse: params.warehouseId || undefined,
+      store: params.store || undefined,
     },
   });
   return {
@@ -1131,6 +1189,7 @@ async function realListStockReceipts(params: any = {}) {
 }
 async function realCreateStockReceipt(body: any) {
   const res = await http.post('/stock-receipts', {
+    store: body.storeId,
     vendor: body.vendorId,
     warehouse: body.warehouseId,
     date: body.date || undefined,
@@ -1147,6 +1206,29 @@ async function realCreateStockReceipt(body: any) {
     note: body.note || undefined,
   });
   return mapStockReceipt(res.data.receipt);
+}
+async function realUpdateStockReceipt(id: string, body: any) {
+  const res = await http.patch(`/stock-receipts/${id}`, {
+    vendor: body.vendorId,
+    warehouse: body.warehouseId,
+    date: body.date || undefined,
+    truck: {
+      vehicleNumber: body.truck?.vehicleNumber,
+      driverName: body.truck?.driverName || undefined,
+      driverPhone: body.truck?.driverPhone || undefined,
+    },
+    items: (body.items ?? []).map((it: any) => ({
+      product: it.productId,
+      receivedQuantity: it.receivedQuantity || 0,
+      damagedQuantity: it.damagedQuantity || 0,
+    })),
+    note: body.note || undefined,
+  });
+  return mapStockReceipt(res.data.receipt);
+}
+async function realDeleteStockReceipt(id: string) {
+  await http.delete(`/stock-receipts/${id}`);
+  return { success: true };
 }
 
 /* ── POS sale drafts ("parked sales") — private to the cashier ── */
@@ -1200,6 +1282,7 @@ function mapSaleDraft(d: any) {
 }
 function draftPayload(body: any) {
   return {
+    store: body.storeId || undefined,
     step: body.step,
     customer: body.customer
       ? { id: body.customer.id || undefined, name: body.customer.name, phone: body.customer.phone }
@@ -1231,8 +1314,8 @@ function draftPayload(body: any) {
     advanceAmount: body.advanceAmount,
   };
 }
-async function realListSaleDrafts() {
-  const res = await http.get('/sale-drafts');
+async function realListSaleDrafts(store?: string) {
+  const res = await http.get('/sale-drafts', { params: { store: store || undefined } });
   return (res.data.drafts as any[]).map(mapSaleDraft);
 }
 async function realCreateSaleDraft(body: any) {
@@ -1268,11 +1351,11 @@ async function realUpdateGatePass(id: string, body: any) {
 }
 
 /* ── Dashboard (one backend /dashboard call → three FE endpoints) ── */
-async function realDashboard() {
-  return (await http.get('/dashboard')).data; // { cards, salesTrend, topProducts }
+async function realDashboard(store?: string) {
+  return (await http.get('/dashboard', { params: { store: store || undefined } })).data; // { cards, salesTrend, topProducts }
 }
-async function realDashKpis() {
-  const c = (await realDashboard()).cards;
+async function realDashKpis(store?: string) {
+  const c = (await realDashboard(store)).cards;
   return {
     todaySales: c.todaySales ?? 0,
     monthSales: c.monthSales ?? 0,
@@ -1283,11 +1366,11 @@ async function realDashKpis() {
     outstandingPayables: c.payables ?? 0,
   };
 }
-async function realDashTrend() {
-  return (await realDashboard()).salesTrend ?? [];
+async function realDashTrend(store?: string) {
+  return (await realDashboard(store)).salesTrend ?? [];
 }
-async function realDashTop() {
-  return ((await realDashboard()).topProducts ?? []).map((p: any) => ({
+async function realDashTop(store?: string) {
+  return ((await realDashboard(store)).topProducts ?? []).map((p: any) => ({
     productId: String(p.product ?? ''),
     name: p.name,
     quantity: p.quantity,
@@ -1299,7 +1382,7 @@ async function realDashTop() {
 async function realReport(type: string, params: any) {
   const beType = ({ stock: 'stock-valuation', pnl: 'profit-loss' } as any)[type] ?? type;
   const res = await http.get(`/reports/${beType}`, {
-    params: { from: params.from, to: params.to },
+    params: { from: params.from, to: params.to, store: params.store },
   });
   const report = res.data.report;
 
@@ -1362,6 +1445,22 @@ async function realReport(type: string, params: any) {
       },
     };
   }
+  if (type === 'day-book') {
+    return {
+      title: 'Day Book',
+      rows: (report.rows as any[]).map((r) => ({
+        id: r.id,
+        date: r.date,
+        voucherType: r.voucherType,
+        voucherLabel: r.voucherLabel,
+        voucherNo: r.voucherNo,
+        description: r.description,
+        warehouse: r.warehouse,
+        amount: r.amount,
+      })),
+      summary: report.summary,
+    };
+  }
   // pnl
   const rev = report.revenue ?? 0;
   const cogs = report.costOfGoodsSold ?? 0;
@@ -1385,8 +1484,9 @@ async function realReport(type: string, params: any) {
 }
 
 /* ── Cash book ── */
-async function realCashLedger() {
-  const stmt = (await http.get('/finance/cash-ledger')).data; // { opening, closing, rows }
+async function realCashLedger(store?: string) {
+  const stmt = (await http.get('/finance/cash-ledger', { params: { store: store || undefined } }))
+    .data; // { opening, closing, rows }
   const rows = (stmt.rows as any[]).map((r, i) => ({
     id: String(i),
     date: r.date,
@@ -1402,6 +1502,7 @@ async function realCashLedger() {
 async function realCashEntry(body: any) {
   const res = await http.post('/finance/cash-entry', {
     direction: body.type === 'CASH_IN' ? 'IN' : 'OUT',
+    store: body.storeId,
     amount: body.amount,
     note: body.description,
   });
@@ -1478,7 +1579,11 @@ async function realPartyLedger(kindPlural: string, id: string, params: any = {})
   const kind = kindPlural === 'customers' ? 'customer' : 'vendor';
   const stmt = (
     await http.get(`/finance/ledgers/${kind}/${id}`, {
-      params: { from: params.from || undefined, to: params.to || undefined },
+      params: {
+        from: params.from || undefined,
+        to: params.to || undefined,
+        store: params.store || undefined,
+      },
     })
   ).data; // { party, opening, closing, rows }
   return {
@@ -1550,6 +1655,7 @@ async function tryReal(
 
   if (method === 'get') {
     if (url === '/warehouses') return wrap(await realWarehouses());
+    if (url === '/stores') return wrap(await realListStores());
     if (url === '/products') return wrap(await realProductsList(params));
     if (url === '/catalog') return wrap(await realCatalog());
     if (url === '/categories') return wrap(await realCategories());
@@ -1562,8 +1668,8 @@ async function tryReal(
     if (url === '/sales/returns') return wrap(await realListAllSaleReturns(params));
     if (seg[0] === 'sales' && seg[1] && seg[2] === 'returns')
       return wrap(await realListSaleReturns(seg[1]));
-    if (url === '/sale-drafts') return wrap(await realListSaleDrafts());
-    if (url === '/cash') return wrap(await realCashLedger());
+    if (url === '/sale-drafts') return wrap(await realListSaleDrafts(params.store as string));
+    if (url === '/cash') return wrap(await realCashLedger(params.store as string));
     if (url === '/bank/accounts') return wrap(await realBankAccounts());
     if (url === '/users') return wrap(await realUsers());
     if (url === '/roles') return wrap(await realRoles());
@@ -1573,15 +1679,16 @@ async function tryReal(
       return wrap(await realPublicGatePass(seg[2]));
     if (seg[0] === 'gate-passes' && seg.length === 2) return wrap(await realGatePassDetail(seg[1]));
     if (url === '/settings') return wrap(await realSettings());
-    if (url === '/dashboard/kpis') return wrap(await realDashKpis());
-    if (url === '/dashboard/sales-trend') return wrap(await realDashTrend());
-    if (url === '/dashboard/top-products') return wrap(await realDashTop());
+    if (url === '/dashboard/kpis') return wrap(await realDashKpis(params.store as string));
+    if (url === '/dashboard/sales-trend') return wrap(await realDashTrend(params.store as string));
+    if (url === '/dashboard/top-products') return wrap(await realDashTop(params.store as string));
     if (seg[0] === 'reports' && seg[1]) return wrap(await realReport(seg[1], params));
     if ((seg[0] === 'customers' || seg[0] === 'vendors') && seg[2] === 'ledger')
       return wrap(await realPartyLedger(seg[0], seg[1], params));
   }
   if (method === 'post') {
     if (url === '/warehouses') return wrap(await realCreateWarehouse(body));
+    if (url === '/stores') return wrap(await realCreateStore(body));
     if (url === '/products') return wrap(await realCreateProduct(body));
     if (url === '/categories') return wrap(await realCreateCategory(body));
     if (url === '/units') return wrap(await realCreateUnit(body));
@@ -1604,6 +1711,8 @@ async function tryReal(
     if (url === '/uploads') return wrap(await realUpload(body));
     if (seg[0] === 'warehouses' && seg[2] === 'set-default')
       return wrap(await realSetDefaultWarehouse(seg[1]));
+    if (seg[0] === 'stores' && seg[2] === 'set-default')
+      return wrap(await realSetDefaultStore(seg[1]));
     if (seg[0] === 'gate-passes' && seg[1] === 'public' && seg[3] === 'process')
       return wrap(await realProcessGatePass(seg[2], body));
   }
@@ -1616,6 +1725,7 @@ async function tryReal(
       return wrap(await realUpdateCustomer(seg[1], body));
     if (seg[0] === 'warehouses' && seg[1] && !seg[2])
       return wrap(await realUpdateWarehouse(seg[1], body));
+    if (seg[0] === 'stores' && seg[1] && !seg[2]) return wrap(await realUpdateStore(seg[1], body));
     if (seg[0] === 'categories' && seg[1]) return wrap(await realUpdateCategory(seg[1], body));
     if (seg[0] === 'units' && seg[1]) return wrap(await realUpdateUnit(seg[1], body));
     if (seg[0] === 'labour' && seg[1]) return wrap(await realUpdateLabour(seg[1], body));
@@ -1628,6 +1738,8 @@ async function tryReal(
     if (seg[0] === 'gate-passes' && seg[1] && !seg[2])
       return wrap(await realUpdateGatePass(seg[1], body));
     if (seg[0] === 'sale-drafts' && seg[1]) return wrap(await realUpdateSaleDraft(seg[1], body));
+    if (seg[0] === 'stock-receipts' && seg[1])
+      return wrap(await realUpdateStockReceipt(seg[1], body));
   }
   if (method === 'put') {
     if (url === '/settings') return wrap(await realUpdateSettings(body));
@@ -1639,10 +1751,12 @@ async function tryReal(
     if (seg[0] === 'customers' && seg[1] && !seg[2]) return wrap(await realDeleteCustomer(seg[1]));
     if (seg[0] === 'warehouses' && seg[1] && !seg[2])
       return wrap(await realDeleteWarehouse(seg[1]));
+    if (seg[0] === 'stores' && seg[1] && !seg[2]) return wrap(await realDeleteStore(seg[1]));
     if (seg[0] === 'categories' && seg[1]) return wrap(await realDeleteCategory(seg[1]));
     if (seg[0] === 'units' && seg[1]) return wrap(await realDeleteUnit(seg[1]));
     if (seg[0] === 'labour' && seg[1]) return wrap(await realDeleteLabour(seg[1]));
     if (seg[0] === 'sale-drafts' && seg[1]) return wrap(await realDeleteSaleDraft(seg[1]));
+    if (seg[0] === 'stock-receipts' && seg[1]) return wrap(await realDeleteStockReceipt(seg[1]));
   }
   return undefined;
 }

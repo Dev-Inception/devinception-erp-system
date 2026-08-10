@@ -1,3 +1,4 @@
+const mongoose = require('mongoose');
 const JournalEntry = require('../models/journalEntryModel');
 const ApiError = require('../utils/ApiError');
 const { naturalBalance } = require('../utils/finance');
@@ -25,6 +26,7 @@ async function post({
   refId = null,
   refNo = '',
   warehouse = null,
+  store = null,
   lines,
   createdBy = null,
 }) {
@@ -47,6 +49,7 @@ async function post({
     refId,
     refNo,
     warehouse,
+    store,
     lines: clean,
     createdBy,
   });
@@ -61,13 +64,17 @@ function accountMatch(account, ref = null) {
  * Current natural balance (paisa) for an account: positive means the expected
  * direction — cash on hand, a customer's receivable, a vendor's payable, etc.
  */
-async function accountBalance(account, ref = null) {
-  const totals = await accountTotals(account, ref);
+async function accountBalance(account, ref = null, { store } = {}) {
+  const totals = await accountTotals(account, ref, { store });
   return naturalBalance(account, totals.debit, totals.credit);
 }
 
 // Raw debit/credit totals (paisa) for an account over an optional date range.
-async function accountTotals(account, ref = null, { from, to, refType, refIds, warehouse } = {}) {
+async function accountTotals(
+  account,
+  ref = null,
+  { from, to, refType, refIds, warehouse, store } = {},
+) {
   const entryMatch = {};
   if (from || to) {
     entryMatch.date = {};
@@ -77,6 +84,16 @@ async function accountTotals(account, ref = null, { from, to, refType, refIds, w
   if (refType) entryMatch.refType = refType;
   if (Array.isArray(refIds)) entryMatch.refId = { $in: refIds };
   if (warehouse) entryMatch.warehouse = warehouse;
+  if (store) {
+    // Entries from before store-tracking existed carry no store at all —
+    // always include those alongside the selected store's own, rather than
+    // making that activity disappear entirely. Aggregation `$match` doesn't
+    // auto-cast query strings like `.find()` does, so cast explicitly —
+    // callers pass either a plain string id or an already-cast ObjectId.
+    const storeId =
+      store instanceof mongoose.Types.ObjectId ? store : new mongoose.Types.ObjectId(store);
+    entryMatch.$or = [{ store: null }, { store: storeId }];
+  }
 
   const rows = await JournalEntry.aggregate([
     ...(Object.keys(entryMatch).length ? [{ $match: entryMatch }] : []),
@@ -99,11 +116,14 @@ async function accountTotals(account, ref = null, { from, to, refType, refIds, w
  * within [from, to], with a running balance. Used for party ledgers and the
  * cash/bank book. Returns paisa; the controller converts to rupees.
  */
-async function accountStatement(account, ref = null, { from, to } = {}) {
+async function accountStatement(account, ref = null, { from, to, store } = {}) {
   // Opening balance = everything strictly before `from`.
   let opening = 0;
   if (from) {
-    const before = await accountTotals(account, ref, { to: new Date(from.getTime() - 1) });
+    const before = await accountTotals(account, ref, {
+      to: new Date(from.getTime() - 1),
+      store,
+    });
     opening = naturalBalance(account, before.debit, before.credit);
   }
 
@@ -113,6 +133,7 @@ async function accountStatement(account, ref = null, { from, to } = {}) {
     if (from) entryMatch.date.$gte = from;
     if (to) entryMatch.date.$lte = to;
   }
+  if (store) entryMatch.store = store;
 
   const entries = await JournalEntry.find(entryMatch).sort({ date: 1, createdAt: 1 }).lean();
 
@@ -147,9 +168,18 @@ async function accountStatement(account, ref = null, { from, to } = {}) {
  * Natural balances (paisa) for every `ref` under an account kind, in one
  * aggregation. Used to list all customer receivables / vendor payables at once
  * without a query per party. Returns Map<refIdString, balancePaisa>.
+ * Optionally scoped to one store's transactions with each party.
  */
-async function balancesByRef(account) {
+async function balancesByRef(account, { store } = {}) {
+  const validStore = store && mongoose.isValidObjectId(store) ? store : null;
+  // Entries from before store-tracking existed (or genuinely business-wide
+  // ones) carry no store at all — always include those alongside the
+  // selected store's own, rather than making that debt disappear entirely.
+  const storeMatch = validStore
+    ? [{ $match: { $or: [{ store: null }, { store: new mongoose.Types.ObjectId(validStore) }] } }]
+    : [];
   const rows = await JournalEntry.aggregate([
+    ...storeMatch,
     { $unwind: '$lines' },
     { $match: { 'lines.account': account } },
     {

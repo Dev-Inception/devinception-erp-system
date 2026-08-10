@@ -143,6 +143,8 @@ async function createReturn(actor, saleId, { items, note }) {
       refType: REF.SALE_RETURN,
       refId: saleReturn._id,
       refNo: number,
+      warehouse: sale.warehouse,
+      store: sale.store,
       createdBy: actor ? actor._id : null,
       lines: reverseLines,
     });
@@ -155,6 +157,8 @@ async function createReturn(actor, saleId, { items, note }) {
       refType: REF.SALE_RETURN,
       refId: saleReturn._id,
       refNo: number,
+      warehouse: sale.warehouse,
+      store: sale.store,
       createdBy: actor ? actor._id : null,
       lines: [
         journalService.line(ACCOUNT.INVENTORY, { debit: returnCost }),

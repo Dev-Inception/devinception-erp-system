@@ -30,6 +30,7 @@ const updateBankAccountValidator = [
 /* Payments */
 const payVendorValidator = [
   body('vendor').isMongoId().withMessage('A valid vendor is required'),
+  body('store').isMongoId().withMessage('A store is required'),
   body('amount').isFloat({ gt: 0 }).withMessage('Amount must be positive'),
   body('method')
     .optional({ values: 'falsy' })
@@ -42,6 +43,7 @@ const payVendorValidator = [
 
 const receiveCustomerValidator = [
   body('customer').isMongoId().withMessage('A valid customer is required'),
+  body('store').isMongoId().withMessage('A store is required'),
   body('amount').isFloat({ gt: 0 }).withMessage('Amount must be positive'),
   body('method')
     .optional({ values: 'falsy' })
@@ -54,6 +56,7 @@ const receiveCustomerValidator = [
 
 const cashEntryValidator = [
   body('direction').isIn(['IN', 'OUT']).withMessage('Direction must be IN or OUT'),
+  body('store').isMongoId().withMessage('A store is required'),
   body('amount').isFloat({ gt: 0 }).withMessage('Amount must be positive'),
   body('date').optional({ values: 'falsy' }).isISO8601().withMessage('Invalid date'),
   body('note').optional({ values: 'falsy' }).trim().isLength({ max: 200 }),
@@ -61,6 +64,7 @@ const cashEntryValidator = [
 
 const expenseValidator = [
   body('warehouse').optional({ values: 'falsy' }).isMongoId().withMessage('Invalid warehouse'),
+  body('store').isMongoId().withMessage('A store is required'),
   body('amount').isFloat({ gt: 0 }).withMessage('Amount must be positive'),
   body('method')
     .optional({ values: 'falsy' })

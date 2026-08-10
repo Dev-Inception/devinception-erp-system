@@ -9,13 +9,24 @@ const createReceipt = asyncHandler(async (req, res) => {
   return sendSuccess(res, 201, 'Stock receipt recorded', { receipt: out(receipt) });
 });
 
+const updateReceipt = asyncHandler(async (req, res) => {
+  const receipt = await stockReceiptService.updateReceipt(req.user, req.params.id, req.body);
+  return sendSuccess(res, 200, 'Stock receipt updated', { receipt: out(receipt) });
+});
+
+const deleteReceipt = asyncHandler(async (req, res) => {
+  await stockReceiptService.deleteReceipt(req.user, req.params.id);
+  return sendSuccess(res, 200, 'Stock receipt deleted', {});
+});
+
 const listReceipts = asyncHandler(async (req, res) => {
-  const { page, limit, vendor, warehouse, from, to, search } = req.query;
+  const { page, limit, vendor, warehouse, store, from, to, search } = req.query;
   const result = await stockReceiptService.listReceipts({
     page,
     limit,
     vendor,
     warehouse,
+    store,
     from,
     to,
     search,
@@ -26,4 +37,4 @@ const listReceipts = asyncHandler(async (req, res) => {
   });
 });
 
-module.exports = { createReceipt, listReceipts };
+module.exports = { createReceipt, updateReceipt, deleteReceipt, listReceipts };

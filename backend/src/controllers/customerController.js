@@ -3,8 +3,8 @@ const asyncHandler = require('../utils/asyncHandler');
 const { sendSuccess } = require('../utils/ApiResponse');
 
 const listCustomers = asyncHandler(async (req, res) => {
-  const { page, limit, search } = req.query;
-  const result = await customerService.listCustomers({ page, limit, search });
+  const { page, limit, search, store } = req.query;
+  const result = await customerService.listCustomers({ page, limit, search, store });
   return sendSuccess(res, 200, 'Customers fetched', result);
 });
 

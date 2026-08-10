@@ -21,7 +21,9 @@ import { SettingsPage } from '@/pages/settings';
 import { CashPage } from '@/pages/cash';
 import { LedgersPage } from '@/pages/ledgers';
 import { ReportsPage } from '@/pages/reports';
+import { DayBookPage } from '@/pages/day-book';
 import { WarehousesPage } from '@/pages/warehouses';
+import { StoresPage } from '@/pages/stores';
 import { PermissionsPage } from '@/pages/permissions';
 import { GatePassesPage } from '@/pages/gate-passes';
 import { RolePage } from '@/pages/roles';
@@ -63,6 +65,7 @@ const MODULE_ROUTES: { path: string; element: React.ReactElement }[] = [
   { path: 'categories', element: <CategoriesPage /> },
   { path: 'units', element: <UnitsPage /> },
   { path: 'warehouses', element: <WarehousesPage /> },
+  { path: 'stores', element: <StoresPage /> },
   { path: 'sales', element: <SalesPage /> },
   { path: 'stock-receipts', element: <StockReceiptsPage /> },
   { path: 'customers', element: <CustomersPage /> },
@@ -71,6 +74,7 @@ const MODULE_ROUTES: { path: string; element: React.ReactElement }[] = [
   { path: 'roles', element: <RolePage /> },
   { path: 'ledgers', element: <LedgersPage /> },
   { path: 'reports', element: <ReportsPage /> },
+  { path: 'day-book', element: <DayBookPage /> },
   { path: 'cash', element: <CashPage /> },
   { path: 'settings', element: <SettingsPage /> },
   { path: 'permissions', element: <PermissionsPage /> },

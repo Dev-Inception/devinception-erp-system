@@ -37,7 +37,7 @@ async function listVendors(query = {}) {
   const [docs, total, balances] = await Promise.all([
     Vendor.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
     Vendor.countDocuments(filter),
-    journalService.balancesByRef(ACCOUNT.AP),
+    journalService.balancesByRef(ACCOUNT.AP, { store: query.store }),
   ]);
 
   // Replace the (legacy) stored outstanding with the live payable from the

@@ -3,6 +3,7 @@ const { body, param } = require('express-validator');
 const idParamValidator = [param('id').isMongoId().withMessage('Invalid draft id')];
 
 const saveSaleDraftValidator = [
+  body('store').optional({ values: 'falsy' }).isMongoId().withMessage('Invalid store'),
   body('step').optional({ values: 'falsy' }).isInt({ min: 1, max: 5 }).withMessage('Invalid step'),
   body('customer').optional({ values: 'falsy' }).isObject(),
   body('customer.id').optional({ values: 'falsy' }).isMongoId(),

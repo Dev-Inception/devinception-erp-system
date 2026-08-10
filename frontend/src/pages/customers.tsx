@@ -20,6 +20,7 @@ import { formatCurrency } from '@/lib/utils';
 import { useAuthStore } from '@/store/auth';
 import { grantsPermission } from '@/lib/modules';
 import { Pagination } from '@/components/ui/pagination';
+import { useStorefrontFilter } from '@/store/storefront';
 
 interface Customer {
   id: string;
@@ -162,9 +163,10 @@ export function CustomersPage() {
   const fetchPage = isSearching ? 1 : page;
   const fetchLimit = isSearching ? SEARCH_FETCH_LIMIT : PAGE_SIZE;
 
+  const storefront = useStorefrontFilter();
   const { data: customers = [], isLoading } = useQuery<Customer[]>({
-    queryKey: ['customers', search],
-    queryFn: async () => (await api.get('/customers', { params: { search } })).data,
+    queryKey: ['customers', search, storefront.store],
+    queryFn: async () => (await api.get('/customers', { params: { search, ...storefront } })).data,
   });
 
   const total = customers?.length ?? 0;

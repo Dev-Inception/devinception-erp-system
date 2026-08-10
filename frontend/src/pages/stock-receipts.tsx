@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Loader2, Plus, Search, Truck, Trash2 } from 'lucide-react';
+import { Loader2, Plus, Search, Truck, Trash2, Pencil, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -20,6 +20,7 @@ import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/store/auth';
 import { grantsPermission } from '@/lib/modules';
 import { useWarehouses } from '@/components/layout/warehouse-switcher';
+import { useStorefrontFilter, useStorefrontStore } from '@/store/storefront';
 
 interface Vendor {
   id: string;
@@ -45,6 +46,8 @@ interface StockReceipt {
   number: string;
   vendorId: string;
   vendorName: string;
+  storeId?: string;
+  storeName?: string;
   warehouseId: string;
   warehouseName: string;
   date: string;
@@ -56,25 +59,40 @@ interface StockReceipt {
 const PAGE_SIZE = 20;
 const SEARCH_FETCH_LIMIT = 200;
 
-/* ── New truck delivery: vendor, truck details, and per-product received/damaged quantities ── */
-function NewReceiptDialog({ onClose }: { onClose: () => void }) {
+/* ── New/edit truck delivery: vendor, truck details, and per-product received/damaged quantities ── */
+function ReceiptDialog({ receipt, onClose }: { receipt?: StockReceipt; onClose: () => void }) {
   const qc = useQueryClient();
+  const editing = !!receipt;
   const { warehouses, currentId: defaultWarehouseId } = useWarehouses();
-  const [vendorId, setVendorId] = useState('');
-  const [warehouseId, setWarehouseId] = useState('');
-  const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
-  const [vehicleNumber, setVehicleNumber] = useState('');
-  const [driverName, setDriverName] = useState('');
-  const [driverPhone, setDriverPhone] = useState('');
-  const [note, setNote] = useState('');
-  const [items, setItems] = useState<ReceiptItem[]>([]);
+  const currentStoreId = useStorefrontStore((s) => s.currentStoreId);
+  // A delivery is always received for one physical store — required on
+  // create; an existing receipt's store never changes on edit.
+  const hasSpecificStore = !!currentStoreId && currentStoreId !== 'ALL';
+  const [vendorId, setVendorId] = useState(receipt?.vendorId ?? '');
+  const [warehouseId, setWarehouseId] = useState(receipt?.warehouseId ?? '');
+  const [date, setDate] = useState(
+    () => receipt?.date.slice(0, 10) ?? new Date().toISOString().slice(0, 10),
+  );
+  const [vehicleNumber, setVehicleNumber] = useState(receipt?.truck.vehicleNumber ?? '');
+  const [driverName, setDriverName] = useState(receipt?.truck.driverName ?? '');
+  const [driverPhone, setDriverPhone] = useState(receipt?.truck.driverPhone ?? '');
+  const [note, setNote] = useState(receipt?.note ?? '');
+  const [items, setItems] = useState<ReceiptItem[]>(
+    () =>
+      receipt?.items.map((it) => ({
+        productId: it.productId,
+        name: it.name,
+        receivedQuantity: it.receivedQuantity,
+        damagedQuantity: it.damagedQuantity,
+      })) ?? [],
+  );
   const [productSearch, setProductSearch] = useState('');
   const [productPickerOpen, setProductPickerOpen] = useState(false);
   const productSearchRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (!warehouseId && defaultWarehouseId) setWarehouseId(defaultWarehouseId);
-  }, [warehouseId, defaultWarehouseId]);
+    if (!editing && !warehouseId && defaultWarehouseId) setWarehouseId(defaultWarehouseId);
+  }, [editing, warehouseId, defaultWarehouseId]);
 
   const { data: vendors = [] } = useQuery<Vendor[]>({
     queryKey: ['vendors-select'],
@@ -99,28 +117,36 @@ function NewReceiptDialog({ onClose }: { onClose: () => void }) {
   const removeItem = (productId: string) =>
     setItems((rows) => rows.filter((r) => r.productId !== productId));
 
-  const create = useMutation({
-    mutationFn: async () =>
-      (
-        await api.post('/stock-receipts', {
-          vendorId,
-          warehouseId,
-          date,
-          truck: {
-            vehicleNumber,
-            driverName: driverName || undefined,
-            driverPhone: driverPhone || undefined,
-          },
-          items: items.map((r) => ({
-            productId: r.productId,
-            receivedQuantity: r.receivedQuantity || 0,
-            damagedQuantity: r.damagedQuantity || 0,
-          })),
-          note: note || undefined,
-        })
-      ).data,
+  const save = useMutation({
+    mutationFn: async () => {
+      if (!editing && !hasSpecificStore) {
+        throw new Error('Select a specific store from the header before recording a receipt.');
+      }
+      const payload = {
+        storeId: currentStoreId,
+        vendorId,
+        warehouseId,
+        date,
+        truck: {
+          vehicleNumber,
+          driverName: driverName || undefined,
+          driverPhone: driverPhone || undefined,
+        },
+        items: items.map((r) => ({
+          productId: r.productId,
+          receivedQuantity: r.receivedQuantity || 0,
+          damagedQuantity: r.damagedQuantity || 0,
+        })),
+        note: note || undefined,
+      };
+      return (
+        editing
+          ? await api.patch(`/stock-receipts/${receipt!.id}`, payload)
+          : await api.post('/stock-receipts', payload)
+      ).data;
+    },
     onSuccess: () => {
-      toast.success('Stock receipt recorded');
+      toast.success(editing ? 'Stock receipt updated' : 'Stock receipt recorded');
       qc.invalidateQueries({ queryKey: ['stock-receipts'] });
       qc.invalidateQueries({ queryKey: ['products'] });
       qc.invalidateQueries({ queryKey: ['warehouses'] });
@@ -128,11 +154,15 @@ function NewReceiptDialog({ onClose }: { onClose: () => void }) {
     },
     onError: (e: any) =>
       toast.error(
-        e?.response?.data?.message?.[0] ?? e?.response?.data?.message ?? 'Could not save',
+        e?.response?.data?.message?.[0] ??
+          e?.response?.data?.message ??
+          e?.message ??
+          'Could not save',
       ),
   });
 
   const canSubmit =
+    (editing || hasSpecificStore) &&
     vendorId &&
     warehouseId &&
     vehicleNumber.trim() &&
@@ -144,20 +174,28 @@ function NewReceiptDialog({ onClose }: { onClose: () => void }) {
       <DialogContent className="max-w-2xl">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <Truck className="h-4 w-4" /> New Stock Receipt
+            <Truck className="h-4 w-4" /> {editing ? 'Edit Stock Receipt' : 'New Stock Receipt'}
           </DialogTitle>
           <DialogDescription>
-            Record a truck delivery from a vendor — how much of each product arrived good versus
-            damaged. Damaged quantities are logged for tracking only; they don't add to stock.
+            {editing
+              ? 'Update this truck delivery — quantities are reconciled against current stock.'
+              : "Record a truck delivery from a vendor — how much of each product arrived good versus damaged. Damaged quantities are logged for tracking only; they don't add to stock."}
           </DialogDescription>
         </DialogHeader>
         <form
           className="space-y-4"
           onSubmit={(e) => {
             e.preventDefault();
-            if (canSubmit) create.mutate();
+            if (canSubmit) save.mutate();
           }}
         >
+          {!editing && !hasSpecificStore && (
+            <div className="flex items-center gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+              <AlertTriangle className="h-4 w-4 shrink-0" />
+              Select a specific store from the header before recording a receipt — "All Stores"
+              can't be recorded on a delivery.
+            </div>
+          )}
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-1.5">
               <Label>Vendor *</Label>
@@ -320,8 +358,9 @@ function NewReceiptDialog({ onClose }: { onClose: () => void }) {
                 Cancel
               </Button>
             </DialogClose>
-            <Button type="submit" disabled={!canSubmit || create.isPending}>
-              {create.isPending && <Loader2 className="h-4 w-4 animate-spin" />} Save Receipt
+            <Button type="submit" disabled={!canSubmit || save.isPending}>
+              {save.isPending && <Loader2 className="h-4 w-4 animate-spin" />}{' '}
+              {editing ? 'Save Changes' : 'Save Receipt'}
             </Button>
           </div>
         </form>
@@ -331,6 +370,7 @@ function NewReceiptDialog({ onClose }: { onClose: () => void }) {
 }
 
 export function StockReceiptsPage() {
+  const qc = useQueryClient();
   const authUser = useAuthStore((s) => s.user);
   const canManage = grantsPermission(authUser?.permissions, 'inventory:manage');
 
@@ -340,6 +380,8 @@ export function StockReceiptsPage() {
   const [to, setTo] = useState('');
   const [page, setPage] = useState(1);
   const [creating, setCreating] = useState(false);
+  const [editingReceipt, setEditingReceipt] = useState<StockReceipt | null>(null);
+  const storefront = useStorefrontFilter();
 
   const q = search.trim().toLowerCase();
   const isSearching = q.length > 0;
@@ -351,11 +393,18 @@ export function StockReceiptsPage() {
   }, [from, to, search]);
 
   const { data, isLoading } = useQuery({
-    queryKey: ['stock-receipts', from, to, search, fetchPage, fetchLimit],
+    queryKey: ['stock-receipts', from, to, search, fetchPage, fetchLimit, storefront.store],
     queryFn: async () =>
       (
         await api.get('/stock-receipts', {
-          params: { from, to, search: search || undefined, page: fetchPage, limit: fetchLimit },
+          params: {
+            from,
+            to,
+            search: search || undefined,
+            page: fetchPage,
+            limit: fetchLimit,
+            ...storefront,
+          },
         })
       ).data as { receipts: StockReceipt[]; total: number },
   });
@@ -370,6 +419,27 @@ export function StockReceiptsPage() {
     r.items.filter((it) => it.damagedQuantity > 0).map((it) => ({ receipt: r, item: it })),
   );
   const rows = tab === 'in' ? stockInRows : damagedRows;
+
+  const del = useMutation({
+    mutationFn: async (id: string) => (await api.delete(`/stock-receipts/${id}`)).data,
+    onSuccess: () => {
+      toast.success('Stock receipt deleted');
+      qc.invalidateQueries({ queryKey: ['stock-receipts'] });
+      qc.invalidateQueries({ queryKey: ['products'] });
+      qc.invalidateQueries({ queryKey: ['warehouses'] });
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Could not delete this receipt'),
+  });
+
+  const removeReceipt = (r: StockReceipt) => {
+    if (
+      window.confirm(
+        `Delete receipt ${r.number}? This reverses the stock it added and cannot be undone.`,
+      )
+    ) {
+      del.mutate(r.id);
+    }
+  };
 
   return (
     <div className="space-y-4">
@@ -441,18 +511,23 @@ export function StockReceiptsPage() {
               <th className="px-4 py-3 font-medium">Receipt #</th>
               <th className="px-4 py-3 font-medium">Date</th>
               <th className="px-4 py-3 font-medium">Vendor</th>
+              <th className="px-4 py-3 font-medium">Store</th>
               <th className="px-4 py-3 font-medium">Warehouse</th>
               <th className="px-4 py-3 font-medium">Truck</th>
               <th className="px-4 py-3 font-medium">Product</th>
               <th className="px-4 py-3 text-right font-medium">
                 {tab === 'in' ? 'Qty Received' : 'Qty Damaged'}
               </th>
+              {canManage && <th className="px-4 py-3 text-right font-medium">Actions</th>}
             </tr>
           </thead>
           <tbody>
             {isLoading && (
               <tr>
-                <td colSpan={7} className="px-4 py-10 text-center text-muted-foreground">
+                <td
+                  colSpan={canManage ? 9 : 8}
+                  className="px-4 py-10 text-center text-muted-foreground"
+                >
                   Loading…
                 </td>
               </tr>
@@ -468,17 +543,46 @@ export function StockReceiptsPage() {
                     {new Date(receipt.date).toLocaleDateString()}
                   </td>
                   <td className="px-4 py-3 text-muted-foreground">{receipt.vendorName}</td>
+                  <td className="px-4 py-3 text-muted-foreground">{receipt.storeName ?? '—'}</td>
                   <td className="px-4 py-3 text-muted-foreground">{receipt.warehouseName}</td>
                   <td className="px-4 py-3 text-muted-foreground">{receipt.truck.vehicleNumber}</td>
                   <td className="px-4 py-3">{item.name}</td>
                   <td className="px-4 py-3 text-right tabular-nums font-medium">
                     {tab === 'in' ? item.receivedQuantity : item.damagedQuantity}
                   </td>
+                  {canManage && (
+                    <td className="px-4 py-3">
+                      <div className="flex justify-end gap-1">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8"
+                          title="Edit"
+                          onClick={() => setEditingReceipt(receipt)}
+                        >
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8"
+                          title="Delete"
+                          disabled={del.isPending}
+                          onClick={() => removeReceipt(receipt)}
+                        >
+                          <Trash2 className="h-4 w-4 text-destructive" />
+                        </Button>
+                      </div>
+                    </td>
+                  )}
                 </tr>
               ))}
             {!isLoading && rows.length === 0 && (
               <tr>
-                <td colSpan={7} className="px-4 py-10 text-center text-muted-foreground">
+                <td
+                  colSpan={canManage ? 9 : 8}
+                  className="px-4 py-10 text-center text-muted-foreground"
+                >
                   {tab === 'in' ? 'No stock received yet.' : 'No damaged stock recorded yet.'}
                 </td>
               </tr>
@@ -497,7 +601,10 @@ export function StockReceiptsPage() {
         )}
       </Card>
 
-      {creating && <NewReceiptDialog onClose={() => setCreating(false)} />}
+      {creating && <ReceiptDialog onClose={() => setCreating(false)} />}
+      {editingReceipt && (
+        <ReceiptDialog receipt={editingReceipt} onClose={() => setEditingReceipt(null)} />
+      )}
     </div>
   );
 }

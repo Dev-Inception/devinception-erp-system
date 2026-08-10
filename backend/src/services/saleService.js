@@ -1,4 +1,6 @@
+const mongoose = require('mongoose');
 const Sale = require('../models/saleModel');
+const Store = require('../models/storeModel');
 const Customer = require('../models/customerModel');
 const Labour = require('../models/labourModel');
 const Vendor = require('../models/vendorModel');
@@ -14,7 +16,7 @@ const counterService = require('./counterService');
 const { calculateInvoiceTotals, resolveUnitPrice } = require('./invoiceCalculationService');
 const { parsePagination } = require('../utils/query');
 const { normalizeQuantity, requirePositiveQuantity } = require('../utils/quantity');
-const { assertProductWarehouse } = require('../utils/productWarehouse');
+const { resolveWarehouseScope, warehouseMongoFilter } = require('../utils/storeScope');
 const gatePassService = require('./gatePassService');
 
 /**
@@ -97,7 +99,9 @@ async function resolveSaleLineItems(items, defaultWarehouse, warehouseService) {
 
       // Only stock-backed lines are tied to their warehouse and need
       // available stock — a vendor-sourced line isn't pulled from inventory.
-      assertProductWarehouse(product, lineWarehouse);
+      // A product can be stocked (via StockLevel) in more than one warehouse;
+      // the availability check just below is the real guard, so any
+      // warehouse that actually holds stock of it is a valid source.
       const requestKey = `${product._id}:${lineWarehouse._id}`;
       const requested = requirePositiveQuantity(
         (requestedByKey.get(requestKey) || 0) + quantity,
@@ -162,6 +166,7 @@ async function reverseSaleJournalEntries(sale, actor, when) {
       refId: sale._id,
       refNo: sale.number,
       warehouse: sale.warehouse,
+      store: sale.store,
       createdBy: actor ? actor._id : null,
       lines: reverseLines,
     });
@@ -175,6 +180,7 @@ async function reverseSaleJournalEntries(sale, actor, when) {
       refId: sale._id,
       refNo: sale.number,
       warehouse: sale.warehouse,
+      store: sale.store,
       createdBy: actor ? actor._id : null,
       lines: [
         journalService.line(ACCOUNT.COGS, { credit: sale.cost }),
@@ -187,6 +193,7 @@ async function reverseSaleJournalEntries(sale, actor, when) {
 async function createSale(actor, input) {
   const {
     customer,
+    store,
     warehouse,
     date,
     items,
@@ -203,6 +210,11 @@ async function createSale(actor, input) {
   }
   const method = payment.method;
   if (!method) throw ApiError.badRequest('A payment method is required');
+
+  // Every sale happens at one physical storefront — required so every
+  // invoice records, permanently, which shop the customer was actually in.
+  const storeDoc = await Store.findById(store);
+  if (!storeDoc) throw ApiError.badRequest('A store is required');
 
   const customerDoc = customer ? await Customer.findById(customer) : null;
   if (customer && !customerDoc) throw ApiError.notFound('Customer not found');
@@ -326,6 +338,7 @@ async function createSale(actor, input) {
     number,
     customer: customerDoc ? customerDoc._id : null,
     customerName: customerDoc ? customerDoc.name : 'Walk-in',
+    store: storeDoc._id,
     warehouse: wh._id,
     date: when,
     items: lineItems,
@@ -377,6 +390,7 @@ async function createSale(actor, input) {
       refId: sale._id,
       refNo: number,
       warehouse: wh._id,
+      store: storeDoc._id,
       createdBy: actor ? actor._id : null,
       lines: revenueLines,
     });
@@ -391,6 +405,7 @@ async function createSale(actor, input) {
       refId: sale._id,
       refNo: number,
       warehouse: wh._id,
+      store: storeDoc._id,
       createdBy: actor ? actor._id : null,
       lines: [
         journalService.line(ACCOUNT.COGS, { debit: cost }),
@@ -614,6 +629,7 @@ async function updateSale(actor, saleId, input) {
       refId: sale._id,
       refNo: sale.number,
       warehouse: wh._id,
+      store: sale.store,
       createdBy: actor ? actor._id : null,
       lines: revenueLines,
     });
@@ -627,6 +643,7 @@ async function updateSale(actor, saleId, input) {
       refId: sale._id,
       refNo: sale.number,
       warehouse: wh._id,
+      store: sale.store,
       createdBy: actor ? actor._id : null,
       lines: [
         journalService.line(ACCOUNT.COGS, { debit: cost }),
@@ -690,6 +707,7 @@ async function recordPayment(actor, saleId, { amount, method, bankAccount, note 
     refType: REF.SALE,
     refId: sale._id,
     refNo: sale.number,
+    store: sale.store,
     createdBy: actor ? actor._id : null,
     lines: [
       journalService.line(settle.account, { debit: amt, ref: settle.ref }),
@@ -702,11 +720,20 @@ async function recordPayment(actor, saleId, { amount, method, bankAccount, note 
   return sale;
 }
 
-async function listSales({ customer, from, to, paymentMethod, ...query } = {}) {
+async function listSales({ customer, warehouse, store, from, to, paymentMethod, ...query } = {}) {
   const { page, limit, skip } = parsePagination(query);
   const filter = {};
   if (customer) filter.customer = customer;
   if (paymentMethod) filter.paymentMethod = paymentMethod;
+  // Every sale now records its own storefront directly — filter on that
+  // rather than the indirect (and looser) warehouse-membership scoping,
+  // which only every sale's `warehouse` field, not which shop it happened at.
+  if (store && mongoose.isValidObjectId(store)) {
+    filter.store = store;
+  } else if (warehouse) {
+    const { warehouseIds } = await resolveWarehouseScope({ warehouse });
+    Object.assign(filter, warehouseMongoFilter(warehouseIds));
+  }
   if (from || to) {
     filter.date = {};
     if (from) filter.date.$gte = new Date(from);
@@ -714,7 +741,11 @@ async function listSales({ customer, from, to, paymentMethod, ...query } = {}) {
   }
 
   const [sales, total] = await Promise.all([
-    Sale.find(filter).sort({ date: -1, createdAt: -1 }).skip(skip).limit(limit),
+    Sale.find(filter)
+      .populate('store', 'name code')
+      .sort({ date: -1, createdAt: -1 })
+      .skip(skip)
+      .limit(limit),
     Sale.countDocuments(filter),
   ]);
 
@@ -724,6 +755,7 @@ async function listSales({ customer, from, to, paymentMethod, ...query } = {}) {
 async function getSaleById(id) {
   const sale = await Sale.findById(id)
     .populate('customer', 'name phone')
+    .populate('store', 'name code')
     .populate('warehouse', 'name');
   if (!sale) throw ApiError.notFound('Sale not found');
   return sale;

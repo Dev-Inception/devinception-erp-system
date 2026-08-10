@@ -32,6 +32,10 @@ const stockReceiptSchema = new mongoose.Schema(
     number: { type: String, required: true, unique: true }, // GRN-2026-000001
     vendor: { type: mongoose.Schema.Types.ObjectId, ref: 'Vendor', required: true, index: true },
     vendorName: { type: String, default: '' }, // snapshot
+    // The physical storefront this delivery was received for — set once at
+    // creation from whichever store was selected. Distinct from `warehouse`
+    // below (where the stock physically landed).
+    store: { type: mongoose.Schema.Types.ObjectId, ref: 'Store', required: true, index: true },
     warehouse: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Warehouse',

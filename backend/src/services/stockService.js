@@ -9,6 +9,7 @@ const {
   requirePositiveQuantity,
   requireNonZeroQuantity,
 } = require('../utils/quantity');
+const { warehouseMongoFilter } = require('../utils/storeScope');
 
 /**
  * Inventory mechanics: moving-average costing. Receiving stock blends the new
@@ -171,11 +172,10 @@ async function adjustStock(product, warehouse, delta, unitCost, ref = {}) {
   return -cogs;
 }
 
-// Total inventory value (paisa), optionally for one warehouse, with per-row
-// detail for the Stock Valuation report.
-async function valuation({ warehouse } = {}) {
-  const filter = {};
-  if (warehouse) filter.warehouse = warehouse;
+// Total inventory value (paisa), optionally scoped to one or more warehouses,
+// with per-row detail for the Stock Valuation report.
+async function valuation({ warehouseIds = null } = {}) {
+  const filter = { ...warehouseMongoFilter(warehouseIds) };
 
   const levels = await StockLevel.find(filter)
     .populate({
@@ -186,12 +186,12 @@ async function valuation({ warehouse } = {}) {
     .populate('warehouse', 'name location address isDefault')
     .lean();
 
+  // `levels` is already correctly scoped by `filter` above (on the
+  // StockLevel's own `warehouse`) — a product can legitimately hold stock
+  // outside its own declared warehouse, so that's the only scoping that
+  // matters here. Only drop rows whose product was deleted.
   const rows = levels
-    .filter(
-      (l) =>
-        l.product &&
-        (!warehouse || !l.product.warehouse || String(l.product.warehouse) === String(warehouse)),
-    )
+    .filter((l) => l.product)
     .map((l) => {
       const quantity = normalizeQuantity(l.quantity);
       return {
@@ -209,17 +209,15 @@ async function valuation({ warehouse } = {}) {
   const represented = rows.map((row) => row.product._id);
   const missingProducts = await Product.find({
     isActive: true,
-    ...(warehouse ? { warehouse } : {}),
+    ...filter,
     ...(represented.length ? { _id: { $nin: represented } } : {}),
   })
     .select('name sku unit minStock')
+    .populate('warehouse', 'name location address isDefault')
     .populate('unit', 'name abbreviation')
     .lean();
-  const selectedWarehouse = warehouse
-    ? await Warehouse.findById(warehouse).select('name location address isDefault').lean()
-    : null;
   for (const product of missingProducts) {
-    rows.push({ product, warehouse: selectedWarehouse, quantity: 0, avgCost: 0, value: 0 });
+    rows.push({ product, warehouse: product.warehouse, quantity: 0, avgCost: 0, value: 0 });
   }
 
   const total = rows.reduce((sum, r) => sum + r.value, 0);

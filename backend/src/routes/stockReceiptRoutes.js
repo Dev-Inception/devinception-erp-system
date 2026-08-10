@@ -6,6 +6,8 @@ const { validate } = require('../middlewares/validateMiddleware');
 const { PERMISSIONS } = require('../utils/permissions');
 const {
   createReceiptValidator,
+  updateReceiptValidator,
+  idParamValidator,
   listReceiptsValidator,
 } = require('../validators/stockReceiptValidator');
 
@@ -25,6 +27,20 @@ router.post(
   createReceiptValidator,
   validate,
   stockReceiptController.createReceipt,
+);
+router.patch(
+  '/:id',
+  requirePermission(PERMISSIONS.INVENTORY_MANAGE),
+  updateReceiptValidator,
+  validate,
+  stockReceiptController.updateReceipt,
+);
+router.delete(
+  '/:id',
+  requirePermission(PERMISSIONS.INVENTORY_MANAGE),
+  idParamValidator,
+  validate,
+  stockReceiptController.deleteReceipt,
 );
 
 module.exports = router;

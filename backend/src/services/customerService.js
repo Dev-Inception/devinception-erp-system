@@ -36,7 +36,7 @@ async function listCustomers(query = {}) {
   const [docs, total, balances] = await Promise.all([
     Customer.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
     Customer.countDocuments(filter),
-    journalService.balancesByRef(ACCOUNT.AR),
+    journalService.balancesByRef(ACCOUNT.AR, { store: query.store }),
   ]);
 
   // Show the live receivable from the ledger (rupees) as outstanding.

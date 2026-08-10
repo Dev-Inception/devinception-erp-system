@@ -3,9 +3,11 @@ const QRCode = require('qrcode');
 const GatePass = require('../models/gatePassModel');
 const Sale = require('../models/saleModel');
 const Product = require('../models/productModel');
+const mongoose = require('mongoose');
 const ApiError = require('../utils/ApiError');
 const counterService = require('./counterService');
 const { parsePagination } = require('../utils/query');
+const { resolveWarehouseScope, warehouseMongoFilter } = require('../utils/storeScope');
 
 const QR_PREFIX = 'ERP_GATE_PASS:';
 const SALE_FILTER = { sourceType: 'SALE' };
@@ -49,6 +51,7 @@ async function saleSnapshot(sale, kind = 'CUSTOMER', warehouseId = null) {
     sale: sale._id,
     documentNumber: sale.number,
     partyName: sale.customerName || '',
+    store: refId(sale.store) || null,
     warehouse: resolvedWarehouseId,
     saleDate: sale.date,
     items: relevantItems.map((item) => {
@@ -244,11 +247,18 @@ async function getGatePassBySale(saleId) {
   return getGatePassById(gatePass._id);
 }
 
-async function listGatePasses({ warehouse, status, sourceType, ...query } = {}) {
+async function listGatePasses({ warehouse, store, status, sourceType, ...query } = {}) {
   await refreshLegacySaleGatePasses();
   const { page, limit, skip } = parsePagination(query);
   const filter = {};
-  if (warehouse) filter.warehouse = warehouse;
+  // Gate passes copy their `store` from the originating sale — prefer that
+  // direct field over the looser warehouse-membership scoping.
+  if (store && mongoose.isValidObjectId(store)) {
+    filter.store = store;
+  } else if (warehouse) {
+    const { warehouseIds } = await resolveWarehouseScope({ warehouse });
+    Object.assign(filter, warehouseMongoFilter(warehouseIds));
+  }
   if (status) filter.status = status;
   if (sourceType) filter.sourceType = sourceType;
 
@@ -256,6 +266,7 @@ async function listGatePasses({ warehouse, status, sourceType, ...query } = {}) 
     GatePass.find(filter)
       .populate('createdBy', 'name')
       .populate('processedBy', 'name')
+      .populate('store', 'name code')
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit),

@@ -1,11 +1,14 @@
 const Sale = require('../models/saleModel');
 const Warehouse = require('../models/warehouseModel');
+const Store = require('../models/storeModel');
+const JournalEntry = require('../models/journalEntryModel');
 const ApiError = require('../utils/ApiError');
 const { ACCOUNT, REF } = require('../utils/finance');
 const journalService = require('./journalService');
 const stockService = require('./stockService');
-const { parseReportDate } = require('../utils/reportDate');
+const { parseReportDate, formatReportDate } = require('../utils/reportDate');
 const { normalizeQuantity } = require('../utils/quantity');
+const { resolveWarehouseScope, warehouseMongoFilter } = require('../utils/storeScope');
 
 /**
  * Reporting: date-range aggregations over transactional data and the ledger.
@@ -58,9 +61,15 @@ function warehouseInfo(warehouse) {
 }
 
 // Sales report: Sale is the sole sales source.
-async function salesReport({ from, to, warehouse }) {
+async function salesReport({ from, to, warehouseIds, store }) {
   const filter = requireRange({ from, to });
-  if (warehouse) filter.warehouse = warehouse;
+  // Every sale records its own storefront directly — prefer that over the
+  // looser warehouse-membership scoping (two stores can share a warehouse).
+  if (store) {
+    filter.store = store;
+  } else {
+    Object.assign(filter, warehouseMongoFilter(warehouseIds));
+  }
   const sales = await Sale.find(filter)
     .populate('customer', 'name phone email address')
     .populate('warehouse', 'name location address isDefault')
@@ -171,8 +180,8 @@ async function salesReport({ from, to, warehouse }) {
 }
 
 // Stock valuation: quantity × moving-average cost per product.
-async function stockValuationReport({ warehouse }) {
-  const { rows, total } = await stockService.valuation({ warehouse });
+async function stockValuationReport({ warehouseIds }) {
+  const { rows, total } = await stockService.valuation({ warehouseIds });
   const detailRows = rows.map((r) => ({
     productId: String(r.product._id),
     product: r.product.name,
@@ -217,17 +226,26 @@ async function stockValuationReport({ warehouse }) {
  *   Revenue (net Sales) − COGS = Gross profit
  *   Gross profit − operating expenses = Net profit.
  */
-async function profitAndLossReport({ from, to, warehouse }) {
+async function profitAndLossReport({ from, to, warehouseIds, store }) {
   const normalized = normalizeRange({ from, to }, false);
   const range = normalized || {};
   const expenseRange = normalized ? { ...normalized } : {};
-  if (warehouse) {
-    const sourceFilter = { warehouse };
+  if (store) {
+    // Every sale and expense records its own storefront directly — prefer
+    // that over the looser warehouse-membership scoping.
+    const sourceFilter = { store };
     if (normalized) sourceFilter.date = { $gte: normalized.from, $lte: normalized.to };
     const saleIds = await Sale.find(sourceFilter).distinct('_id');
     range.refType = REF.SALE;
     range.refIds = saleIds;
-    expenseRange.warehouse = warehouse;
+    expenseRange.store = store;
+  } else if (warehouseIds) {
+    const sourceFilter = { ...warehouseMongoFilter(warehouseIds) };
+    if (normalized) sourceFilter.date = { $gte: normalized.from, $lte: normalized.to };
+    const saleIds = await Sale.find(sourceFilter).distinct('_id');
+    range.refType = REF.SALE;
+    range.refIds = saleIds;
+    Object.assign(expenseRange, warehouseMongoFilter(warehouseIds));
   }
   const [sales, cogs, expenses] = await Promise.all([
     journalService.accountTotals(ACCOUNT.SALES, null, range),
@@ -269,10 +287,116 @@ async function profitAndLossReport({ from, to, warehouse }) {
   };
 }
 
+// Human-readable labels for the source-document types that post journal
+// entries — used to label each Day Book row.
+const VOUCHER_LABELS = {
+  [REF.SALE]: 'Sale',
+  [REF.SALE_RETURN]: 'Sale Return',
+  [REF.PURCHASE]: 'Stock Purchase',
+  [REF.PAYMENT]: 'Vendor Payment',
+  [REF.RECEIPT]: 'Customer Receipt',
+  [REF.CASH_ADJUST]: 'Cash Adjustment',
+  [REF.EXPENSE]: 'Expense',
+  [REF.OPENING]: 'Opening Balance',
+};
+
+// Defaults to today (in the reporting timezone) when no range is given, and
+// mirrors a single date across both ends when only one is given — Day Book is
+// normally viewed one day at a time.
+function resolveDayRange({ from, to }) {
+  const today = formatReportDate(new Date());
+  return normalizeRange({ from: from || to || today, to: to || from || today });
+}
+
+// Sum whichever side (debit or credit) of each line matches `predicate`,
+// across every entry — the shared building block for every Day Book total.
+function sumWhere(entries, predicate) {
+  let total = 0;
+  for (const entry of entries) {
+    for (const line of entry.lines) {
+      if (predicate(line, entry)) total += line.debit || line.credit || 0;
+    }
+  }
+  return total;
+}
+
+/**
+ * Day Book: a chronological register of every journal entry (voucher) posted
+ * on the day(s) in range — sales, stock receipts, vendor payments, customer
+ * receipts, cash adjustments, and operating expenses — so the day's full
+ * financial activity can be reviewed in one place, headlined by the day's
+ * total operating expenses.
+ */
+async function dayBookReport({ from, to, warehouseIds, store }) {
+  const range = resolveDayRange({ from, to });
+  const filter = { date: { $gte: range.from, $lte: range.to } };
+  if (store) {
+    // Sales, purchases, payments, receipts, cash adjustments, and expenses
+    // all record their own storefront directly. A handful of entry types
+    // (manual stock adjustments, legacy data) carry no store at all — always
+    // include those rather than making them disappear from every store's day.
+    filter.$or = [{ store: null }, { store }];
+  } else if (warehouseIds) {
+    // Business-wide entries (vendor payments, customer receipts, cash
+    // adjustments) carry no warehouse at all — always include them rather
+    // than making them disappear from every specific store's day.
+    filter.$or = [{ warehouse: null }, warehouseMongoFilter(warehouseIds)];
+  }
+  const entries = await JournalEntry.find(filter)
+    .populate('warehouse', 'name')
+    .sort({ date: 1, createdAt: 1 })
+    .lean();
+
+  const rows = entries.map((e) => ({
+    id: String(e._id),
+    date: e.date,
+    voucherType: e.refType,
+    voucherLabel: VOUCHER_LABELS[e.refType] || e.refType,
+    voucherNo: e.refNo || '',
+    description: e.description || VOUCHER_LABELS[e.refType] || e.refType,
+    warehouse: e.warehouse ? e.warehouse.name : '',
+    amount: e.lines.reduce((sum, l) => sum + (l.debit || 0), 0),
+  }));
+
+  const summary = {
+    transactionCount: entries.length,
+    totalSales: sumWhere(entries, (l) => l.account === ACCOUNT.SALES && l.credit > 0),
+    totalCOGS: sumWhere(entries, (l) => l.account === ACCOUNT.COGS && l.debit > 0),
+    totalPurchases: sumWhere(
+      entries,
+      (l, e) => e.refType === REF.PURCHASE && l.account === ACCOUNT.INVENTORY && l.debit > 0,
+    ),
+    totalExpenses: sumWhere(entries, (l) => l.account === ACCOUNT.OPERATING_EXPENSE && l.debit > 0),
+    totalVendorPayments: sumWhere(entries, (l) => l.account === ACCOUNT.AP && l.debit > 0),
+    totalCustomerReceipts: sumWhere(entries, (l) => l.account === ACCOUNT.AR && l.credit > 0),
+    cashIn: sumWhere(entries, (l) => l.account === ACCOUNT.CASH && l.debit > 0),
+    cashOut: sumWhere(entries, (l) => l.account === ACCOUNT.CASH && l.credit > 0),
+    bankIn: sumWhere(entries, (l) => l.account === ACCOUNT.BANK && l.debit > 0),
+    bankOut: sumWhere(entries, (l) => l.account === ACCOUNT.BANK && l.credit > 0),
+  };
+  summary.netCash = summary.cashIn - summary.cashOut;
+  summary.netBank = summary.bankIn - summary.bankOut;
+
+  return {
+    title: 'Day Book',
+    columns: [
+      { key: 'date', label: 'Date' },
+      { key: 'voucherLabel', label: 'Type' },
+      { key: 'voucherNo', label: 'Voucher #' },
+      { key: 'description', label: 'Description' },
+      { key: 'warehouse', label: 'Warehouse' },
+      { key: 'amount', label: 'Amount', numeric: true },
+    ],
+    rows,
+    summary,
+  };
+}
+
 const REPORTS = {
   sales: salesReport,
   'stock-valuation': stockValuationReport,
   'profit-loss': profitAndLossReport,
+  'day-book': dayBookReport,
 };
 
 async function runReport(type, params) {
@@ -280,12 +404,22 @@ async function runReport(type, params) {
     throw ApiError.badRequest(`Unknown report type: ${type}`);
   }
   const fn = REPORTS[type];
+
+  // `store` takes precedence over a plain `warehouse` — resolves to the list
+  // of warehouse ids every report filters on. The single-warehouse doc below
+  // is only for meta display, and only fetched on the legacy single-warehouse
+  // path (a store's own warehouse list is its own meta.store instead).
+  const { warehouseIds } = await resolveWarehouseScope(params);
   let warehouse = null;
-  if (params.warehouse) {
+  let store = null;
+  if (params.store) {
+    store = await Store.findById(params.store).select('name code').lean();
+  } else if (params.warehouse) {
     warehouse = await Warehouse.findById(params.warehouse).lean();
     if (!warehouse) throw ApiError.notFound('Warehouse not found');
   }
-  const report = await fn({ ...params, warehouse: warehouse ? warehouse._id : undefined });
+
+  const report = await fn({ ...params, warehouseIds, store: store ? store._id : null });
   return {
     ...report,
     meta: {
@@ -294,7 +428,8 @@ async function runReport(type, params) {
         type === 'stock-valuation' ? null : { from: params.from || null, to: params.to || null },
       basis: type === 'stock-valuation' ? 'CURRENT' : 'PERIOD',
       warehouse: warehouseInfo(warehouse),
-      scope: warehouse ? 'WAREHOUSE' : 'ALL_WAREHOUSES',
+      store: store ? { id: String(store._id), name: store.name, code: store.code || '' } : null,
+      scope: store ? 'STORE' : warehouse ? 'WAREHOUSE' : 'ALL_WAREHOUSES',
     },
   };
 }
@@ -303,5 +438,6 @@ module.exports = {
   salesReport,
   stockValuationReport,
   profitAndLossReport,
+  dayBookReport,
   runReport,
 };

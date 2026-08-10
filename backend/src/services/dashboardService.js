@@ -3,6 +3,7 @@ const Sale = require('../models/saleModel');
 const journalService = require('./journalService');
 const stockService = require('./stockService');
 const { ACCOUNT, naturalBalance } = require('../utils/finance');
+const { resolveWarehouseScope, warehouseMongoFilter } = require('../utils/storeScope');
 
 /**
  * Dashboard overview: the handful of headline figures and mini-charts shown on
@@ -11,7 +12,7 @@ const { ACCOUNT, naturalBalance } = require('../utils/finance');
  *
  * Two scopes are mixed here on purpose:
  *   - Sales-derived cards (today / month / total sales, trend, top products)
- *     and stock value respect the optional `warehouse` filter.
+ *     and stock value respect the optional `warehouse`/`store` filter.
  *   - Ledger-derived cards (expenses, receivables, payables) are business-wide
  *     — the ledger is not dimensioned by warehouse — so they ignore it.
  *
@@ -21,16 +22,6 @@ const { ACCOUNT, naturalBalance } = require('../utils/finance');
 
 const TREND_DAYS = 30;
 const TOP_PRODUCTS = 5;
-
-// Optional warehouse match for Sale aggregations. Returns {} when absent or
-// malformed so a bad query param degrades to "all warehouses" rather than
-// erroring.
-function saleWarehouseMatch(warehouse) {
-  if (warehouse && mongoose.isValidObjectId(warehouse)) {
-    return { warehouse: new mongoose.Types.ObjectId(warehouse) };
-  }
-  return {};
-}
 
 // Sum of Sale.total (paisa) matching the given filter.
 async function salesTotal(match) {
@@ -101,10 +92,22 @@ async function outstanding(account) {
 }
 
 /**
- * Build the full dashboard payload (paisa). `warehouse` is optional.
+ * Build the full dashboard payload (paisa). `store` (takes precedence) and
+ * `warehouse` are both optional.
  */
-async function summary({ warehouse } = {}) {
-  const whMatch = saleWarehouseMatch(warehouse);
+async function summary({ warehouse, store } = {}) {
+  // Sales (and the COGS/expense entries they post) record their own
+  // storefront directly — prefer that over the looser warehouse-membership
+  // scoping (two stores can share a warehouse). Stock valuation has no direct
+  // store link (Products own a single warehouse, not a store), so it always
+  // resolves through warehouse membership.
+  const { warehouseIds } = await resolveWarehouseScope({ warehouse, store });
+  const validStore = store && mongoose.isValidObjectId(store) ? store : null;
+  // Aggregation `$match` doesn't auto-cast query strings like `.find()` does.
+  const whMatch = validStore
+    ? { store: new mongoose.Types.ObjectId(validStore) }
+    : warehouseMongoFilter(warehouseIds);
+  const ledgerScope = validStore ? { store: validStore } : {};
 
   const now = new Date();
   const startOfToday = new Date(
@@ -128,12 +131,12 @@ async function summary({ warehouse } = {}) {
     salesTotal({ ...whMatch, date: { $gte: startOfToday } }),
     salesTotal({ ...whMatch, date: { $gte: startOfMonth } }),
     salesTotal({ ...whMatch }),
-    stockService.valuation({ warehouse }).then((v) => v.total),
+    stockService.valuation({ warehouseIds }).then((v) => v.total),
     journalService
-      .accountTotals(ACCOUNT.COGS)
+      .accountTotals(ACCOUNT.COGS, null, ledgerScope)
       .then((t) => naturalBalance(ACCOUNT.COGS, t.debit, t.credit)),
     journalService
-      .accountTotals(ACCOUNT.OPERATING_EXPENSE)
+      .accountTotals(ACCOUNT.OPERATING_EXPENSE, null, ledgerScope)
       .then((t) => naturalBalance(ACCOUNT.OPERATING_EXPENSE, t.debit, t.credit)),
     outstanding(ACCOUNT.AR),
     outstanding(ACCOUNT.AP),
