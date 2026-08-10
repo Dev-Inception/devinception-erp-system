@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Search,
@@ -137,10 +137,14 @@ export function PosPage() {
 
   // Step 2 — products (list)
   const [search, setSearch] = useState('');
+  const [productPickerOpen, setProductPickerOpen] = useState(false);
+  const productSearchRef = useRef<HTMLInputElement>(null);
   const [cart, setCart] = useState<CartLine[]>([]);
 
   // Step 3 — labour & transport
   const [labourSearch, setLabourSearch] = useState('');
+  const [labourPickerOpen, setLabourPickerOpen] = useState(false);
+  const labourSearchRef = useRef<HTMLInputElement>(null);
   const [selectedLabour, setSelectedLabour] = useState<SelectedLabour[]>([]);
   const [driver, setDriver] = useState({
     name: '',
@@ -185,7 +189,7 @@ export function PosPage() {
     // per-warehouse availability.
     queryFn: async () =>
       (await api.get('/products', { params: { search, perWarehouse: true } })).data,
-    enabled: step === 2 && search.trim().length > 0,
+    enabled: step === 2,
   });
   const { data: warehouses = [] } = useQuery<WarehouseLite[]>({
     queryKey: ['warehouses'],
@@ -237,6 +241,8 @@ export function PosPage() {
       ];
     });
     setSearch('');
+    setProductPickerOpen(false);
+    productSearchRef.current?.blur();
   };
 
   // Only updates the quantity — never removes the row, so clearing the input
@@ -702,12 +708,16 @@ export function PosPage() {
                 <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                 <Input
                   autoFocus
+                  ref={productSearchRef}
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Scan barcode or search product…"
+                  onFocus={() => setProductPickerOpen(true)}
+                  // delay so a click on a result registers before closing
+                  onBlur={() => setTimeout(() => setProductPickerOpen(false), 150)}
+                  placeholder="Scan barcode, click to browse, or search product…"
                   className="h-11 pl-9"
                 />
-                {search.trim() && (
+                {productPickerOpen && (
                   <div className="absolute z-10 mt-1 max-h-72 w-full overflow-y-auto rounded-lg border bg-popover shadow-lg">
                     {groupedMatches.length === 0 && (
                       <p className="p-3 text-center text-sm text-muted-foreground">
@@ -719,6 +729,7 @@ export function PosPage() {
                       return (
                         <button
                           key={groupKey(p)}
+                          onMouseDown={(e) => e.preventDefault()}
                           onClick={() => addRow(variants)}
                           className="flex w-full items-center gap-3 border-b px-3 py-2 text-left text-sm last:border-0 hover:bg-accent"
                         >
@@ -888,12 +899,16 @@ export function PosPage() {
                   <div className="relative">
                     <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                     <Input
+                      ref={labourSearchRef}
                       value={labourSearch}
                       onChange={(e) => setLabourSearch(e.target.value)}
-                      placeholder="Search labour…"
+                      onFocus={() => setLabourPickerOpen(true)}
+                      // delay so a click on a result registers before closing
+                      onBlur={() => setTimeout(() => setLabourPickerOpen(false), 150)}
+                      placeholder="Click to browse, or search labour…"
                       className="pl-8"
                     />
-                    {labourSearch.trim() && (
+                    {labourPickerOpen && (
                       <div className="absolute z-10 mt-1 max-h-56 w-full overflow-y-auto rounded-lg border bg-popover shadow-lg">
                         {filteredLabour.length === 0 && (
                           <p className="p-3 text-center text-sm text-muted-foreground">
@@ -905,9 +920,12 @@ export function PosPage() {
                           return (
                             <button
                               key={l.id}
+                              onMouseDown={(e) => e.preventDefault()}
                               onClick={() => {
                                 toggleLabour(l);
                                 setLabourSearch('');
+                                setLabourPickerOpen(false);
+                                labourSearchRef.current?.blur();
                               }}
                               className="flex w-full items-center justify-between gap-2 border-b px-3 py-2 text-left text-sm last:border-0 hover:bg-accent"
                             >

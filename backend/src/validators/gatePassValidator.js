@@ -6,8 +6,6 @@ const gatePassIdParamValidator = [
 
 const saleParamValidator = [param('saleId').isMongoId().withMessage('Invalid sale id')];
 
-const purchaseParamValidator = [param('purchaseId').isMongoId().withMessage('Invalid purchase id')];
-
 const listGatePassValidator = [
   query('warehouse').optional({ values: 'falsy' }).isMongoId().withMessage('Invalid warehouse'),
   query('status')
@@ -77,7 +75,6 @@ const adminUpdateGatePassValidator = [
 module.exports = {
   gatePassIdParamValidator,
   saleParamValidator,
-  purchaseParamValidator,
   listGatePassValidator,
   processGatePassValidator,
   adminUpdateGatePassValidator,

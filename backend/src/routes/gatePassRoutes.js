@@ -8,7 +8,6 @@ const { ROLES } = require('../utils/constants');
 const {
   gatePassIdParamValidator,
   saleParamValidator,
-  purchaseParamValidator,
   listGatePassValidator,
   adminUpdateGatePassValidator,
 } = require('../validators/gatePassValidator');
@@ -29,13 +28,6 @@ router.get(
   saleParamValidator,
   validate,
   gatePassController.getGatePassBySale,
-);
-router.get(
-  '/purchase/:purchaseId',
-  requirePermission(PERMISSIONS.INVENTORY_READ),
-  purchaseParamValidator,
-  validate,
-  gatePassController.getGatePassByPurchase,
 );
 router.get(
   '/:gatePassId/qr',

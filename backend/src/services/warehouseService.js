@@ -2,7 +2,6 @@ const Warehouse = require('../models/warehouseModel');
 const Product = require('../models/productModel');
 const StockLevel = require('../models/stockLevelModel');
 const Sale = require('../models/saleModel');
-const GoodsPurchase = require('../models/goodsPurchaseModel');
 const JournalEntry = require('../models/journalEntryModel');
 const ApiError = require('../utils/ApiError');
 const { QUANTITY_DECIMALS } = require('../utils/quantity');
@@ -92,7 +91,6 @@ async function deleteWarehouse(id) {
 
   const history = await Promise.all([
     Sale.exists({ warehouse: id }),
-    GoodsPurchase.exists({ warehouse: id }),
     JournalEntry.exists({ warehouse: id }),
   ]);
   if (history.some(Boolean)) {

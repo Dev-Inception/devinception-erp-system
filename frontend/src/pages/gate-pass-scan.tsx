@@ -261,16 +261,7 @@ export function GatePassScanPage() {
                       className="grid grid-cols-[1fr_6rem_auto] items-center gap-2 rounded-md border p-2 text-sm"
                     >
                       <span>{item.name}</span>
-                      <Input
-                        type="number"
-                        min="0"
-                        step="any"
-                        aria-label={`Loaded quantity for ${item.name}`}
-                        value={items[index]?.loadedQuantity ?? ''}
-                        onChange={(event) =>
-                          updateItem(index, { loadedQuantity: Number(event.target.value) })
-                        }
-                      />
+                      <span className="text-right tabular-nums">{item.quantity}</span>
                       <input
                         type="checkbox"
                         className="h-4 w-4"
@@ -284,7 +275,7 @@ export function GatePassScanPage() {
                   ))}
                   {!allConfirmed && (
                     <p className="text-xs text-muted-foreground">
-                      Each loaded quantity must match the gate quantity and be checked.
+                      Check each item to confirm it was loaded.
                     </p>
                   )}
                 </div>

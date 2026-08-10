@@ -1,5 +1,4 @@
 const Sale = require('../models/saleModel');
-const GoodsPurchase = require('../models/goodsPurchaseModel');
 const Warehouse = require('../models/warehouseModel');
 const ApiError = require('../utils/ApiError');
 const { ACCOUNT, REF } = require('../utils/finance');
@@ -58,8 +57,7 @@ function warehouseInfo(warehouse) {
   };
 }
 
-// Sales report: Sale is the sole sales source. Purchase invoices are backed by
-// GoodsPurchase and never participate in revenue reporting.
+// Sales report: Sale is the sole sales source.
 async function salesReport({ from, to, warehouse }) {
   const filter = requireRange({ from, to });
   if (warehouse) filter.warehouse = warehouse;
@@ -172,106 +170,6 @@ async function salesReport({ from, to, warehouse }) {
   };
 }
 
-// Purchases report: one row per purchase + total/paid/balance summary.
-async function purchasesReport({ from, to, warehouse }) {
-  const filter = requireRange({ from, to });
-  if (warehouse) filter.warehouse = warehouse;
-  const purchases = await GoodsPurchase.find(filter)
-    .populate('vendor', 'name phone email ntn address')
-    .populate('warehouse', 'name location address isDefault')
-    .sort({ date: -1, createdAt: -1 })
-    .lean();
-
-  const rows = purchases.map((p) => {
-    const wh = warehouseInfo(p.warehouse);
-    return {
-      id: String(p._id),
-      number: p.number,
-      vendorInvoiceNo: p.vendorInvoiceNo || '',
-      date: p.date,
-      vendorId: p.vendor ? String(p.vendor._id) : null,
-      vendor: p.vendor ? p.vendor.name : p.vendorName || '—',
-      vendorDetails: p.vendor
-        ? {
-            id: String(p.vendor._id),
-            name: p.vendor.name,
-            phone: p.vendor.phone || '',
-            email: p.vendor.email || '',
-            ntn: p.vendor.ntn || '',
-            address: p.vendor.address || '',
-          }
-        : null,
-      vendorPhone: p.vendor ? p.vendor.phone || '' : '',
-      vendorEmail: p.vendor ? p.vendor.email || '' : '',
-      vendorNtn: p.vendor ? p.vendor.ntn || '' : '',
-      vendorAddress: p.vendor ? p.vendor.address || '' : '',
-      warehouse: wh ? wh.name : '—',
-      warehouseLocation: wh ? wh.location : '',
-      warehouseAddress: wh ? wh.address : '',
-      warehouseIsDefault: wh ? wh.isDefault : false,
-      warehouseDetails: wh,
-      itemCount: (p.items || []).length,
-      quantity: normalizeQuantity((p.items || []).reduce((sum, item) => sum + item.quantity, 0)),
-      subtotal: p.subtotal,
-      discount: p.discount,
-      taxableAmount: p.subtotal - p.discount,
-      tax: p.tax,
-      total: p.total,
-      paid: p.paid,
-      balance: p.balance,
-      paymentMethod: p.paymentMethod || '',
-    };
-  });
-
-  const summary = rows.reduce(
-    (acc, r) => {
-      acc.count += 1;
-      acc.itemCount += r.itemCount;
-      acc.quantity = normalizeQuantity(acc.quantity + r.quantity);
-      acc.subtotal += r.subtotal;
-      acc.discount += r.discount;
-      acc.taxableAmount += r.taxableAmount;
-      acc.tax += r.tax;
-      acc.total += r.total;
-      acc.paid += r.paid;
-      acc.balance += r.balance;
-      return acc;
-    },
-    {
-      count: 0,
-      itemCount: 0,
-      quantity: 0,
-      subtotal: 0,
-      discount: 0,
-      taxableAmount: 0,
-      tax: 0,
-      total: 0,
-      paid: 0,
-      balance: 0,
-    },
-  );
-
-  return {
-    title: 'Purchase Report',
-    columns: [
-      { key: 'number', label: 'GP #' },
-      { key: 'vendorInvoiceNo', label: 'Vendor Invoice' },
-      { key: 'date', label: 'Date' },
-      { key: 'warehouse', label: 'Warehouse' },
-      { key: 'vendor', label: 'Vendor' },
-      { key: 'subtotal', label: 'Subtotal', numeric: true },
-      { key: 'discount', label: 'Discount', numeric: true },
-      { key: 'taxableAmount', label: 'Taxable Amount', numeric: true },
-      { key: 'tax', label: 'Tax', numeric: true },
-      { key: 'paid', label: 'Paid', numeric: true },
-      { key: 'balance', label: 'Balance', numeric: true },
-      { key: 'total', label: 'Total', numeric: true },
-    ],
-    rows,
-    summary,
-  };
-}
-
 // Stock valuation: quantity × moving-average cost per product.
 async function stockValuationReport({ warehouse }) {
   const { rows, total } = await stockService.valuation({ warehouse });
@@ -373,7 +271,6 @@ async function profitAndLossReport({ from, to, warehouse }) {
 
 const REPORTS = {
   sales: salesReport,
-  purchases: purchasesReport,
   'stock-valuation': stockValuationReport,
   'profit-loss': profitAndLossReport,
 };
@@ -404,7 +301,6 @@ async function runReport(type, params) {
 
 module.exports = {
   salesReport,
-  purchasesReport,
   stockValuationReport,
   profitAndLossReport,
   runReport,

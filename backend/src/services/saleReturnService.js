@@ -6,6 +6,7 @@ const journalService = require('./journalService');
 const stockService = require('./stockService');
 const counterService = require('./counterService');
 const { requirePositiveQuantity, normalizeQuantity } = require('../utils/quantity');
+const { parsePagination, escapeRegex } = require('../utils/query');
 
 /**
  * Product returns against a completed sale. Each return is its own numbered
@@ -169,4 +170,29 @@ async function listReturnsForSale(saleId) {
   return SaleReturn.find({ sale: saleId }).sort({ createdAt: -1 });
 }
 
-module.exports = { createReturn, listReturnsForSale };
+// All returns across every sale — the "Sale Returns" tab's feed, so it's
+// filterable the same way the Sales list is (customer, date range, and a
+// free-text match on the return/sale number or the snapshotted customer name).
+async function listReturns({ customer, from, to, search, ...query } = {}) {
+  const { page, limit, skip } = parsePagination(query);
+  const filter = {};
+  if (customer) filter.customer = customer;
+  if (from || to) {
+    filter.date = {};
+    if (from) filter.date.$gte = new Date(from);
+    if (to) filter.date.$lte = new Date(to);
+  }
+  if (search) {
+    const re = new RegExp(escapeRegex(search), 'i');
+    filter.$or = [{ number: re }, { saleNumber: re }, { customerName: re }];
+  }
+
+  const [returns, total] = await Promise.all([
+    SaleReturn.find(filter).sort({ date: -1, createdAt: -1 }).skip(skip).limit(limit),
+    SaleReturn.countDocuments(filter),
+  ]);
+
+  return { returns, total, page, limit };
+}
+
+module.exports = { createReturn, listReturnsForSale, listReturns };

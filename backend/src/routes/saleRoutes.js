@@ -20,6 +20,13 @@ const router = express.Router();
 router.use(protect);
 
 router.get('/', requirePermission(PERMISSIONS.SALES_READ), saleController.listSales);
+// Must be registered before `/:id` below — otherwise Express would match
+// "returns" as the :id param and never reach this handler.
+router.get(
+  '/returns',
+  requirePermission(PERMISSIONS.SALES_READ),
+  saleReturnController.listAllReturns,
+);
 router.get(
   '/:id',
   requirePermission(PERMISSIONS.SALES_READ),

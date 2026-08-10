@@ -40,20 +40,12 @@ const PERMISSIONS = {
   INVENTORY_READ: 'inventory:read',
   INVENTORY_MANAGE: 'inventory:manage',
 
-  // Goods purchases
-  PURCHASES_READ: 'purchases:read',
-  PURCHASES_CREATE: 'purchases:create',
-
   // POS sales
   SALES_READ: 'sales:read',
   SALES_CREATE: 'sales:create',
   // Editing an already-completed sale, recording a later payment against it,
   // and processing product returns against it.
   SALES_UPDATE: 'sales:update',
-
-  // Invoices (vendor purchase documents)
-  INVOICES_READ: 'invoices:read',
-  INVOICES_CREATE: 'invoices:create',
 
   // Finance: ledgers, cash & bank, payments
   FINANCE_READ: 'finance:read',

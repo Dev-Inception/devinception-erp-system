@@ -16,8 +16,6 @@ import {
   type Product,
   type Sale,
   type SaleItem,
-  type Purchase,
-  type PurchaseItem,
 } from './mock-data';
 import { renderTemplate } from './printing';
 import { http } from './http';
@@ -114,13 +112,6 @@ function listSales() {
       ...s,
       customer: s.customerId ? { name: customerName(s.customerId) } : undefined,
     }));
-}
-
-function listInvoices() {
-  return db.invoices
-    .slice()
-    .sort((a, b) => +new Date(b.issueDate) - +new Date(a.issueDate))
-    .map((i) => ({ ...i, customer: { name: customerName(i.customerId) ?? 'Walk-in Customer' } }));
 }
 
 function cashLedger() {
@@ -247,34 +238,6 @@ function buildReport(type: string, from?: unknown, to?: unknown) {
       },
     };
   }
-  if (type === 'purchases') {
-    const rows = db.purchases
-      .filter((p) => inRange(p.date, from, to))
-      .sort((a, b) => +new Date(b.date) - +new Date(a.date))
-      .map((p) => ({
-        gpNumber: p.gpNumber,
-        date: dayKey(p.date),
-        vendor: vendorName(p.vendorId) ?? '—',
-        paid: p.paidAmount,
-        total: p.grandTotal,
-      }));
-    return {
-      title: 'Purchase Report',
-      columns: [
-        { key: 'gpNumber', label: 'GP #' },
-        { key: 'date', label: 'Date' },
-        { key: 'vendor', label: 'Vendor' },
-        { key: 'paid', label: 'Paid', numeric: true },
-        { key: 'total', label: 'Total', numeric: true },
-      ],
-      rows,
-      summary: {
-        count: rows.length,
-        paid: rows.reduce((s, r) => s + r.paid, 0),
-        total: rows.reduce((s, r) => s + r.total, 0),
-      },
-    };
-  }
   if (type === 'stock') {
     const rows = db.products
       .filter((p) => p.isActive)
@@ -340,34 +303,6 @@ function buildReport(type: string, from?: unknown, to?: unknown) {
     ],
     summary: { revenue, cogs, grossProfit, expenses, netProfit },
   };
-}
-
-function invoicePdfBlob(id: string): Blob {
-  const inv = db.invoices.find((i) => i.id === id);
-  const sale = inv ? db.sales.find((s) => s.id === inv.saleId) : undefined;
-  const items = (sale?.items ?? []).map((i) => ({
-    name: i.name,
-    qty: i.quantity,
-    price: i.unitPrice,
-    amount: i.amount,
-  }));
-  const html = renderTemplate('INVOICE_A4', {
-    company: {
-      name: db.settings.companyName,
-      address: db.settings.address,
-      phone: db.settings.phone,
-    },
-    number: inv?.invoiceNumber ?? 'INV',
-    date: inv ? new Date(inv.issueDate).toLocaleDateString() : '',
-    partyName: inv ? (customerName(inv.customerId) ?? 'Walk-in Customer') : '',
-    items,
-    subtotal: inv?.subtotal ?? 0,
-    tax: inv?.taxTotal ?? 0,
-    discount: inv?.discountTotal ?? 0,
-    total: inv?.grandTotal ?? 0,
-  });
-  // Served as HTML so it opens in a new tab (demo stand-in for a rendered PDF).
-  return new Blob([html], { type: 'text/html' });
 }
 
 /* ─────────────────── mutations ─────────────────── */
@@ -447,80 +382,6 @@ function createSale(body: any) {
   };
 }
 
-function createPurchase(body: any) {
-  const warehouseId =
-    body.warehouseId || db.warehouses.find((w) => w.isDefault)?.id || db.warehouses[0].id;
-  let subtotal = 0;
-  let taxTotal = 0;
-  const items: PurchaseItem[] = (body.items ?? []).map((it: any) => {
-    const product = findProduct(it.productId);
-    const gross = it.quantity * it.rate;
-    const discount = it.discount ?? 0;
-    const taxable = gross - discount;
-    const taxRate = it.taxRate ?? 0;
-    const tax = (taxable * taxRate) / 100;
-    subtotal += gross;
-    taxTotal += tax;
-    if (product) product.purchasePrice = it.rate;
-    return {
-      productId: it.productId,
-      name: product?.name ?? 'Item',
-      quantity: it.quantity,
-      rate: it.rate,
-      taxRate,
-      discount,
-      amount: taxable + tax,
-    };
-  });
-  const discountTotal = body.discountTotal ?? 0;
-  const grandTotal = subtotal - discountTotal + taxTotal;
-  const paidAmount = Math.min(body.paidAmount ?? 0, grandTotal);
-  const gp: Purchase = {
-    id: uid('gp'),
-    gpNumber: `GP-${new Date().getFullYear()}-${String(db.seq.GP++).padStart(4, '0')}`,
-    vendorId: body.vendorId,
-    warehouseId,
-    invoiceNumber: body.invoiceNumber,
-    date: body.date ? new Date(body.date).toISOString() : new Date().toISOString(),
-    status: 'RECEIVED',
-    subtotal,
-    taxTotal,
-    discountTotal,
-    grandTotal,
-    paidAmount,
-    note: body.notes || undefined,
-    items,
-  };
-  db.purchases.push(gp);
-  for (const it of items) {
-    db.stock[it.productId] = db.stock[it.productId] || {};
-    db.stock[it.productId][warehouseId] = (db.stock[it.productId][warehouseId] ?? 0) + it.quantity;
-  }
-  const owed = grandTotal - paidAmount;
-  if (owed > 0.01)
-    db.ledger.push({
-      accountKind: 'vendors',
-      accountId: body.vendorId,
-      date: gp.date,
-      description: `Goods purchase ${gp.gpNumber}`,
-      debit: 0,
-      credit: owed,
-    });
-  if (paidAmount > 0)
-    db.cashTxns.push({
-      id: uid('cash'),
-      type: 'CASH_OUT',
-      amount: paidAmount,
-      description: `Payment for ${gp.gpNumber}`,
-      date: gp.date,
-    });
-  return {
-    ...gp,
-    vendor: { name: vendorName(body.vendorId) },
-    items: items.map((i) => ({ ...i, product: { name: i.name } })),
-  };
-}
-
 function adjustStock(body: any) {
   const { productId, warehouseId, type, quantity } = body;
   db.stock[productId] = db.stock[productId] || {};
@@ -535,29 +396,6 @@ function adjustStock(body: any) {
   return { newQty };
 }
 
-function createInvoice(body: any) {
-  const sale = db.sales.find((s) => s.id === body.saleId);
-  if (!sale) return fail(404, 'Sale not found');
-  const existing = db.invoices.find((i) => i.saleId === sale.id);
-  if (existing) return existing;
-  const paid = sale.paidCash + sale.paidCard + sale.paidBank;
-  const inv = {
-    id: uid('inv'),
-    invoiceNumber: `INV-${new Date().getFullYear()}-${String(db.seq.INV++).padStart(6, '0')}`,
-    saleId: sale.id,
-    customerId: sale.customerId ?? 'walk-in',
-    status: paid >= sale.grandTotal ? 'PAID' : 'ISSUED',
-    issueDate: new Date().toISOString(),
-    subtotal: sale.subtotal,
-    taxTotal: sale.taxTotal,
-    discountTotal: sale.discountTotal,
-    grandTotal: sale.grandTotal,
-    paidAmount: paid,
-  };
-  db.invoices.push(inv);
-  return { ...inv, customer: { name: customerName(inv.customerId) ?? 'Walk-in Customer' } };
-}
-
 /* ─────────────────── router ─────────────────── */
 async function handle(
   method: string,
@@ -566,7 +404,7 @@ async function handle(
   config?: ReqConfig,
 ): Promise<{ data: any }> {
   const params = config?.params ?? {};
-  const seg = url.split('/').filter(Boolean); // e.g. ['invoices','abc','pdf']
+  const seg = url.split('/').filter(Boolean); // e.g. ['sales','abc','payments']
 
   /* GET */
   if (method === 'get') {
@@ -580,7 +418,6 @@ async function handle(
     if (url === '/customers') return ok(listCustomers(params.search));
     if (url === '/vendors') return ok(listVendors(params.search));
     if (url === '/sales') return ok(listSales());
-    if (url === '/invoices') return ok(listInvoices());
     if (url === '/cash') return ok(cashLedger());
     if (url === '/bank/accounts') return ok(db.bankAccounts);
     if (url === '/settings') return ok(db.settings);
@@ -588,7 +425,6 @@ async function handle(
     if (url === '/dashboard/sales-trend') return ok(salesTrend(Number(params.days) || 30));
     if (url === '/dashboard/top-products') return ok(topProducts(Number(params.limit) || 5));
     if (seg[0] === 'reports' && seg[1]) return ok(buildReport(seg[1], params.from, params.to));
-    if (seg[0] === 'invoices' && seg[2] === 'pdf') return ok(invoicePdfBlob(seg[1]));
     if ((seg[0] === 'customers' || seg[0] === 'vendors') && seg[2] === 'ledger')
       return ok(partyLedger(seg[0] as 'customers' | 'vendors', seg[1]));
   }
@@ -596,9 +432,7 @@ async function handle(
   /* POST */
   if (method === 'post') {
     if (url === '/sales') return ok(createSale(body));
-    if (url === '/purchases') return ok(createPurchase(body));
     if (url === '/stock/adjust') return ok(await adjustStock(body));
-    if (url === '/invoices') return ok(await createInvoice(body));
     if (url === '/uploads') {
       const file = body instanceof FormData ? (body.get('file') as File | null) : null;
       return ok({
@@ -663,25 +497,6 @@ async function handle(
     if (seg[0] === 'warehouses' && seg[2] === 'set-default') {
       db.warehouses.forEach((w) => (w.isDefault = w.id === seg[1]));
       return ok({ success: true });
-    }
-    if (seg[0] === 'invoices' && seg[2] === 'send-email') {
-      const inv = db.invoices.find((i) => i.id === seg[1]);
-      const email = inv && db.customers.find((c) => c.id === inv.customerId)?.email;
-      return ok({
-        sent: false,
-        message: email
-          ? `Demo mode: email to ${email} is simulated (no SMTP configured).`
-          : 'Customer has no email address.',
-      });
-    }
-    if (seg[0] === 'invoices' && seg[2] === 'send-whatsapp') {
-      const inv = db.invoices.find((i) => i.id === seg[1]);
-      const phone = (inv && db.customers.find((c) => c.id === inv.customerId)?.phone) || '';
-      const digits = phone.replace(/[^0-9]/g, '');
-      const text = encodeURIComponent(
-        `Hello, here is your invoice ${inv?.invoiceNumber ?? ''} from ${db.settings.companyName}.`,
-      );
-      return ok({ url: `https://wa.me/${digits}?text=${text}`, hasPhone: digits.length > 0 });
     }
     if (url === '/products') {
       const p: Product = {
@@ -1217,6 +1032,7 @@ function mapSaleReturn(r: any) {
     number: r.number,
     saleId: String(r.sale?._id ?? r.sale),
     saleNumber: r.saleNumber,
+    customerName: r.customerName || '',
     date: r.date,
     items: (r.items ?? []).map((it: any) => ({
       productId: String(it.product?._id ?? it.product),
@@ -1243,6 +1059,23 @@ async function realListSaleReturns(saleId: string) {
   const res = await http.get(`/sales/${saleId}/returns`);
   return (res.data.returns ?? []).map(mapSaleReturn);
 }
+async function realListAllSaleReturns(params: any = {}) {
+  const res = await http.get('/sales/returns', {
+    params: {
+      page: params.page || undefined,
+      limit: params.limit || 20,
+      from: params.from || undefined,
+      to: params.to || undefined,
+      search: params.search || undefined,
+    },
+  });
+  return {
+    returns: (res.data.returns as any[]).map(mapSaleReturn),
+    total: res.data.total ?? res.data.returns.length,
+    page: res.data.page ?? 1,
+    limit: res.data.limit ?? 20,
+  };
+}
 async function realReceiveCustomerPayment(body: any) {
   const res = await http.post('/finance/payments/customer', {
     customer: body.customer,
@@ -1252,6 +1085,68 @@ async function realReceiveCustomerPayment(body: any) {
     note: body.note || undefined,
   });
   return res.data;
+}
+
+/* ── Stock receipts (truck deliveries from a vendor) ── */
+function mapStockReceipt(r: any) {
+  return {
+    id: String(r._id ?? r.id),
+    number: r.number,
+    vendorId: String(r.vendor?._id ?? r.vendor),
+    vendorName: r.vendorName || '',
+    warehouseId: String(r.warehouse?._id ?? r.warehouse),
+    warehouseName: r.warehouse?.name || '',
+    date: r.date,
+    truck: {
+      vehicleNumber: r.truck?.vehicleNumber || '',
+      driverName: r.truck?.driverName || '',
+      driverPhone: r.truck?.driverPhone || '',
+    },
+    items: (r.items ?? []).map((it: any) => ({
+      productId: String(it.product?._id ?? it.product),
+      name: it.name,
+      receivedQuantity: it.receivedQuantity,
+      damagedQuantity: it.damagedQuantity,
+    })),
+    note: r.note || '',
+  };
+}
+async function realListStockReceipts(params: any = {}) {
+  const res = await http.get('/stock-receipts', {
+    params: {
+      page: params.page || undefined,
+      limit: params.limit || 20,
+      from: params.from || undefined,
+      to: params.to || undefined,
+      search: params.search || undefined,
+      warehouse: params.warehouseId || undefined,
+    },
+  });
+  return {
+    receipts: (res.data.receipts as any[]).map(mapStockReceipt),
+    total: res.data.total ?? res.data.receipts.length,
+    page: res.data.page ?? 1,
+    limit: res.data.limit ?? 20,
+  };
+}
+async function realCreateStockReceipt(body: any) {
+  const res = await http.post('/stock-receipts', {
+    vendor: body.vendorId,
+    warehouse: body.warehouseId,
+    date: body.date || undefined,
+    truck: {
+      vehicleNumber: body.truck?.vehicleNumber,
+      driverName: body.truck?.driverName || undefined,
+      driverPhone: body.truck?.driverPhone || undefined,
+    },
+    items: (body.items ?? []).map((it: any) => ({
+      product: it.productId,
+      receivedQuantity: it.receivedQuantity || 0,
+      damagedQuantity: it.damagedQuantity || 0,
+    })),
+    note: body.note || undefined,
+  });
+  return mapStockReceipt(res.data.receipt);
 }
 
 /* ── POS sale drafts ("parked sales") — private to the cashier ── */
@@ -1372,73 +1267,6 @@ async function realUpdateGatePass(id: string, body: any) {
   return (await http.patch(`/gate-passes/${id}`, body)).data.gatePass;
 }
 
-/* ── Purchases (GP) ── */
-function mapPurchaseItem(it: any) {
-  return {
-    productId: String(it.product?._id ?? it.product),
-    name: it.name,
-    product: { name: it.name }, // the print template reads item.product.name
-    quantity: it.quantity,
-    rate: it.unitCost,
-    taxRate: it.taxPercent,
-    discount: 0,
-    amount: (it.lineTotal ?? 0) + (it.tax ?? 0),
-  };
-}
-function mapPurchase(p: any, vendorName?: string) {
-  return {
-    id: String(p._id ?? p.id),
-    gpNumber: p.number,
-    vendorId: String(p.vendor?._id ?? p.vendor),
-    warehouseId: String(p.warehouse?._id ?? p.warehouse),
-    date: p.date,
-    status: 'RECEIVED',
-    subtotal: p.subtotal,
-    taxTotal: p.tax,
-    discountTotal: p.discount,
-    grandTotal: p.total,
-    paidAmount: p.paid,
-    note: p.notes || undefined,
-    items: (p.items ?? []).map(mapPurchaseItem),
-    vendor: { name: vendorName ?? p.vendor?.name },
-  };
-}
-async function realCreatePurchase(body: any) {
-  // FE has per-line discounts; the backend takes one order-level discount and
-  // allocates it across lines, so we pass the sum.
-  const discount = (body.items ?? []).reduce(
-    (s: number, l: any) => s + (Number(l.discount) || 0),
-    0,
-  );
-  const items = (body.items ?? []).map((l: any) => ({
-    product: l.productId,
-    quantity: l.quantity,
-    unitCost: l.rate,
-    taxPercent: l.taxRate,
-  }));
-  const paid = body.paidAmount || 0;
-  const res = await http.post('/purchases', {
-    vendor: body.vendorId,
-    warehouse: body.warehouseId || undefined,
-    vendorInvoiceNo: body.invoiceNumber || undefined,
-    date: body.date || undefined,
-    discount,
-    paid,
-    // FE captures no payment method; default to cash when something is paid.
-    paymentMethod: paid > 0 ? 'CASH' : undefined,
-    items,
-    notes: body.notes || undefined,
-  });
-  // The create response doesn't populate the vendor name (the print needs it).
-  let vendorName: string | undefined;
-  try {
-    vendorName = (await http.get(`/vendors/${body.vendorId}`)).data.vendor?.name;
-  } catch {
-    vendorName = undefined;
-  }
-  return mapPurchase(res.data.purchase, vendorName);
-}
-
 /* ── Dashboard (one backend /dashboard call → three FE endpoints) ── */
 async function realDashboard() {
   return (await http.get('/dashboard')).data; // { cards, salesTrend, topProducts }
@@ -1501,31 +1329,6 @@ async function realReport(type: string, params: any) {
         count: report.summary.count,
         cash: report.summary.cash,
         online: report.summary.online,
-        total: report.summary.total,
-      },
-    };
-  }
-  if (type === 'purchases') {
-    const rows = (report.rows as any[]).map((r) => ({
-      gpNumber: r.number,
-      date: dayKey(r.date),
-      vendor: r.vendor,
-      paid: r.paid,
-      total: r.total,
-    }));
-    return {
-      title: 'Purchase Report',
-      columns: [
-        { key: 'gpNumber', label: 'GP #' },
-        { key: 'date', label: 'Date' },
-        { key: 'vendor', label: 'Vendor' },
-        { key: 'paid', label: 'Paid', numeric: true },
-        { key: 'total', label: 'Total', numeric: true },
-      ],
-      rows,
-      summary: {
-        count: report.summary.count,
-        paid: report.summary.paid,
         total: report.summary.total,
       },
     };
@@ -1622,87 +1425,6 @@ async function realCreateBankAccount(body: any) {
   });
   const a = res.data.account;
   return { id: String(a._id ?? a.id), name: a.name, bankName: a.bankName || undefined, balance: 0 };
-}
-
-/* ── Invoices ── */
-function mapInvoice(i: any) {
-  // Backend already serializes to the FE field names (invoiceNumber, issueDate,
-  // grandTotal, paidAmount, status); `customer` is the backend's compatibility
-  // alias for the vendor these purchase invoices actually belong to.
-  return {
-    id: String(i._id ?? i.id),
-    invoiceNumber: i.invoiceNumber,
-    issueDate: i.issueDate,
-    status: i.status,
-    grandTotal: i.grandTotal,
-    paidAmount: i.paidAmount,
-    vendor: i.customer ? { name: i.customer.name } : undefined,
-    gatePassId: i.gatePassId,
-    gatePassUrl: i.gatePassUrl,
-    gatePassQrUrl: i.gatePassQrUrl,
-  };
-}
-// The backend filters `?status=` against the invoice's raw stored enum
-// (UNPAID/PARTIAL/PAID), but the response's `status` field is a different,
-// serializer-computed display vocabulary (ISSUED/PARTIALLY_PAID/PAID) — so a
-// filter built from what the UI shows has to be translated back before it's sent.
-const INVOICE_STATUS_TO_RAW: Record<string, string> = {
-  ISSUED: 'UNPAID',
-  PARTIALLY_PAID: 'PARTIAL',
-  PAID: 'PAID',
-};
-async function realInvoices(params: any = {}) {
-  const res = await http.get('/invoices', {
-    params: {
-      page: params.page || undefined,
-      limit: params.limit || 20,
-      status: params.status ? INVOICE_STATUS_TO_RAW[params.status] : undefined,
-      from: params.from || undefined,
-      to: params.to || undefined,
-    },
-  });
-  return {
-    invoices: (res.data.invoices as any[]).map(mapInvoice),
-    total: res.data.total ?? res.data.invoices.length,
-    page: res.data.page ?? 1,
-    limit: res.data.limit ?? 20,
-  };
-}
-async function realCreateInvoice(body: any) {
-  const res = await http.post('/invoices', { saleId: body.saleId });
-  return mapInvoice(res.data.invoice);
-}
-async function realPayInvoice(id: string, body: any) {
-  const res = await http.post(`/invoices/${id}/pay`, {
-    amount: body.amount,
-    method: body.method || undefined,
-  });
-  return mapInvoice(res.data.invoice);
-}
-async function realInvoicePdf(id: string) {
-  const res = await http.get(`/invoices/${id}/pdf`, { responseType: 'blob' });
-  return res.data as Blob;
-}
-async function realFetchInvoice(id: string) {
-  return (await http.get(`/invoices/${id}`)).data.invoice;
-}
-// Email/WhatsApp have no backend endpoint; run them client-side off the real
-// invoice so the buttons keep working against live data.
-async function realSendInvoiceEmail(id: string) {
-  const inv = await realFetchInvoice(id);
-  const email = inv.customer?.email;
-  return {
-    sent: false,
-    message: email
-      ? `Email delivery isn't configured on the server yet (would send to ${email}).`
-      : 'Customer has no email address.',
-  };
-}
-async function realSendInvoiceWhatsapp(id: string) {
-  const inv = await realFetchInvoice(id);
-  const digits = String(inv.customer?.phone || '').replace(/[^0-9]/g, '');
-  const text = encodeURIComponent(`Hello, here is your invoice ${inv.invoiceNumber}.`);
-  return { url: `https://wa.me/${digits}?text=${text}`, hasPhone: digits.length > 0 };
 }
 
 /* ── Uploads (multipart receipt; field name `file`) ── */
@@ -1836,6 +1558,8 @@ async function tryReal(
     if (url === '/customers') return wrap(await realCustomers(params));
     if (url === '/vendors') return wrap(await realVendors(params));
     if (url === '/sales') return wrap(await realSales(params));
+    if (url === '/stock-receipts') return wrap(await realListStockReceipts(params));
+    if (url === '/sales/returns') return wrap(await realListAllSaleReturns(params));
     if (seg[0] === 'sales' && seg[1] && seg[2] === 'returns')
       return wrap(await realListSaleReturns(seg[1]));
     if (url === '/sale-drafts') return wrap(await realListSaleDrafts());
@@ -1843,8 +1567,6 @@ async function tryReal(
     if (url === '/bank/accounts') return wrap(await realBankAccounts());
     if (url === '/users') return wrap(await realUsers());
     if (url === '/roles') return wrap(await realRoles());
-    if (url === '/invoices') return wrap(await realInvoices(params));
-    if (seg[0] === 'invoices' && seg[2] === 'pdf') return wrap(await realInvoicePdf(seg[1]));
     if (seg[0] === 'gate-passes' && seg[2] === 'qr') return wrap(await realGatePassQr(seg[1]));
     if (url === '/gate-passes') return wrap(await realGatePassList(params));
     if (seg[0] === 'gate-passes' && seg[1] === 'public' && seg.length === 3)
@@ -1868,6 +1590,7 @@ async function tryReal(
     if (url === '/stock/adjust') return wrap(await realAdjustStock(body));
     if (url === '/customers') return wrap(await realCreateCustomer(body));
     if (url === '/vendors') return wrap(await realCreateVendor(body));
+    if (url === '/stock-receipts') return wrap(await realCreateStockReceipt(body));
     if (url === '/sales') return wrap(await realCreateSale(body));
     if (seg[0] === 'sales' && seg[1] && seg[2] === 'payments')
       return wrap(await realRecordSalePayment(seg[1], body));
@@ -1875,17 +1598,10 @@ async function tryReal(
       return wrap(await realCreateSaleReturn(seg[1], body));
     if (url === '/finance/payments/customer') return wrap(await realReceiveCustomerPayment(body));
     if (url === '/sale-drafts') return wrap(await realCreateSaleDraft(body));
-    if (url === '/purchases') return wrap(await realCreatePurchase(body));
     if (url === '/cash') return wrap(await realCashEntry(body));
     if (url === '/bank/accounts') return wrap(await realCreateBankAccount(body));
     if (url === '/users') return wrap(await realCreateUser(body));
-    if (url === '/invoices') return wrap(await realCreateInvoice(body));
-    if (seg[0] === 'invoices' && seg[2] === 'pay') return wrap(await realPayInvoice(seg[1], body));
     if (url === '/uploads') return wrap(await realUpload(body));
-    if (seg[0] === 'invoices' && seg[2] === 'send-email')
-      return wrap(await realSendInvoiceEmail(seg[1]));
-    if (seg[0] === 'invoices' && seg[2] === 'send-whatsapp')
-      return wrap(await realSendInvoiceWhatsapp(seg[1]));
     if (seg[0] === 'warehouses' && seg[2] === 'set-default')
       return wrap(await realSetDefaultWarehouse(seg[1]));
     if (seg[0] === 'gate-passes' && seg[1] === 'public' && seg[3] === 'process')

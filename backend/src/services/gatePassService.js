@@ -2,8 +2,6 @@ const crypto = require('crypto');
 const QRCode = require('qrcode');
 const GatePass = require('../models/gatePassModel');
 const Sale = require('../models/saleModel');
-const GoodsPurchase = require('../models/goodsPurchaseModel');
-const Invoice = require('../models/invoiceModel');
 const Product = require('../models/productModel');
 const ApiError = require('../utils/ApiError');
 const counterService = require('./counterService');
@@ -11,7 +9,6 @@ const { parsePagination } = require('../utils/query');
 
 const QR_PREFIX = 'ERP_GATE_PASS:';
 const SALE_FILTER = { sourceType: 'SALE' };
-const PURCHASE_FILTER = { sourceType: 'PURCHASE' };
 
 function refId(value) {
   return value && typeof value === 'object' && value._id ? value._id : value;
@@ -50,7 +47,6 @@ async function saleSnapshot(sale, kind = 'CUSTOMER', warehouseId = null) {
     sourceType: 'SALE',
     kind,
     sale: sale._id,
-    purchase: null,
     documentNumber: sale.number,
     partyName: sale.customerName || '',
     warehouse: resolvedWarehouseId,
@@ -69,40 +65,6 @@ async function saleSnapshot(sale, kind = 'CUSTOMER', warehouseId = null) {
       };
     }),
     createdBy: refId(sale.createdBy) || null,
-  };
-}
-
-async function purchaseSnapshot(purchase) {
-  const productIds = (purchase.items || []).map((item) => refId(item.product)).filter(Boolean);
-  const products = productIds.length
-    ? await Product.find({ _id: { $in: productIds } })
-        .select('name sku barcode')
-        .lean()
-    : [];
-  const productsById = new Map(products.map((product) => [String(product._id), product]));
-
-  return {
-    sourceType: 'PURCHASE',
-    sale: null,
-    purchase: purchase._id,
-    documentNumber: purchase.number,
-    partyName: purchase.vendorName || '',
-    warehouse: refId(purchase.warehouse),
-    saleDate: purchase.date,
-    items: (purchase.items || []).map((item) => {
-      const productId = refId(item.product);
-      const product = productsById.get(String(productId));
-      return {
-        product: productId,
-        name: item.name || (product && product.name) || 'Product',
-        sku: (product && product.sku) || '',
-        barcode: (product && product.barcode) || '',
-        quantity: item.quantity,
-        loadedQuantity: null,
-        loadConfirmed: false,
-      };
-    }),
-    createdBy: refId(purchase.createdBy) || null,
   };
 }
 
@@ -133,13 +95,6 @@ async function linkSale(saleId, gatePassId, kind = 'CUSTOMER', warehouseId = nul
     { $push: { warehouseGatePasses: { warehouse: warehouseId, gatePass: gatePassId } } },
   );
   await Sale.updateOne({ _id: saleId, gatePass: null }, { $set: { gatePass: gatePassId } });
-}
-
-async function linkPurchase(purchaseId, gatePassId) {
-  await Promise.all([
-    GoodsPurchase.updateOne({ _id: purchaseId }, { $set: { gatePass: gatePassId } }),
-    Invoice.updateOne({ purchase: purchaseId }, { $set: { gatePass: gatePassId } }),
-  ]);
 }
 
 async function createForSale(sale, kind = 'CUSTOMER', warehouseId = null) {
@@ -209,47 +164,6 @@ async function createGatePassesForSale(sale) {
   return { warehouseGatePasses, vendorGatePass };
 }
 
-async function createForPurchase(purchase) {
-  const snapshot = await purchaseSnapshot(purchase);
-  let gatePass = await GatePass.findOne({ ...PURCHASE_FILTER, purchase: purchase._id });
-  if (gatePass) {
-    if (['PROCESSED', 'USED'].includes(gatePass.status)) {
-      await linkPurchase(purchase._id, gatePass._id);
-      return gatePass;
-    }
-    gatePass = await GatePass.findByIdAndUpdate(
-      gatePass._id,
-      {
-        $set: snapshot,
-        $unset: { customerInfo: 1, vendorInfo: 1, pricing: 1 },
-      },
-      { returnDocument: 'after', runValidators: true },
-    );
-    await linkPurchase(purchase._id, gatePass._id);
-    return gatePass;
-  }
-
-  const when = purchase.date ? new Date(purchase.date) : new Date();
-  const number = await counterService.nextDocNumber('GATE', when.getFullYear(), 6);
-  try {
-    gatePass = await GatePass.create({
-      number,
-      token: crypto.randomBytes(32).toString('hex'),
-      ...snapshot,
-    });
-  } catch (error) {
-    if (error && error.code === 11000) {
-      gatePass = await GatePass.findOne({ ...PURCHASE_FILTER, purchase: purchase._id });
-      if (!gatePass) throw error;
-    } else {
-      throw error;
-    }
-  }
-
-  await linkPurchase(purchase._id, gatePass._id);
-  return gatePass;
-}
-
 // Upgrade legacy status names without changing the meaning of old passes.
 async function refreshLegacySaleGatePasses() {
   await Promise.all([
@@ -278,19 +192,10 @@ async function refreshLegacySaleGatePasses() {
   ]);
 }
 
-// Refreshes/backfills whichever source document backs a gate pass. Shared by
-// every lookup path (id, token, post-scan) so both SALE and PURCHASE gate
-// passes self-heal on read the same way.
+// Refreshes/backfills the sale that backs a gate pass. Shared by every
+// lookup path (id, token, post-scan) so gate passes self-heal on read.
 async function refreshSourceIfNeeded(gatePass) {
   if (!needsSnapshotRefresh(gatePass)) return gatePass;
-  if (gatePass.sourceType === 'PURCHASE') {
-    const purchase = await GoodsPurchase.findById(gatePass.purchase);
-    if (purchase) {
-      await createForPurchase(purchase);
-      return GatePass.findById(gatePass._id).populate('createdBy', 'name');
-    }
-    return gatePass;
-  }
   const sale = await Sale.findById(gatePass.sale);
   if (sale) {
     await createForSale(sale, gatePass.kind || 'CUSTOMER', gatePass.warehouse);
@@ -302,10 +207,8 @@ async function refreshSourceIfNeeded(gatePass) {
 // A sale already collects the driver/vehicle and labour who's loading it at
 // POS time (Sale.transport / Sale.labour) — surface that on the gate pass
 // response so the scan page can just display it instead of asking again.
-// Purchase-sourced gate passes have no such upfront capture, so they're
-// untouched and keep the formal scan-and-sign process.
 async function withSaleExtras(gatePass) {
-  if (!gatePass || gatePass.sourceType !== 'SALE' || !gatePass.sale) return gatePass;
+  if (!gatePass || !gatePass.sale) return gatePass;
   const sale = await Sale.findById(gatePass.sale).select('transport labour');
   const base = gatePass.toJSON ? gatePass.toJSON() : { ...gatePass };
   if (sale) {
@@ -338,13 +241,6 @@ async function getGatePassBySale(saleId) {
   if (!sale) throw ApiError.notFound('Sale not found');
   // Legacy single-pass lookup — the primary (first/only) warehouse's pass.
   const gatePass = await createForSale(sale, 'CUSTOMER', sale.warehouse);
-  return getGatePassById(gatePass._id);
-}
-
-async function getGatePassByPurchase(purchaseId) {
-  const purchase = await GoodsPurchase.findById(purchaseId);
-  if (!purchase) throw ApiError.notFound('Purchase not found');
-  const gatePass = await createForPurchase(purchase);
   return getGatePassById(gatePass._id);
 }
 
@@ -479,11 +375,9 @@ module.exports = {
   QR_PREFIX,
   createForSale,
   createGatePassesForSale,
-  createForPurchase,
   getGatePassById,
   getGatePassByToken,
   getGatePassBySale,
-  getGatePassByPurchase,
   listGatePasses,
   generateQrPng,
   processGatePass,

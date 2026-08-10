@@ -32,13 +32,6 @@ const getGatePassBySale = asyncHandler(async (req, res) => {
   });
 });
 
-const getGatePassByPurchase = asyncHandler(async (req, res) => {
-  const gatePass = await gatePassService.getGatePassByPurchase(req.params.purchaseId);
-  return sendSuccess(res, 200, 'Gate pass fetched', {
-    gatePass: serializeGatePass(gatePass),
-  });
-});
-
 const downloadQr = asyncHandler(async (req, res) => {
   const { gatePass, png } = await gatePassService.generateQrPng(req.params.gatePassId);
   res.setHeader('Content-Type', 'image/png');
@@ -78,7 +71,6 @@ module.exports = {
   listGatePasses,
   getGatePass,
   getGatePassBySale,
-  getGatePassByPurchase,
   downloadQr,
   getPublicGatePass,
   processGatePass,

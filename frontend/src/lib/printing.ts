@@ -6,13 +6,7 @@ import { formatCurrency } from './utils';
  * it falls back to window.print() in a hidden iframe.
  */
 
-export type TemplateType =
-  | 'GP_DIVIDER'
-  | 'GP_A4_HALF'
-  | 'GP_A4_FULL'
-  | 'INVOICE_A4'
-  | 'RECEIPT_THERMAL'
-  | 'OT_THERMAL';
+export type TemplateType = 'INVOICE_A4' | 'RECEIPT_THERMAL' | 'OT_THERMAL';
 
 interface LineItem {
   name: string;
@@ -106,19 +100,14 @@ export function renderTemplate(type: TemplateType, d: DocData): string {
     </body></html>`;
   }
 
-  // A4 family (Invoice / GP full / GP half all share this skeleton)
-  const heading = type === 'INVOICE_A4' ? 'INVOICE' : 'GOODS PURCHASE';
+  // A4 invoice
   return `<!doctype html><html><head>${a4Styles}</head><body>
-    ${
-      type === 'INVOICE_A4'
-        ? `<div class="toolbar">
+    <div class="toolbar">
       <button type="button" class="outline" onclick="window.print()">Download PDF</button>
       <button type="button" onclick="window.print()">Print</button>
-    </div>`
-        : ''
-    }
+    </div>
     <div class="head">
-      <div><h1>${heading}</h1><p>${d.company.name}<br/>${d.company.address ?? ''}<br/>${d.company.phone ?? ''}</p></div>
+      <div><h1>INVOICE</h1><p>${d.company.name}<br/>${d.company.address ?? ''}<br/>${d.company.phone ?? ''}</p></div>
       <div class="r"><strong>${d.number}</strong><br/>${d.date}${d.partyName ? `<br/>${d.partyName}` : ''}${d.partyPhone ? `<br/>${d.partyPhone}` : ''}</div>
     </div>
     <table>

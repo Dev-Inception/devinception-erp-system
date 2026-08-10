@@ -22,4 +22,13 @@ const listReturns = asyncHandler(async (req, res) => {
   return sendSuccess(res, 200, 'Returns fetched', { returns: returns.map(serialize) });
 });
 
-module.exports = { createReturn, listReturns };
+const listAllReturns = asyncHandler(async (req, res) => {
+  const { page, limit, customer, from, to, search } = req.query;
+  const result = await saleReturnService.listReturns({ page, limit, customer, from, to, search });
+  return sendSuccess(res, 200, 'Returns fetched', {
+    ...result,
+    returns: result.returns.map(serialize),
+  });
+});
+
+module.exports = { createReturn, listReturns, listAllReturns };

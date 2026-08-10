@@ -19,7 +19,6 @@ const ROW_MONEY = {
     'balance',
     'total',
   ],
-  purchases: ['subtotal', 'discount', 'taxableAmount', 'tax', 'total', 'paid', 'balance'],
   'stock-valuation': ['avgCost', 'value'],
   'profit-loss': ['amount'],
 };
@@ -36,7 +35,6 @@ const SUMMARY_MONEY = {
     'balance',
     'total',
   ],
-  purchases: ['subtotal', 'discount', 'taxableAmount', 'tax', 'total', 'paid', 'balance'],
   'stock-valuation': ['total'],
   'profit-loss': ['revenue', 'cogs', 'grossProfit', 'expenses', 'netProfit'],
 };

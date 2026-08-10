@@ -28,12 +28,7 @@ import {
 import { cn } from '@/lib/utils';
 import { useAuthStore, type Role } from '@/store/auth';
 import { type ManagedUser } from '@/store/permissions';
-import {
-  CONFIGURABLE_ROLES,
-  CONFIGURABLE_MODULES,
-  MODULE_PERMISSION,
-  grantsPermission,
-} from '@/lib/modules';
+import { CONFIGURABLE_MODULES, MODULE_PERMISSION, grantsPermission } from '@/lib/modules';
 
 const ROLE_LABELS: Record<Role, string> = {
   SUPER_ADMIN: 'Super Admin',
@@ -431,10 +426,9 @@ function ModuleAccessCard() {
     queryFn: async () => (await api.get('/roles')).data,
   });
 
-  // FE role (UPPER) → its backend role record.
-  const byRole = new Map<Role, RolePermissions>(
-    roles.map((r) => [r.name.toUpperCase() as Role, r]),
-  );
+  // Every role gets a column — built-in and custom alike — except Super
+  // Admin, which is locked server-side and always has full access.
+  const configurableRoles = roles.filter((r) => r.name.toUpperCase() !== 'SUPER_ADMIN');
 
   const update = useMutation({
     mutationFn: async ({ id, permissions }: { id: string; permissions: string[] }) =>
@@ -443,10 +437,9 @@ function ModuleAccessCard() {
     onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Could not update access'),
   });
 
-  const toggle = (role: Role, moduleKey: string) => {
-    const rec = byRole.get(role);
+  const toggle = (rec: RolePermissions, moduleKey: string) => {
     const perm = MODULE_PERMISSION[moduleKey];
-    if (!rec || !perm) return;
+    if (!perm) return;
     const permissions = grantsPermission(rec.permissions, perm)
       ? rec.permissions.filter((p) => p !== perm)
       : [...rec.permissions, perm];
@@ -468,10 +461,10 @@ function ModuleAccessCard() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b bg-muted/50 text-left text-xs uppercase tracking-wide text-muted-foreground">
-                <th className="px-4 py-3 font-medium">Module</th>
-                {CONFIGURABLE_ROLES.map((role) => (
-                  <th key={role} className="px-4 py-3 text-center font-medium">
-                    {ROLE_LABELS[role]}
+                <th className="px-4 py-3 font-medium">Role</th>
+                {CONFIGURABLE_MODULES.map((m) => (
+                  <th key={m.key} className="px-3 py-3 text-center font-medium" title={m.section}>
+                    <span className="whitespace-nowrap normal-case">{m.label}</span>
                   </th>
                 ))}
               </tr>
@@ -480,7 +473,7 @@ function ModuleAccessCard() {
               {isLoading && (
                 <tr>
                   <td
-                    colSpan={CONFIGURABLE_ROLES.length + 1}
+                    colSpan={CONFIGURABLE_MODULES.length + 1}
                     className="px-4 py-10 text-center text-muted-foreground"
                   >
                     Loading…
@@ -488,29 +481,20 @@ function ModuleAccessCard() {
                 </tr>
               )}
               {!isLoading &&
-                CONFIGURABLE_MODULES.map((m) => (
-                  <tr key={m.key} className="border-b last:border-0 hover:bg-muted/30">
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-3">
-                        <m.icon className="h-4 w-4 text-muted-foreground" />
-                        <div>
-                          <p className="font-medium">{m.label}</p>
-                          <p className="text-xs text-muted-foreground">{m.section}</p>
-                        </div>
-                      </div>
-                    </td>
-                    {CONFIGURABLE_ROLES.map((role) => {
-                      const rec = byRole.get(role);
-                      const enabled = grantsPermission(rec?.permissions, MODULE_PERMISSION[m.key]);
+                configurableRoles.map((rec) => (
+                  <tr key={rec.id} className="border-b last:border-0 hover:bg-muted/30">
+                    <td className="px-4 py-3 font-medium">{roleLabel(rec.name)}</td>
+                    {CONFIGURABLE_MODULES.map((m) => {
+                      const enabled = grantsPermission(rec.permissions, MODULE_PERMISSION[m.key]);
                       return (
-                        <td key={role} className="px-4 py-3 text-center">
+                        <td key={m.key} className="px-3 py-3 text-center">
                           <button
                             type="button"
                             role="checkbox"
                             aria-checked={enabled}
-                            aria-label={`${m.label} for ${ROLE_LABELS[role]}`}
-                            disabled={!rec || update.isPending}
-                            onClick={() => toggle(role, m.key)}
+                            aria-label={`${m.label} for ${roleLabel(rec.name)}`}
+                            disabled={update.isPending}
+                            onClick={() => toggle(rec, m.key)}
                             className={cn(
                               'inline-flex h-5 w-5 items-center justify-center rounded border transition-colors disabled:opacity-50',
                               enabled
@@ -525,6 +509,16 @@ function ModuleAccessCard() {
                     })}
                   </tr>
                 ))}
+              {!isLoading && configurableRoles.length === 0 && (
+                <tr>
+                  <td
+                    colSpan={CONFIGURABLE_MODULES.length + 1}
+                    className="px-4 py-10 text-center text-muted-foreground"
+                  >
+                    No roles yet.
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>

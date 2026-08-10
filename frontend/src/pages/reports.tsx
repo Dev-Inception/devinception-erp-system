@@ -17,7 +17,6 @@ interface ReportResult {
 
 const TYPES = [
   { key: 'sales', label: 'Sales' },
-  { key: 'purchases', label: 'Purchases' },
   { key: 'stock', label: 'Stock Valuation' },
   { key: 'pnl', label: 'Profit & Loss' },
 ];

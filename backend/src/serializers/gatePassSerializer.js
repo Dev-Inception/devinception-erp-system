@@ -14,7 +14,6 @@ function withoutEmptyValues(value) {
 function serializeGatePass(gatePass) {
   const g = gatePass && gatePass.toJSON ? gatePass.toJSON() : { ...gatePass };
   const gatePassId = idOf(g._id);
-  const isPurchase = g.sourceType === 'PURCHASE';
   const status = g.status === 'ACTIVE' ? 'PENDING' : g.status === 'USED' ? 'PROCESSED' : g.status;
   const processor = g.processedBy
     ? withoutEmptyValues({
@@ -28,9 +27,8 @@ function serializeGatePass(gatePass) {
     number: g.number,
     sourceType: g.sourceType,
     kind: g.kind || 'CUSTOMER',
-    direction: isPurchase ? 'IN' : 'OUT',
+    direction: 'OUT',
     saleId: idOf(g.sale),
-    purchaseId: idOf(g.purchase),
     saleNumber: g.documentNumber,
     saleDate: g.saleDate,
     partyName: g.partyName || '',

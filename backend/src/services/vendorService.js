@@ -1,5 +1,4 @@
 const Vendor = require('../models/vendorModel');
-const GoodsPurchase = require('../models/goodsPurchaseModel');
 const ApiError = require('../utils/ApiError');
 const journalService = require('./journalService');
 const { ACCOUNT } = require('../utils/finance');
@@ -72,9 +71,6 @@ async function deleteVendor(id) {
   const vendor = await getVendorById(id);
   if (vendor.outstanding > 0) {
     throw ApiError.badRequest('Vendor has an outstanding balance and cannot be deleted');
-  }
-  if (await GoodsPurchase.exists({ vendor: id })) {
-    throw ApiError.badRequest('Vendor has purchase history and cannot be deleted');
   }
   await vendor.deleteOne();
 }

@@ -30,29 +30,25 @@ const gatePassSchema = new mongoose.Schema(
     // resolved server-side after an authenticated (or token-authenticated
     // public) scan.
     token: { type: String, required: true, unique: true, select: false },
-    // SALE = goods going out against a sale; PURCHASE = goods coming in
-    // against a vendor purchase. Exactly one of sale/purchase is set.
+    // Only SALE gate passes exist (goods going out against a sale).
     sourceType: {
       type: String,
-      enum: ['SALE', 'PURCHASE'],
+      enum: ['SALE'],
       default: 'SALE',
       required: true,
       index: true,
     },
     sale: { type: mongoose.Schema.Types.ObjectId, ref: 'Sale', default: null },
-    purchase: { type: mongoose.Schema.Types.ObjectId, ref: 'GoodsPurchase', default: null },
-    // Only meaningful for sourceType SALE. CUSTOMER = goods leaving a
-    // warehouse against this sale — scoped to ONE warehouse (`warehouse`
-    // below), so a sale spanning several warehouses gets several CUSTOMER
-    // passes, one per warehouse. VENDOR = the sale's vendor-sourced lines
-    // (all of them, regardless of how many vendors) — a single additional
-    // pass, since that portion never touched warehouse stock. See
-    // gatePassService's `createGatePassesForSale`.
+    // CUSTOMER = goods leaving a warehouse against this sale — scoped to ONE
+    // warehouse (`warehouse` below), so a sale spanning several warehouses
+    // gets several CUSTOMER passes, one per warehouse. VENDOR = the sale's
+    // vendor-sourced lines (all of them, regardless of how many vendors) — a
+    // single additional pass, since that portion never touched warehouse
+    // stock. See gatePassService's `createGatePassesForSale`.
     kind: { type: String, enum: ['CUSTOMER', 'VENDOR'], default: 'CUSTOMER', required: true },
     documentNumber: { type: String, required: true },
-    // Snapshot of who this gate pass is against — the sale's customer (SALE)
-    // or the purchase's vendor (PURCHASE) — so the list can show/filter by
-    // party without joining back to the sale/purchase.
+    // Snapshot of the sale's customer name, so the list can show/filter by
+    // party without joining back to the sale.
     partyName: { type: String, trim: true, default: '' },
     warehouse: {
       type: mongoose.Schema.Types.ObjectId,
@@ -89,10 +85,6 @@ const gatePassSchema = new mongoose.Schema(
 gatePassSchema.index(
   { sale: 1, kind: 1, warehouse: 1 },
   { unique: true, partialFilterExpression: { sale: { $type: 'objectId' } } },
-);
-gatePassSchema.index(
-  { purchase: 1 },
-  { unique: true, partialFilterExpression: { purchase: { $type: 'objectId' } } },
 );
 
 gatePassSchema.set('toJSON', {

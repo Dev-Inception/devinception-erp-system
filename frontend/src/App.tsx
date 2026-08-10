@@ -12,15 +12,14 @@ import { PosPage } from '@/pages/pos';
 import { ProductsPage } from '@/pages/products';
 import { CategoriesPage } from '@/pages/categories';
 import { UnitsPage } from '@/pages/units';
-import { PurchasesPage } from '@/pages/purchases';
 import { VendorsPage } from '@/pages/vendors';
 import { LabourPage } from '@/pages/labour';
 import { CustomersPage } from '@/pages/customers';
 import { SalesPage } from '@/pages/sales';
+import { StockReceiptsPage } from '@/pages/stock-receipts';
 import { SettingsPage } from '@/pages/settings';
 import { CashPage } from '@/pages/cash';
 import { LedgersPage } from '@/pages/ledgers';
-import { InvoicesPage } from '@/pages/invoices';
 import { ReportsPage } from '@/pages/reports';
 import { WarehousesPage } from '@/pages/warehouses';
 import { PermissionsPage } from '@/pages/permissions';
@@ -65,8 +64,7 @@ const MODULE_ROUTES: { path: string; element: React.ReactElement }[] = [
   { path: 'units', element: <UnitsPage /> },
   { path: 'warehouses', element: <WarehousesPage /> },
   { path: 'sales', element: <SalesPage /> },
-  { path: 'purchases', element: <PurchasesPage /> },
-  { path: 'invoices', element: <InvoicesPage /> },
+  { path: 'stock-receipts', element: <StockReceiptsPage /> },
   { path: 'customers', element: <CustomersPage /> },
   { path: 'vendors', element: <VendorsPage /> },
   { path: 'labour', element: <LabourPage /> },
