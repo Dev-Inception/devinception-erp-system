@@ -8,7 +8,11 @@ const journalService = require('./journalService');
 const stockService = require('./stockService');
 const { parseReportDate, formatReportDate } = require('../utils/reportDate');
 const { normalizeQuantity } = require('../utils/quantity');
-const { resolveWarehouseScope, warehouseMongoFilter } = require('../utils/storeScope');
+const {
+  resolveWarehouseScope,
+  warehouseMongoFilter,
+  actorStoreId,
+} = require('../utils/storeScope');
 
 /**
  * Reporting: date-range aggregations over transactional data and the ledger.
@@ -410,10 +414,13 @@ async function runReport(type, params) {
   // is only for meta display, and only fetched on the legacy single-warehouse
   // path (a store's own warehouse list is its own meta.store instead).
   const { warehouseIds } = await resolveWarehouseScope(params);
+  // A store-restricted actor's own store always wins over the `store`/
+  // `warehouse` query params for the report's store/warehouse metadata too.
+  const effectiveStoreParam = actorStoreId(params.actor) || params.store;
   let warehouse = null;
   let store = null;
-  if (params.store) {
-    store = await Store.findById(params.store).select('name code').lean();
+  if (effectiveStoreParam) {
+    store = await Store.findById(effectiveStoreParam).select('name code').lean();
   } else if (params.warehouse) {
     warehouse = await Warehouse.findById(params.warehouse).lean();
     if (!warehouse) throw ApiError.notFound('Warehouse not found');

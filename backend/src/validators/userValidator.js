@@ -11,6 +11,9 @@ const createUserValidator = [
   body('email').isEmail().withMessage('A valid email is required').normalizeEmail(),
   body('password').isLength({ min: 8 }).withMessage('Password must be at least 8 characters'),
   roleRule('role'),
+  // Required unless the role is super_admin — the service enforces that
+  // rule once it knows the role actually exists; this only checks shape.
+  body('store').optional({ values: 'falsy' }).isMongoId().withMessage('Invalid store'),
 ];
 
 const updateRoleValidator = [idParam, roleRule('role')];

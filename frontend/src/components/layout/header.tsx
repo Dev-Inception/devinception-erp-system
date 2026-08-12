@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { useTheme } from '@/components/theme-provider';
 import { useAuthStore } from '@/store/auth';
 import { StoreSwitcher } from './store-switcher';
+import { LanguageToggle } from './language-toggle';
 
 const TITLES: Record<string, string> = {
   '/': 'Dashboard',
@@ -44,6 +45,8 @@ export function Header() {
 
       <div className="flex items-center gap-2">
         <StoreSwitcher />
+
+        <LanguageToggle />
 
         <Button variant="ghost" size="icon" onClick={toggle} aria-label="Toggle theme">
           <Sun className="h-4 w-4 dark:hidden" />

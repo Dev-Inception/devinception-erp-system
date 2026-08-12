@@ -1608,6 +1608,7 @@ function mapManagedUser(u: any) {
     role: String(u.role).toUpperCase(), // backend lowercase → FE uppercase
     active: u.isActive !== false,
     createdAt: u.createdAt ? String(u.createdAt).slice(0, 10) : '',
+    storeName: u.store && typeof u.store === 'object' ? u.store.name : undefined,
   };
 }
 async function realUsers() {
@@ -1620,6 +1621,7 @@ async function realCreateUser(body: any) {
     email: body.email,
     password: body.password,
     role: String(body.role).toLowerCase(),
+    store: body.store || undefined,
   });
   return mapManagedUser(res.data.user);
 }

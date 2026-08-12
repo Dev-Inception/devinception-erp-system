@@ -22,6 +22,7 @@ import { formatCurrency } from '@/lib/utils';
 import { useAuthStore } from '@/store/auth';
 import { grantsPermission } from '@/lib/modules';
 import { useStorefrontFilter } from '@/store/storefront';
+import { useLanguage } from '@/components/language-provider';
 
 interface Vendor {
   id: string;
@@ -40,6 +41,7 @@ const emptyForm = { name: '', phone: '', email: '', address: '', ntn: '' };
 /** Create (no `vendor`) or edit (with `vendor`) a vendor. */
 function VendorDialog({ vendor, trigger }: { vendor?: Vendor; trigger: React.ReactNode }) {
   const qc = useQueryClient();
+  const { t } = useLanguage();
   const editing = !!vendor;
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(emptyForm);
@@ -140,12 +142,12 @@ function VendorDialog({ vendor, trigger }: { vendor?: Vendor; trigger: React.Rea
           <div className="flex justify-end gap-2 pt-2">
             <DialogClose asChild>
               <Button type="button" variant="outline">
-                Cancel
+                {t('Cancel')}
               </Button>
             </DialogClose>
             <Button type="submit" disabled={save.isPending}>
               {save.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
-              Save
+              {t('Save')}
             </Button>
           </div>
         </form>
@@ -156,6 +158,7 @@ function VendorDialog({ vendor, trigger }: { vendor?: Vendor; trigger: React.Rea
 
 export function VendorsPage() {
   const qc = useQueryClient();
+  const { t } = useLanguage();
   const [search, setSearch] = useState('');
   const perms = useAuthStore((s) => s.user?.permissions);
   const canUpdate = grantsPermission(perms, 'vendors:update');
@@ -209,7 +212,7 @@ export function VendorsPage() {
         <VendorDialog
           trigger={
             <Button>
-              <Plus className="h-4 w-4" /> Add Vendor
+              <Plus className="h-4 w-4" /> {t('Add Vendor')}
             </Button>
           }
         />
@@ -219,12 +222,12 @@ export function VendorsPage() {
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b bg-muted/50 text-left text-xs uppercase tracking-wide text-muted-foreground">
-              <th className="px-4 py-3 font-medium">Vendor</th>
-              <th className="px-4 py-3 font-medium">Phone</th>
-              <th className="px-4 py-3 font-medium">Email</th>
-              <th className="px-4 py-3 font-medium">NTN</th>
-              <th className="px-4 py-3 text-right font-medium">Outstanding</th>
-              {showActions && <th className="px-4 py-3 text-right font-medium">Actions</th>}
+              <th className="px-4 py-3 font-medium">{t('Vendor')}</th>
+              <th className="px-4 py-3 font-medium">{t('Phone')}</th>
+              <th className="px-4 py-3 font-medium">{t('Email')}</th>
+              <th className="px-4 py-3 font-medium">{t('NTN')}</th>
+              <th className="px-4 py-3 text-right font-medium">{t('Outstanding')}</th>
+              {showActions && <th className="px-4 py-3 text-right font-medium">{t('Actions')}</th>}
             </tr>
           </thead>
           <tbody>
@@ -252,7 +255,12 @@ export function VendorsPage() {
                           <VendorDialog
                             vendor={v}
                             trigger={
-                              <Button variant="ghost" size="icon" className="h-8 w-8" title="Edit">
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8"
+                                title={t('Edit')}
+                              >
                                 <Pencil className="h-4 w-4" />
                               </Button>
                             }
@@ -263,7 +271,7 @@ export function VendorsPage() {
                             variant="ghost"
                             size="icon"
                             className="h-8 w-8"
-                            title="Delete"
+                            title={t('Delete')}
                             disabled={del.isPending}
                             onClick={() => remove(v)}
                           >

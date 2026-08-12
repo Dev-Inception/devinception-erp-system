@@ -78,7 +78,7 @@ function serialize(type, data) {
 const getReport = asyncHandler(async (req, res) => {
   const { type } = req.params;
   const { from, to, warehouse, store } = req.query;
-  const data = await reportService.runReport(type, { from, to, warehouse, store });
+  const data = await reportService.runReport(type, { from, to, warehouse, store, actor: req.user });
   const query = new URLSearchParams();
   if (from) query.set('from', from);
   if (to) query.set('to', to);
@@ -106,7 +106,7 @@ const getReport = asyncHandler(async (req, res) => {
 const downloadReportCsv = asyncHandler(async (req, res) => {
   const { type } = req.params;
   const { from, to, warehouse, store } = req.query;
-  const data = await reportService.runReport(type, { from, to, warehouse, store });
+  const data = await reportService.runReport(type, { from, to, warehouse, store, actor: req.user });
   const csv = generateReportCsv(type, data);
   const date = new Date().toISOString().slice(0, 10);
 

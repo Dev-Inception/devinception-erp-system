@@ -14,6 +14,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { api } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
+import { useLanguage } from '@/components/language-provider';
 
 interface SaleItemDetail {
   productId: string;
@@ -63,6 +64,7 @@ export function UpdateSaleDialog({
   onOpenChange: (open: boolean) => void;
 }) {
   const qc = useQueryClient();
+  const { t } = useLanguage();
   const [lines, setLines] = useState<EditableLine[]>([]);
   const [discount, setDiscount] = useState(0);
   const [taxPercent, setTaxPercent] = useState(0);
@@ -294,7 +296,7 @@ export function UpdateSaleDialog({
             </div>
 
             <Button type="submit" className="w-full" disabled={!canSubmit}>
-              {submit.isPending ? 'Saving…' : 'Save Changes'}
+              {submit.isPending ? t('Saving…') : t('Save Changes')}
             </Button>
           </form>
         )}

@@ -2,6 +2,22 @@ const mongoose = require('mongoose');
 const Store = require('../models/storeModel');
 const ApiError = require('../utils/ApiError');
 
+// A non-super-admin user with a `store` assigned is confined to it; anyone
+// else (super admin, or a legacy user with no store yet) is unrestricted.
+function actorStoreId(actor) {
+  return actor && actor.store ? String(actor.store) : null;
+}
+
+// Throws if `actor` is store-restricted and `storeId` isn't their store.
+// Call this before creating/reading/mutating anything that belongs to one
+// specific store (sales, stock receipts, payments, ...).
+function assertStoreAccess(actor, storeId) {
+  const restricted = actorStoreId(actor);
+  if (restricted && String(storeId) !== restricted) {
+    throw ApiError.forbidden('You do not have access to this store');
+  }
+}
+
 /**
  * Resolves an optional `store` (takes precedence) or `warehouse` filter param
  * down to a plain list of warehouse ids — "viewing Store X" means "warehouse
@@ -10,17 +26,26 @@ const ApiError = require('../utils/ApiError');
  * warehouse filters this generalizes always had. An empty array is a valid,
  * different result (a real store with no warehouses assigned yet — matches
  * nothing, not everything).
+ *
+ * When `actor` is store-restricted, their store always wins — the caller's
+ * `store`/`warehouse` params are ignored rather than trusted, so a scoped
+ * user can never widen their own view by passing a different id.
  */
-async function resolveWarehouseScope({ store, warehouse } = {}) {
-  if (store && mongoose.isValidObjectId(store)) {
-    const doc = await Store.findById(store).select('warehouses').lean();
+async function resolveWarehouseScope({ store, warehouse, actor } = {}) {
+  const restricted = actorStoreId(actor);
+  const effectiveStore = restricted || store;
+
+  if (effectiveStore && mongoose.isValidObjectId(effectiveStore)) {
+    const doc = await Store.findById(effectiveStore).select('warehouses').lean();
     if (!doc) throw ApiError.notFound('Store not found');
     return { warehouseIds: doc.warehouses.map(String) };
   }
-  if (warehouse && mongoose.isValidObjectId(warehouse)) {
+  if (!restricted && warehouse && mongoose.isValidObjectId(warehouse)) {
     return { warehouseIds: [String(warehouse)] };
   }
-  return { warehouseIds: null };
+  // A restricted actor whose own store id didn't resolve gets "nothing",
+  // never the unscoped "everything" fallback below.
+  return { warehouseIds: restricted ? [] : null };
 }
 
 // Mongo filter fragment for any model with a `warehouse` field (Sale,
@@ -35,4 +60,4 @@ function warehouseMongoFilter(warehouseIds) {
   return { warehouse: { $in: objectIds } };
 }
 
-module.exports = { resolveWarehouseScope, warehouseMongoFilter };
+module.exports = { resolveWarehouseScope, warehouseMongoFilter, actorStoreId, assertStoreAccess };

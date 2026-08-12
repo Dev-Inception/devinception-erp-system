@@ -84,6 +84,7 @@ const listSales = asyncHandler(async (req, res) => {
     from,
     to,
     paymentMethod,
+    actor: req.user,
   });
   return sendSuccess(res, 200, 'Sales fetched', {
     ...result,
@@ -92,7 +93,7 @@ const listSales = asyncHandler(async (req, res) => {
 });
 
 const getSale = asyncHandler(async (req, res) => {
-  const sale = await saleService.getSaleById(req.params.id);
+  const sale = await saleService.getSaleById(req.user, req.params.id);
   return sendSuccess(res, 200, 'Sale fetched', { sale: serialize(sale) });
 });
 

@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { api } from '@/lib/api';
 import { useStorefrontFilter } from '@/store/storefront';
+import { useLanguage } from '@/components/language-provider';
 
 type Kind = 'customers' | 'vendors';
 interface Party {
@@ -22,6 +23,7 @@ interface LedgerRow {
 }
 
 export function LedgersPage() {
+  const { t } = useLanguage();
   const [kind, setKind] = useState<Kind>('customers');
   const [selected, setSelected] = useState<Party | null>(null);
   const [from, setFrom] = useState('');
@@ -140,11 +142,11 @@ export function LedgersPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-y bg-muted/50 text-left text-xs uppercase text-muted-foreground">
-                  <th className="px-4 py-2 font-medium">Date</th>
-                  <th className="px-4 py-2 font-medium">Description</th>
-                  <th className="px-4 py-2 text-right font-medium">Debit</th>
-                  <th className="px-4 py-2 text-right font-medium">Credit</th>
-                  <th className="px-4 py-2 text-right font-medium">Balance</th>
+                  <th className="px-4 py-2 font-medium">{t('Date')}</th>
+                  <th className="px-4 py-2 font-medium">{t('Description')}</th>
+                  <th className="px-4 py-2 text-right font-medium">{t('Debit')}</th>
+                  <th className="px-4 py-2 text-right font-medium">{t('Credit')}</th>
+                  <th className="px-4 py-2 text-right font-medium">{t('Balance')}</th>
                 </tr>
               </thead>
               <tbody>

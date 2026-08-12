@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { api } from '@/lib/api';
+import { useLanguage } from '@/components/language-provider';
 
 interface Settings {
   companyName: string;
@@ -19,6 +20,7 @@ interface Settings {
 
 export function SettingsPage() {
   const qc = useQueryClient();
+  const { t } = useLanguage();
   const { data } = useQuery<Settings>({
     queryKey: ['settings'],
     queryFn: async () => (await api.get('/settings')).data,
@@ -99,7 +101,7 @@ export function SettingsPage() {
                 ) : (
                   <Save className="h-4 w-4" />
                 )}
-                Save changes
+                {t('Save changes')}
               </Button>
             </div>
           </form>

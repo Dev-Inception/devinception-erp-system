@@ -11,6 +11,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { api } from '@/lib/api';
 import { buildGatePassScanQr } from '@/lib/gatePass';
+import { useLanguage } from '@/components/language-provider';
 
 interface GatePassDetail {
   id: string;
@@ -49,6 +50,7 @@ export function GatePassDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
+  const { t } = useLanguage();
   const { data, isLoading, isError } = useQuery<GatePassDetail>({
     queryKey: ['gate-pass', gatePassId],
     queryFn: async () => (await api.get(`/gate-passes/${gatePassId}`)).data,
@@ -104,7 +106,7 @@ export function GatePassDialog({
         <p>${docLabel} ${data.saleNumber}</p>
         <p>Status: ${data.status}</p>
         <div class="line"></div>
-        <table><thead><tr><th>Product</th><th style="text-align:right">Qty</th></tr></thead>
+        <table><thead><tr><th>${t('Product')}</th><th style="text-align:right">${t('Qty')}</th></tr></thead>
           <tbody>${itemRows}</tbody>
         </table>
         <div class="line"></div>

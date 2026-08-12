@@ -7,6 +7,7 @@ const { toPaisa, toRupees } = require('../utils/money');
 const { ACCOUNT, REF, PAYMENT_METHOD, BANK_METHODS } = require('../utils/finance');
 const journalService = require('./journalService');
 const counterService = require('./counterService');
+const { assertStoreAccess } = require('../utils/storeScope');
 
 /**
  * Money movements that aren't sales or purchases: paying down a vendor's
@@ -16,9 +17,10 @@ const counterService = require('./counterService');
 
 // Every money movement here happens at one physical storefront's till —
 // required so the Cash & Bank ledger can be scoped accurately per store.
-async function requireStore(store) {
+async function requireStore(actor, store) {
   const storeDoc = await Store.findById(store);
   if (!storeDoc) throw ApiError.badRequest('A store is required');
+  assertStoreAccess(actor, storeDoc._id);
   return storeDoc;
 }
 
@@ -55,7 +57,7 @@ async function payVendor(
 ) {
   const vendorDoc = await Vendor.findById(vendor);
   if (!vendorDoc) throw ApiError.notFound('Vendor not found');
-  const storeDoc = await requireStore(store);
+  const storeDoc = await requireStore(actor, store);
 
   const amt = toPaisa(amount);
   if (amt <= 0) throw ApiError.badRequest('Amount must be positive');
@@ -86,7 +88,7 @@ async function receiveFromCustomer(
 ) {
   const customerDoc = await Customer.findById(customer);
   if (!customerDoc) throw ApiError.notFound('Customer not found');
-  const storeDoc = await requireStore(store);
+  const storeDoc = await requireStore(actor, store);
 
   const amt = toPaisa(amount);
   if (amt <= 0) throw ApiError.badRequest('Amount must be positive');
@@ -119,7 +121,7 @@ async function cashEntry(actor, { direction, store, amount, date, note }) {
   if (direction !== 'IN' && direction !== 'OUT') {
     throw ApiError.badRequest('Direction must be IN or OUT');
   }
-  const storeDoc = await requireStore(store);
+  const storeDoc = await requireStore(actor, store);
   // Taking cash out can't drive the drawer negative.
   if (direction === 'OUT') await assertSufficientFunds(ACCOUNT.CASH, null, amt);
   const when = date ? new Date(date) : new Date();
@@ -156,7 +158,7 @@ async function recordExpense(
   const wh = warehouse
     ? await require('./warehouseService').getWarehouseById(warehouse)
     : await require('./stockService').ensureDefaultWarehouse();
-  const storeDoc = await requireStore(store);
+  const storeDoc = await requireStore(actor, store);
   const amt = toPaisa(amount);
   if (amt <= 0) throw ApiError.badRequest('Amount must be positive');
 

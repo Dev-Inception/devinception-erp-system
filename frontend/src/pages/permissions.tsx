@@ -29,6 +29,7 @@ import { cn } from '@/lib/utils';
 import { useAuthStore, type Role } from '@/store/auth';
 import { type ManagedUser } from '@/store/permissions';
 import { CONFIGURABLE_MODULES, MODULE_PERMISSION, grantsPermission } from '@/lib/modules';
+import { useLanguage } from '@/components/language-provider';
 
 const ROLE_LABELS: Record<Role, string> = {
   SUPER_ADMIN: 'Super Admin',
@@ -83,17 +84,30 @@ function RoleSelect({
 
 function CreateUserDialog({ roles }: { roles: { name: string }[] }) {
   const qc = useQueryClient();
+  const { t } = useLanguage();
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState<{
     fullName: string;
     email: string;
     password: string;
     role: string;
+    store: string;
   }>({
     fullName: '',
     email: '',
     password: '',
     role: 'cashier',
+    store: '',
+  });
+
+  // Every role but super_admin is confined to one storefront (see
+  // utils/storeScope.js on the backend) — the store to lock them to is
+  // decided here, at creation time.
+  const isSuperAdmin = form.role.toUpperCase() === 'SUPER_ADMIN';
+  const { data: stores = [] } = useQuery<{ id: string; name: string; code?: string }[]>({
+    queryKey: ['stores'],
+    queryFn: async () => (await api.get('/stores')).data,
+    enabled: open,
   });
 
   // Once roles load, make sure the selected role is actually one that exists.
@@ -105,11 +119,23 @@ function CreateUserDialog({ roles }: { roles: { name: string }[] }) {
   }, [roles]);
 
   const create = useMutation({
-    mutationFn: async () => (await api.post('/users', form)).data,
+    mutationFn: async () =>
+      (
+        await api.post('/users', {
+          ...form,
+          store: isSuperAdmin ? undefined : form.store,
+        })
+      ).data,
     onSuccess: () => {
       toast.success(`${form.fullName} added as ${roleLabel(form.role)}`);
       qc.invalidateQueries({ queryKey: ['users'] });
-      setForm({ fullName: '', email: '', password: '', role: roles[0]?.name ?? 'cashier' });
+      setForm({
+        fullName: '',
+        email: '',
+        password: '',
+        role: roles[0]?.name ?? 'cashier',
+        store: '',
+      });
       setOpen(false);
     },
     onError: (e: any) =>
@@ -127,7 +153,7 @@ function CreateUserDialog({ roles }: { roles: { name: string }[] }) {
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
         <Button>
-          <Plus className="h-4 w-4" /> Add User
+          <Plus className="h-4 w-4" /> {t('Add User')}
         </Button>
       </DialogTrigger>
       <DialogContent>
@@ -175,14 +201,42 @@ function CreateUserDialog({ roles }: { roles: { name: string }[] }) {
               roles={roles}
             />
           </div>
+          {!isSuperAdmin && (
+            <div className="space-y-1.5">
+              <Label htmlFor="new-user-store">Store *</Label>
+              <div className="relative">
+                <select
+                  id="new-user-store"
+                  required
+                  value={form.store}
+                  onChange={(e) => setForm({ ...form, store: e.target.value })}
+                  className="flex h-9 w-full appearance-none rounded-md border border-input bg-transparent py-1 pl-3 pr-9 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:border-input"
+                >
+                  <option value="" disabled>
+                    Select store…
+                  </option>
+                  {stores.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name}
+                      {s.code ? ` (${s.code})` : ''}
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              </div>
+              <p className="text-xs text-muted-foreground">
+                This user will only see and act on this store's data.
+              </p>
+            </div>
+          )}
           <div className="flex justify-end gap-2 pt-2">
             <DialogClose asChild>
               <Button type="button" variant="outline">
-                Cancel
+                {t('Cancel')}
               </Button>
             </DialogClose>
             <Button type="submit" disabled={create.isPending}>
-              <UserPlus className="h-4 w-4" /> Create User
+              <UserPlus className="h-4 w-4" /> {t('Create User')}
             </Button>
           </div>
         </form>
@@ -194,6 +248,7 @@ function CreateUserDialog({ roles }: { roles: { name: string }[] }) {
 /** Edit a user's name and email (role and status are changed from the table). */
 function EditUserDialog({ user, trigger }: { user: ManagedUser; trigger: React.ReactNode }) {
   const qc = useQueryClient();
+  const { t } = useLanguage();
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({ fullName: user.fullName, email: user.email });
 
@@ -251,11 +306,12 @@ function EditUserDialog({ user, trigger }: { user: ManagedUser; trigger: React.R
           <div className="flex justify-end gap-2 pt-2">
             <DialogClose asChild>
               <Button type="button" variant="outline">
-                Cancel
+                {t('Cancel')}
               </Button>
             </DialogClose>
             <Button type="submit" disabled={save.isPending}>
-              {save.isPending && <Loader2 className="h-4 w-4 animate-spin" />}Save
+              {save.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+              {t('Save')}
             </Button>
           </div>
         </form>
@@ -266,6 +322,7 @@ function EditUserDialog({ user, trigger }: { user: ManagedUser; trigger: React.R
 
 function UsersCard() {
   const qc = useQueryClient();
+  const { t } = useLanguage();
   const currentUser = useAuthStore((s) => s.user);
   const canEdit = grantsPermission(currentUser?.permissions, 'users:update');
   const onError = (e: any) => toast.error(e?.response?.data?.message ?? 'Action failed');
@@ -324,6 +381,7 @@ function UsersCard() {
               <th className="px-4 py-3 font-medium">User</th>
               <th className="px-4 py-3 font-medium">Email</th>
               <th className="px-4 py-3 font-medium">Role</th>
+              <th className="px-4 py-3 font-medium">Store</th>
               <th className="px-4 py-3 font-medium">Status</th>
               <th className="px-4 py-3 text-right font-medium">Actions</th>
             </tr>
@@ -351,6 +409,9 @@ function UsersCard() {
                       />
                     </div>
                   </td>
+                  <td className="px-4 py-3 text-muted-foreground">
+                    {u.storeName ?? (u.role === 'SUPER_ADMIN' ? 'All stores' : '—')}
+                  </td>
                   <td className="px-4 py-3">
                     <button
                       type="button"
@@ -376,7 +437,7 @@ function UsersCard() {
                               size="icon"
                               className="h-8 w-8"
                               aria-label={`Edit ${u.fullName}`}
-                              title="Edit user"
+                              title={t('Edit user')}
                             >
                               <Pencil className="h-4 w-4" />
                             </Button>
@@ -401,7 +462,7 @@ function UsersCard() {
             })}
             {users.length === 0 && (
               <tr>
-                <td colSpan={5} className="px-4 py-10 text-center text-muted-foreground">
+                <td colSpan={6} className="px-4 py-10 text-center text-muted-foreground">
                   No users yet.
                 </td>
               </tr>

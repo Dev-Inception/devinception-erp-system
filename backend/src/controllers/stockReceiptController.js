@@ -30,6 +30,7 @@ const listReceipts = asyncHandler(async (req, res) => {
     from,
     to,
     search,
+    actor: req.user,
   });
   return sendSuccess(res, 200, 'Stock receipts fetched', {
     ...result,

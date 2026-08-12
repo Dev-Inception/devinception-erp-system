@@ -37,6 +37,14 @@ const userSchema = new mongoose.Schema(
       type: Boolean,
       default: true,
     },
+    // The one storefront this user is confined to (list/report visibility and
+    // all store-scoped writes are locked to it). Null for super_admin, who
+    // sees and acts on every store.
+    store: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Store',
+      default: null,
+    },
 
     // Password reset: we store only the SHA-256 hash of the token, never
     // the raw token, so a DB leak can't be used to reset accounts.

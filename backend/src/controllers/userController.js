@@ -14,12 +14,13 @@ const getUser = asyncHandler(async (req, res) => {
 });
 
 const createUser = asyncHandler(async (req, res) => {
-  const { name, email, password, role } = req.body;
+  const { name, email, password, role, store } = req.body;
   const user = await userService.createUser(req.user, {
     name,
     email,
     password,
     role,
+    store,
   });
   return sendSuccess(res, 201, 'User created', { user });
 });

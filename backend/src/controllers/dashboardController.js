@@ -25,7 +25,7 @@ function serialize(data) {
 // GET /api/dashboard?warehouse=&store=
 const getSummary = asyncHandler(async (req, res) => {
   const { warehouse, store } = req.query;
-  const data = await dashboardService.summary({ warehouse, store });
+  const data = await dashboardService.summary({ warehouse, store, actor: req.user });
   return sendSuccess(res, 200, 'Dashboard summary', serialize(data));
 });
 

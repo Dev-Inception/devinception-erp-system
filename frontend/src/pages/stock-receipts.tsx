@@ -21,6 +21,7 @@ import { useAuthStore } from '@/store/auth';
 import { grantsPermission } from '@/lib/modules';
 import { useWarehouses } from '@/components/layout/warehouse-switcher';
 import { useStorefrontFilter, useStorefrontStore } from '@/store/storefront';
+import { useLanguage } from '@/components/language-provider';
 
 interface Vendor {
   id: string;
@@ -62,6 +63,7 @@ const SEARCH_FETCH_LIMIT = 200;
 /* ── New/edit truck delivery: vendor, truck details, and per-product received/damaged quantities ── */
 function ReceiptDialog({ receipt, onClose }: { receipt?: StockReceipt; onClose: () => void }) {
   const qc = useQueryClient();
+  const { t } = useLanguage();
   const editing = !!receipt;
   const { warehouses, currentId: defaultWarehouseId } = useWarehouses();
   const currentStoreId = useStorefrontStore((s) => s.currentStoreId);
@@ -294,9 +296,9 @@ function ReceiptDialog({ receipt, onClose }: { receipt?: StockReceipt; onClose: 
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b bg-muted/50 text-left text-xs uppercase text-muted-foreground">
-                      <th className="px-3 py-2 font-medium">Product</th>
-                      <th className="px-3 py-2 font-medium">Qty Received</th>
-                      <th className="px-3 py-2 font-medium">Qty Damaged</th>
+                      <th className="px-3 py-2 font-medium">{t('Product')}</th>
+                      <th className="px-3 py-2 font-medium">{t('Qty Received')}</th>
+                      <th className="px-3 py-2 font-medium">{t('Qty Damaged')}</th>
                       <th className="w-8" />
                     </tr>
                   </thead>
@@ -355,12 +357,12 @@ function ReceiptDialog({ receipt, onClose }: { receipt?: StockReceipt; onClose: 
           <div className="flex justify-end gap-2 pt-1">
             <DialogClose asChild>
               <Button type="button" variant="outline">
-                Cancel
+                {t('Cancel')}
               </Button>
             </DialogClose>
             <Button type="submit" disabled={!canSubmit || save.isPending}>
               {save.isPending && <Loader2 className="h-4 w-4 animate-spin" />}{' '}
-              {editing ? 'Save Changes' : 'Save Receipt'}
+              {editing ? t('Save Changes') : t('Save Receipt')}
             </Button>
           </div>
         </form>
@@ -371,6 +373,7 @@ function ReceiptDialog({ receipt, onClose }: { receipt?: StockReceipt; onClose: 
 
 export function StockReceiptsPage() {
   const qc = useQueryClient();
+  const { t } = useLanguage();
   const authUser = useAuthStore((s) => s.user);
   const canManage = grantsPermission(authUser?.permissions, 'inventory:manage');
 
@@ -498,7 +501,7 @@ export function StockReceiptsPage() {
           </div>
           {canManage && (
             <Button onClick={() => setCreating(true)}>
-              <Plus className="h-4 w-4" /> New Receipt
+              <Plus className="h-4 w-4" /> {t('New Receipt')}
             </Button>
           )}
         </div>
@@ -508,17 +511,17 @@ export function StockReceiptsPage() {
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b bg-muted/50 text-left text-xs uppercase tracking-wide text-muted-foreground">
-              <th className="px-4 py-3 font-medium">Receipt #</th>
-              <th className="px-4 py-3 font-medium">Date</th>
-              <th className="px-4 py-3 font-medium">Vendor</th>
-              <th className="px-4 py-3 font-medium">Store</th>
-              <th className="px-4 py-3 font-medium">Warehouse</th>
-              <th className="px-4 py-3 font-medium">Truck</th>
-              <th className="px-4 py-3 font-medium">Product</th>
+              <th className="px-4 py-3 font-medium">{t('Receipt #')}</th>
+              <th className="px-4 py-3 font-medium">{t('Date')}</th>
+              <th className="px-4 py-3 font-medium">{t('Vendor')}</th>
+              <th className="px-4 py-3 font-medium">{t('Store')}</th>
+              <th className="px-4 py-3 font-medium">{t('Warehouse')}</th>
+              <th className="px-4 py-3 font-medium">{t('Truck')}</th>
+              <th className="px-4 py-3 font-medium">{t('Product')}</th>
               <th className="px-4 py-3 text-right font-medium">
-                {tab === 'in' ? 'Qty Received' : 'Qty Damaged'}
+                {tab === 'in' ? t('Qty Received') : t('Qty Damaged')}
               </th>
-              {canManage && <th className="px-4 py-3 text-right font-medium">Actions</th>}
+              {canManage && <th className="px-4 py-3 text-right font-medium">{t('Actions')}</th>}
             </tr>
           </thead>
           <tbody>
@@ -557,7 +560,7 @@ export function StockReceiptsPage() {
                           variant="ghost"
                           size="icon"
                           className="h-8 w-8"
-                          title="Edit"
+                          title={t('Edit')}
                           onClick={() => setEditingReceipt(receipt)}
                         >
                           <Pencil className="h-4 w-4" />
@@ -566,7 +569,7 @@ export function StockReceiptsPage() {
                           variant="ghost"
                           size="icon"
                           className="h-8 w-8"
-                          title="Delete"
+                          title={t('Delete')}
                           disabled={del.isPending}
                           onClick={() => removeReceipt(receipt)}
                         >

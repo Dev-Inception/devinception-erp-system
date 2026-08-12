@@ -33,6 +33,7 @@ import { openSaleInvoicePopup } from '@/lib/invoicePopup';
 import { useAuthStore } from '@/store/auth';
 import { grantsPermission } from '@/lib/modules';
 import { useStorefrontFilter } from '@/store/storefront';
+import { useLanguage } from '@/components/language-provider';
 
 interface SaleItem {
   productId: string;
@@ -109,6 +110,7 @@ const PAGE_SIZE = 20;
 const SEARCH_FETCH_LIMIT = 200;
 
 export function SalesPage() {
+  const { t } = useLanguage();
   const authUser = useAuthStore((s) => s.user);
   const canManageSales = grantsPermission(authUser?.permissions, 'sales:update');
 
@@ -296,7 +298,7 @@ export function SalesPage() {
               </div>
               <Button asChild>
                 <Link to="/pos">
-                  <ShoppingCart className="h-4 w-4" /> New Sale (POS)
+                  <ShoppingCart className="h-4 w-4" /> {t('New Sale (POS)')}
                 </Link>
               </Button>
             </div>
@@ -306,15 +308,15 @@ export function SalesPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b bg-muted/50 text-left text-xs uppercase tracking-wide text-muted-foreground">
-                  <th className="px-4 py-3 font-medium">Sale #</th>
-                  <th className="px-4 py-3 font-medium">Date</th>
-                  <th className="px-4 py-3 font-medium">Customer</th>
-                  <th className="px-4 py-3 font-medium">Store</th>
-                  <th className="px-4 py-3 font-medium">Payment</th>
-                  <th className="px-4 py-3 text-right font-medium">Advance Payment</th>
-                  <th className="px-4 py-3 text-right font-medium">Remaining Amount</th>
-                  <th className="px-4 py-3 text-right font-medium">Total Amount</th>
-                  <th className="px-4 py-3 text-right font-medium">Actions</th>
+                  <th className="px-4 py-3 font-medium">{t('Sale #')}</th>
+                  <th className="px-4 py-3 font-medium">{t('Date')}</th>
+                  <th className="px-4 py-3 font-medium">{t('Customer')}</th>
+                  <th className="px-4 py-3 font-medium">{t('Store')}</th>
+                  <th className="px-4 py-3 font-medium">{t('Payment')}</th>
+                  <th className="px-4 py-3 text-right font-medium">{t('Advance Payment')}</th>
+                  <th className="px-4 py-3 text-right font-medium">{t('Remaining Amount')}</th>
+                  <th className="px-4 py-3 text-right font-medium">{t('Total Amount')}</th>
+                  <th className="px-4 py-3 text-right font-medium">{t('Actions')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -359,7 +361,12 @@ export function SalesPage() {
                       <td className="px-4 py-3 text-right">
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
-                            <Button size="icon" variant="ghost" className="h-8 w-8" title="Actions">
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="h-8 w-8"
+                              title={t('Actions')}
+                            >
                               <MoreHorizontal className="h-4 w-4" />
                             </Button>
                           </DropdownMenuTrigger>
@@ -461,13 +468,13 @@ export function SalesPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b bg-muted/50 text-left text-xs uppercase tracking-wide text-muted-foreground">
-                  <th className="px-4 py-3 font-medium">Return #</th>
-                  <th className="px-4 py-3 font-medium">Date</th>
-                  <th className="px-4 py-3 font-medium">Sale #</th>
-                  <th className="px-4 py-3 font-medium">Customer</th>
-                  <th className="px-4 py-3 font-medium">Items</th>
-                  <th className="px-4 py-3 text-right font-medium">Amount</th>
-                  <th className="px-4 py-3 font-medium">Note</th>
+                  <th className="px-4 py-3 font-medium">{t('Return #')}</th>
+                  <th className="px-4 py-3 font-medium">{t('Date')}</th>
+                  <th className="px-4 py-3 font-medium">{t('Sale #')}</th>
+                  <th className="px-4 py-3 font-medium">{t('Customer')}</th>
+                  <th className="px-4 py-3 font-medium">{t('Items')}</th>
+                  <th className="px-4 py-3 text-right font-medium">{t('Amount')}</th>
+                  <th className="px-4 py-3 font-medium">{t('Note')}</th>
                 </tr>
               </thead>
               <tbody>

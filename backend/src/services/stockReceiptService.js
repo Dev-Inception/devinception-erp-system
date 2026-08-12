@@ -11,7 +11,12 @@ const stockService = require('./stockService');
 const counterService = require('./counterService');
 const { normalizeQuantity } = require('../utils/quantity');
 const { parsePagination, escapeRegex } = require('../utils/query');
-const { resolveWarehouseScope, warehouseMongoFilter } = require('../utils/storeScope');
+const {
+  resolveWarehouseScope,
+  warehouseMongoFilter,
+  actorStoreId,
+  assertStoreAccess,
+} = require('../utils/storeScope');
 
 /**
  * Records a truck delivery from a vendor: one document per truck, with a
@@ -27,6 +32,7 @@ async function createReceipt(actor, { vendor, store, warehouse, date, truck, ite
   // it's permanently on record which shop this stock was brought in for.
   const storeDoc = await Store.findById(store);
   if (!storeDoc) throw ApiError.badRequest('A store is required');
+  assertStoreAccess(actor, storeDoc._id);
   const warehouseDoc = await Warehouse.findById(warehouse);
   if (!warehouseDoc) throw ApiError.notFound('Warehouse not found');
   if (!truck || !truck.vehicleNumber) {
@@ -162,6 +168,7 @@ async function reverseReceiptStock(receipt, actor) {
 async function updateReceipt(actor, id, { vendor, warehouse, date, truck, items, note }) {
   const receipt = await StockReceipt.findById(id);
   if (!receipt) throw ApiError.notFound('Stock receipt not found');
+  assertStoreAccess(actor, receipt.store);
 
   const vendorDoc = await Vendor.findById(vendor);
   if (!vendorDoc) throw ApiError.notFound('Vendor not found');
@@ -251,22 +258,25 @@ async function updateReceipt(actor, id, { vendor, warehouse, date, truck, items,
 async function deleteReceipt(actor, id) {
   const receipt = await StockReceipt.findById(id);
   if (!receipt) throw ApiError.notFound('Stock receipt not found');
+  assertStoreAccess(actor, receipt.store);
 
   await reverseReceiptStock(receipt, actor);
   await receipt.deleteOne();
   return receipt;
 }
 
-async function listReceipts({ vendor, warehouse, store, from, to, search, ...query } = {}) {
+async function listReceipts({ vendor, warehouse, store, from, to, search, actor, ...query } = {}) {
   const { page, limit, skip } = parsePagination(query);
   const filter = {};
   if (vendor) filter.vendor = vendor;
   // Every receipt now records its own storefront directly — filter on that
   // rather than the indirect (and looser) warehouse-membership scoping.
-  if (store && mongoose.isValidObjectId(store)) {
-    filter.store = store;
+  // A store-restricted actor's own store always wins over the query param.
+  const effectiveStore = actorStoreId(actor) || store;
+  if (effectiveStore && mongoose.isValidObjectId(effectiveStore)) {
+    filter.store = effectiveStore;
   } else if (warehouse) {
-    const { warehouseIds } = await resolveWarehouseScope({ warehouse });
+    const { warehouseIds } = await resolveWarehouseScope({ warehouse, actor });
     Object.assign(filter, warehouseMongoFilter(warehouseIds));
   }
   if (from || to) {

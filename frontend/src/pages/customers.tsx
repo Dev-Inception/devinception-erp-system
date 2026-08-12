@@ -21,6 +21,7 @@ import { useAuthStore } from '@/store/auth';
 import { grantsPermission } from '@/lib/modules';
 import { Pagination } from '@/components/ui/pagination';
 import { useStorefrontFilter } from '@/store/storefront';
+import { useLanguage } from '@/components/language-provider';
 
 interface Customer {
   id: string;
@@ -39,6 +40,7 @@ const emptyForm = { name: '', phone: '', email: '', address: '', creditLimit: 0 
 /** Create (no `customer`) or edit (with `customer`) a customer. */
 function CustomerDialog({ customer, trigger }: { customer?: Customer; trigger: React.ReactNode }) {
   const qc = useQueryClient();
+  const { t } = useLanguage();
   const editing = !!customer;
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(emptyForm);
@@ -133,12 +135,12 @@ function CustomerDialog({ customer, trigger }: { customer?: Customer; trigger: R
           <div className="flex justify-end gap-2 pt-2">
             <DialogClose asChild>
               <Button type="button" variant="outline">
-                Cancel
+                {t('Cancel')}
               </Button>
             </DialogClose>
             <Button type="submit" disabled={save.isPending}>
               {save.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
-              Save
+              {t('Save')}
             </Button>
           </div>
         </form>
@@ -149,6 +151,7 @@ function CustomerDialog({ customer, trigger }: { customer?: Customer; trigger: R
 
 export function CustomersPage() {
   const qc = useQueryClient();
+  const { t } = useLanguage();
   const [search, setSearch] = useState('');
   const perms = useAuthStore((s) => s.user?.permissions);
   const canUpdate = grantsPermission(perms, 'customers:update');
@@ -202,7 +205,7 @@ export function CustomersPage() {
         <CustomerDialog
           trigger={
             <Button>
-              <Plus className="h-4 w-4" /> Add Customer
+              <Plus className="h-4 w-4" /> {t('Add Customer')}
             </Button>
           }
         />
@@ -212,12 +215,12 @@ export function CustomersPage() {
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b bg-muted/50 text-left text-xs uppercase tracking-wide text-muted-foreground">
-              <th className="px-4 py-3 font-medium">Customer</th>
-              <th className="px-4 py-3 font-medium">Phone</th>
-              <th className="px-4 py-3 font-medium">Email</th>
-              <th className="px-4 py-3 text-right font-medium">Credit Limit</th>
-              <th className="px-4 py-3 text-right font-medium">Outstanding</th>
-              {showActions && <th className="px-4 py-3 text-right font-medium">Actions</th>}
+              <th className="px-4 py-3 font-medium">{t('Customer')}</th>
+              <th className="px-4 py-3 font-medium">{t('Phone')}</th>
+              <th className="px-4 py-3 font-medium">{t('Email')}</th>
+              <th className="px-4 py-3 text-right font-medium">{t('Credit Limit')}</th>
+              <th className="px-4 py-3 text-right font-medium">{t('Outstanding')}</th>
+              {showActions && <th className="px-4 py-3 text-right font-medium">{t('Actions')}</th>}
             </tr>
           </thead>
           <tbody>
@@ -245,7 +248,12 @@ export function CustomersPage() {
                           <CustomerDialog
                             customer={c}
                             trigger={
-                              <Button variant="ghost" size="icon" className="h-8 w-8" title="Edit">
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8"
+                                title={t('Edit')}
+                              >
                                 <Pencil className="h-4 w-4" />
                               </Button>
                             }
@@ -256,7 +264,7 @@ export function CustomersPage() {
                             variant="ghost"
                             size="icon"
                             className="h-8 w-8"
-                            title="Delete"
+                            title={t('Delete')}
                             disabled={del.isPending}
                             onClick={() => remove(c)}
                           >

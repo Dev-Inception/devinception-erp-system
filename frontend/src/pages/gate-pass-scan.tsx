@@ -9,6 +9,7 @@ import { Label } from '@/components/ui/label';
 import { SignaturePad } from '@/components/signature-pad';
 import { api } from '@/lib/api';
 import { useAuthStore } from '@/store/auth';
+import { useLanguage } from '@/components/language-provider';
 
 interface GatePassItem {
   productId: string;
@@ -58,6 +59,7 @@ function Row({ label, value }: { label: string; value: string }) {
 
 export function GatePassScanPage() {
   const { token = '' } = useParams();
+  const { t } = useLanguage();
   const qc = useQueryClient();
   const user = useAuthStore((state) => state.user);
   const login = useAuthStore((state) => state.login);
@@ -156,10 +158,10 @@ export function GatePassScanPage() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b bg-muted/50 text-left text-xs uppercase tracking-wide text-muted-foreground">
-                    <th className="px-3 py-2 font-medium">Product</th>
-                    <th className="px-3 py-2 text-right font-medium">Qty</th>
+                    <th className="px-3 py-2 font-medium">{t('Product')}</th>
+                    <th className="px-3 py-2 text-right font-medium">{t('Qty')}</th>
                     {data.status === 'PROCESSED' && (
-                      <th className="px-3 py-2 text-right font-medium">Loaded</th>
+                      <th className="px-3 py-2 text-right font-medium">{t('Loaded')}</th>
                     )}
                   </tr>
                 </thead>

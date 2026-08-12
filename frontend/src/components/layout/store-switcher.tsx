@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Building2 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useStorefrontStore } from '@/store/storefront';
+import { useAuthStore } from '@/store/auth';
 
 interface StoreRow {
   id: string;
@@ -9,17 +10,22 @@ interface StoreRow {
   code?: string;
 }
 
-/** Header dropdown: switch between a specific store or "All Stores". Hidden
- * entirely when there are no stores configured yet. */
+/** Header dropdown: switch between a specific store or "All Stores". Super
+ * admin only — every other role is confined to the one store they were
+ * created under (see the Users table on the Permissions page), so there's
+ * nothing for them to switch between. Also hidden when there are no stores
+ * configured yet. */
 export function StoreSwitcher() {
+  const role = useAuthStore((s) => s.user?.role);
   const { data: stores = [] } = useQuery<StoreRow[]>({
     queryKey: ['stores'],
     queryFn: async () => (await api.get('/stores')).data,
+    enabled: role === 'SUPER_ADMIN',
   });
   const currentStoreId = useStorefrontStore((s) => s.currentStoreId);
   const setCurrentStore = useStorefrontStore((s) => s.setCurrentStore);
 
-  if (stores.length === 0) return null;
+  if (role !== 'SUPER_ADMIN' || stores.length === 0) return null;
 
   return (
     <div className="relative">

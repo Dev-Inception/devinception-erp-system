@@ -8,6 +8,7 @@ import { Label } from '@/components/ui/label';
 import { api } from '@/lib/api';
 import { cn, formatCurrency } from '@/lib/utils';
 import { useStorefrontFilter } from '@/store/storefront';
+import { useLanguage } from '@/components/language-provider';
 
 interface ReportResult {
   title: string;
@@ -23,6 +24,7 @@ const TYPES = [
 ];
 
 export function ReportsPage() {
+  const { t } = useLanguage();
   const [type, setType] = useState('sales');
   const today = new Date().toISOString().slice(0, 10);
   const monthAgo = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
@@ -104,10 +106,10 @@ export function ReportsPage() {
           )}
           <div className="ml-auto flex gap-2">
             <Button variant="outline" onClick={() => window.print()} disabled={!data}>
-              <Printer className="h-4 w-4" /> Print / PDF
+              <Printer className="h-4 w-4" /> {t('Print / PDF')}
             </Button>
             <Button onClick={downloadCsv}>
-              <Download className="h-4 w-4" /> CSV
+              <Download className="h-4 w-4" /> {t('CSV')}
             </Button>
           </div>
         </CardContent>
@@ -132,7 +134,7 @@ export function ReportsPage() {
                       key={c.key}
                       className={cn('px-4 py-2 font-medium', c.numeric && 'text-right')}
                     >
-                      {c.label}
+                      {t(c.label)}
                     </th>
                   ))}
                 </tr>

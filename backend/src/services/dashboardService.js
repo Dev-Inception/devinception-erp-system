@@ -3,7 +3,11 @@ const Sale = require('../models/saleModel');
 const journalService = require('./journalService');
 const stockService = require('./stockService');
 const { ACCOUNT, naturalBalance } = require('../utils/finance');
-const { resolveWarehouseScope, warehouseMongoFilter } = require('../utils/storeScope');
+const {
+  resolveWarehouseScope,
+  warehouseMongoFilter,
+  actorStoreId,
+} = require('../utils/storeScope');
 
 /**
  * Dashboard overview: the handful of headline figures and mini-charts shown on
@@ -95,14 +99,16 @@ async function outstanding(account) {
  * Build the full dashboard payload (paisa). `store` (takes precedence) and
  * `warehouse` are both optional.
  */
-async function summary({ warehouse, store } = {}) {
+async function summary({ warehouse, store, actor } = {}) {
   // Sales (and the COGS/expense entries they post) record their own
   // storefront directly — prefer that over the looser warehouse-membership
   // scoping (two stores can share a warehouse). Stock valuation has no direct
   // store link (Products own a single warehouse, not a store), so it always
   // resolves through warehouse membership.
-  const { warehouseIds } = await resolveWarehouseScope({ warehouse, store });
-  const validStore = store && mongoose.isValidObjectId(store) ? store : null;
+  const { warehouseIds } = await resolveWarehouseScope({ warehouse, store, actor });
+  // A store-restricted actor's own store always wins over the query param.
+  const validStore =
+    actorStoreId(actor) || (store && mongoose.isValidObjectId(store) ? store : null);
   // Aggregation `$match` doesn't auto-cast query strings like `.find()` does.
   const whMatch = validStore
     ? { store: new mongoose.Types.ObjectId(validStore) }

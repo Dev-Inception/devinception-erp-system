@@ -64,6 +64,7 @@ const listProducts = asyncHandler(async (req, res) => {
     // instead of one row with the total summed across every warehouse. The
     // POS product search needs this to offer a per-line warehouse picker.
     perWarehouse: perWarehouse === 'true',
+    actor: req.user,
   });
   return sendSuccess(res, 200, 'Products fetched', {
     ...result,

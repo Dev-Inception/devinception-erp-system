@@ -28,6 +28,7 @@ import { formatCurrency } from '@/lib/utils';
 import { useAuthStore } from '@/store/auth';
 import { grantsPermission } from '@/lib/modules';
 import type { WarehouseRow } from '@/components/layout/warehouse-switcher';
+import { useLanguage } from '@/components/language-provider';
 
 /** Create (no `warehouse`) or edit (with `warehouse`) a warehouse. */
 function WarehouseDialog({
@@ -38,6 +39,7 @@ function WarehouseDialog({
   trigger: React.ReactNode;
 }) {
   const qc = useQueryClient();
+  const { t } = useLanguage();
   const editing = !!warehouse;
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({ name: '', location: '', isDefault: false });
@@ -118,11 +120,12 @@ function WarehouseDialog({
           <div className="flex justify-end gap-2 pt-1">
             <DialogClose asChild>
               <Button type="button" variant="outline">
-                Cancel
+                {t('Cancel')}
               </Button>
             </DialogClose>
             <Button type="submit" disabled={save.isPending}>
-              {save.isPending && <Loader2 className="h-4 w-4 animate-spin" />}Save
+              {save.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+              {t('Save')}
             </Button>
           </div>
         </form>
@@ -133,6 +136,7 @@ function WarehouseDialog({
 
 export function WarehousesPage() {
   const qc = useQueryClient();
+  const { t } = useLanguage();
   const perms = useAuthStore((s) => s.user?.permissions);
   // Warehouse create/update/delete all require inventory:manage on the backend.
   const canManage = grantsPermission(perms, 'inventory:manage');
@@ -173,7 +177,7 @@ export function WarehousesPage() {
           <WarehouseDialog
             trigger={
               <Button>
-                <Plus className="h-4 w-4" /> Add Warehouse
+                <Plus className="h-4 w-4" /> {t('Add Warehouse')}
               </Button>
             }
           />
@@ -227,21 +231,21 @@ export function WarehousesPage() {
                         disabled={setDefault.isPending}
                         onClick={() => setDefault.mutate(w.id)}
                       >
-                        <Check className="h-4 w-4" /> Set default
+                        <Check className="h-4 w-4" /> {t('Set default')}
                       </Button>
                     )}
                     <WarehouseDialog
                       warehouse={w}
                       trigger={
                         <Button variant="outline" size="sm" className={w.isDefault ? 'flex-1' : ''}>
-                          <Pencil className="h-4 w-4" /> Edit
+                          <Pencil className="h-4 w-4" /> {t('Edit')}
                         </Button>
                       }
                     />
                     <Button
                       variant="outline"
                       size="sm"
-                      title="Delete"
+                      title={t('Delete')}
                       disabled={del.isPending || w.isDefault}
                       onClick={() => remove(w)}
                     >

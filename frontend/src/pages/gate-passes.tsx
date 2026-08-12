@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { api } from '@/lib/api';
 import { useStorefrontFilter } from '@/store/storefront';
+import { useLanguage } from '@/components/language-provider';
 
 interface GatePassItem {
   productId: string;
@@ -31,6 +32,7 @@ export function GatePassesPage() {
   const [status, setStatus] = useState<'ALL' | 'PENDING' | 'PROCESSED'>('ALL');
   const [search, setSearch] = useState('');
   const storefront = useStorefrontFilter();
+  const { t } = useLanguage();
   const { data, isLoading } = useQuery<{
     gatePasses: GatePass[];
     total: number;
@@ -86,11 +88,11 @@ export function GatePassesPage() {
         <table className="w-full min-w-[760px] text-sm">
           <thead>
             <tr className="border-b bg-muted/50 text-left text-xs uppercase tracking-wide text-muted-foreground">
-              <th className="px-4 py-3 font-medium">Gate Pass</th>
-              <th className="px-4 py-3 font-medium">Document</th>
-              <th className="px-4 py-3 font-medium">Products / Qty</th>
-              <th className="px-4 py-3 font-medium">Scanned By</th>
-              <th className="px-4 py-3 font-medium">Status</th>
+              <th className="px-4 py-3 font-medium">{t('Gate Pass')}</th>
+              <th className="px-4 py-3 font-medium">{t('Document')}</th>
+              <th className="px-4 py-3 font-medium">{t('Products / Qty')}</th>
+              <th className="px-4 py-3 font-medium">{t('Scanned By')}</th>
+              <th className="px-4 py-3 font-medium">{t('Status')}</th>
             </tr>
           </thead>
           <tbody>

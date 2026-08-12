@@ -19,6 +19,7 @@ import { api } from '@/lib/api';
 import { useAuthStore } from '@/store/auth';
 import { grantsPermission } from '@/lib/modules';
 import type { WarehouseRow } from '@/components/layout/warehouse-switcher';
+import { useLanguage } from '@/components/language-provider';
 
 interface StoreRow {
   id: string;
@@ -34,6 +35,7 @@ interface StoreRow {
 /** Create (no `store`) or edit (with `store`) a store. */
 function StoreDialog({ store, trigger }: { store?: StoreRow; trigger: React.ReactNode }) {
   const qc = useQueryClient();
+  const { t } = useLanguage();
   const editing = !!store;
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({
@@ -164,11 +166,12 @@ function StoreDialog({ store, trigger }: { store?: StoreRow; trigger: React.Reac
           <div className="flex justify-end gap-2 pt-1">
             <DialogClose asChild>
               <Button type="button" variant="outline">
-                Cancel
+                {t('Cancel')}
               </Button>
             </DialogClose>
             <Button type="submit" disabled={save.isPending}>
-              {save.isPending && <Loader2 className="h-4 w-4 animate-spin" />}Save
+              {save.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+              {t('Save')}
             </Button>
           </div>
         </form>
@@ -179,6 +182,7 @@ function StoreDialog({ store, trigger }: { store?: StoreRow; trigger: React.Reac
 
 export function StoresPage() {
   const qc = useQueryClient();
+  const { t } = useLanguage();
   const perms = useAuthStore((s) => s.user?.permissions);
   const canManage = grantsPermission(perms, 'stores:manage');
 
@@ -218,7 +222,7 @@ export function StoresPage() {
           <StoreDialog
             trigger={
               <Button>
-                <Plus className="h-4 w-4" /> Add Store
+                <Plus className="h-4 w-4" /> {t('Add Store')}
               </Button>
             }
           />
@@ -271,21 +275,21 @@ export function StoresPage() {
                         disabled={setDefault.isPending}
                         onClick={() => setDefault.mutate(s.id)}
                       >
-                        <Check className="h-4 w-4" /> Set default
+                        <Check className="h-4 w-4" /> {t('Set default')}
                       </Button>
                     )}
                     <StoreDialog
                       store={s}
                       trigger={
                         <Button variant="outline" size="sm" className={s.isDefault ? 'flex-1' : ''}>
-                          <Pencil className="h-4 w-4" /> Edit
+                          <Pencil className="h-4 w-4" /> {t('Edit')}
                         </Button>
                       }
                     />
                     <Button
                       variant="outline"
                       size="sm"
-                      title="Delete"
+                      title={t('Delete')}
                       disabled={del.isPending || s.isDefault}
                       onClick={() => remove(s)}
                     >

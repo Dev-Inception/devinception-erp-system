@@ -12,6 +12,7 @@ const listGatePasses = asyncHandler(async (req, res) => {
     store,
     status,
     sourceType,
+    actor: req.user,
   });
   return sendSuccess(res, 200, 'Gate passes fetched', {
     ...result,

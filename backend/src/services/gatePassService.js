@@ -7,7 +7,11 @@ const mongoose = require('mongoose');
 const ApiError = require('../utils/ApiError');
 const counterService = require('./counterService');
 const { parsePagination } = require('../utils/query');
-const { resolveWarehouseScope, warehouseMongoFilter } = require('../utils/storeScope');
+const {
+  resolveWarehouseScope,
+  warehouseMongoFilter,
+  actorStoreId,
+} = require('../utils/storeScope');
 
 const QR_PREFIX = 'ERP_GATE_PASS:';
 const SALE_FILTER = { sourceType: 'SALE' };
@@ -247,16 +251,18 @@ async function getGatePassBySale(saleId) {
   return getGatePassById(gatePass._id);
 }
 
-async function listGatePasses({ warehouse, store, status, sourceType, ...query } = {}) {
+async function listGatePasses({ warehouse, store, status, sourceType, actor, ...query } = {}) {
   await refreshLegacySaleGatePasses();
   const { page, limit, skip } = parsePagination(query);
   const filter = {};
   // Gate passes copy their `store` from the originating sale — prefer that
-  // direct field over the looser warehouse-membership scoping.
-  if (store && mongoose.isValidObjectId(store)) {
-    filter.store = store;
+  // direct field over the looser warehouse-membership scoping. A store-
+  // restricted actor's own store always wins over the query param.
+  const effectiveStore = actorStoreId(actor) || store;
+  if (effectiveStore && mongoose.isValidObjectId(effectiveStore)) {
+    filter.store = effectiveStore;
   } else if (warehouse) {
-    const { warehouseIds } = await resolveWarehouseScope({ warehouse });
+    const { warehouseIds } = await resolveWarehouseScope({ warehouse, actor });
     Object.assign(filter, warehouseMongoFilter(warehouseIds));
   }
   if (status) filter.status = status;

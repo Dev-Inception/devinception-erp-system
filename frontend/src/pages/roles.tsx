@@ -18,6 +18,7 @@ import {
 } from '@/components/ui/dialog';
 import { api } from '@/lib/api';
 import { useAuthStore } from '@/store/auth';
+import { useLanguage } from '@/components/language-provider';
 
 interface Role {
   id: string;
@@ -37,6 +38,7 @@ function RoleDialog({
   editing: Role | null;
 }) {
   const qc = useQueryClient();
+  const { t } = useLanguage();
   const isEditing = !!editing;
   const [form, setForm] = useState({ name: '', description: '' });
   useEffect(() => {
@@ -102,11 +104,12 @@ function RoleDialog({
           <div className="flex justify-end gap-2 pt-1">
             <DialogClose asChild>
               <Button type="button" variant="outline">
-                Cancel
+                {t('Cancel')}
               </Button>
             </DialogClose>
             <Button type="submit" disabled={save.isPending}>
-              {save.isPending && <Loader2 className="h-4 w-4 animate-spin" />}Save
+              {save.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+              {t('Save')}
             </Button>
           </div>
         </form>
@@ -117,6 +120,7 @@ function RoleDialog({
 
 export function RolePage() {
   const qc = useQueryClient();
+  const { t } = useLanguage();
   const role = useAuthStore((s) => s.user?.role);
   const canManage = role === 'SUPER_ADMIN';
   const [search, setSearch] = useState('');
@@ -163,7 +167,7 @@ export function RolePage() {
               setDialogOpen(true);
             }}
           >
-            <Plus className="h-4 w-4" /> Add Role
+            <Plus className="h-4 w-4" /> {t('Add Role')}
           </Button>
         )}
       </div>
@@ -172,9 +176,9 @@ export function RolePage() {
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b bg-muted/50 text-left text-xs uppercase tracking-wide text-muted-foreground">
-              <th className="px-4 py-3 font-medium">Name</th>
-              <th className="px-4 py-3 font-medium">Description</th>
-              {canManage && <th className="px-4 py-3 text-right font-medium">Actions</th>}
+              <th className="px-4 py-3 font-medium">{t('Name')}</th>
+              <th className="px-4 py-3 font-medium">{t('Description')}</th>
+              {canManage && <th className="px-4 py-3 text-right font-medium">{t('Actions')}</th>}
             </tr>
           </thead>
           <tbody>
@@ -205,7 +209,7 @@ export function RolePage() {
                           size="icon"
                           variant="ghost"
                           className="h-8 w-8"
-                          title="Edit"
+                          title={t('Edit')}
                           onClick={() => {
                             setEditing(l);
                             setDialogOpen(true);
@@ -217,7 +221,7 @@ export function RolePage() {
                           size="icon"
                           variant="ghost"
                           className="h-8 w-8"
-                          title="Delete"
+                          title={t('Delete')}
                           disabled={del.isPending}
                           onClick={() => remove(l)}
                         >

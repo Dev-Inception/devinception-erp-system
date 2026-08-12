@@ -12,6 +12,9 @@ export interface AuthUser {
   avatarUrl?: string;
   /** Resolved permission strings for this user's role ('*' = wildcard/super admin). */
   permissions?: string[];
+  /** The one store this user is confined to. Null/undefined for super admin,
+   *  who isn't restricted to a store. */
+  storeId?: string | null;
 }
 
 interface AuthState {
@@ -39,9 +42,13 @@ interface BackendUser {
   role: string;
   avatarUrl?: string;
   permissions?: string[];
+  /** Raw store id, or a populated `{ _id, name, code }` object. */
+  store?: string | { _id: string } | null;
 }
 
 function mapUser(u: BackendUser): AuthUser {
+  const storeId =
+    typeof u.store === 'string' ? u.store : u.store && '_id' in u.store ? u.store._id : null;
   return {
     id: String(u.id ?? u._id ?? ''),
     email: u.email,
@@ -49,6 +56,7 @@ function mapUser(u: BackendUser): AuthUser {
     role: String(u.role).toUpperCase() as Role,
     avatarUrl: u.avatarUrl,
     permissions: u.permissions,
+    storeId,
   };
 }
 

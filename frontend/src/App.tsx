@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Toaster } from 'sonner';
 import { ThemeProvider } from '@/components/theme-provider';
+import { LanguageProvider } from '@/components/language-provider';
 import { AppLayout } from '@/components/layout/app-layout';
 import { useAuthStore } from '@/store/auth';
 import { MODULES, canSeeModule, landingPath } from '@/lib/modules';
@@ -84,25 +85,27 @@ const MODULE_ROUTES: { path: string; element: React.ReactElement }[] = [
 export default function App() {
   return (
     <ThemeProvider>
-      <QueryClientProvider client={queryClient}>
-        <BrowserRouter>
-          <Routes>
-            <Route path="/login" element={<LoginPage />} />
-            <Route path="/gate-pass/scan/:token" element={<GatePassScanPage />} />
-            <Route element={<AppLayout />}>
-              <Route index element={<IndexRoute />} />
-              {MODULE_ROUTES.map((r) => (
-                <Route
-                  key={r.path}
-                  path={r.path}
-                  element={<ModuleGuard moduleKey={r.path}>{r.element}</ModuleGuard>}
-                />
-              ))}
-            </Route>
-          </Routes>
-        </BrowserRouter>
-        <Toaster richColors position="top-right" />
-      </QueryClientProvider>
+      <LanguageProvider>
+        <QueryClientProvider client={queryClient}>
+          <BrowserRouter>
+            <Routes>
+              <Route path="/login" element={<LoginPage />} />
+              <Route path="/gate-pass/scan/:token" element={<GatePassScanPage />} />
+              <Route element={<AppLayout />}>
+                <Route index element={<IndexRoute />} />
+                {MODULE_ROUTES.map((r) => (
+                  <Route
+                    key={r.path}
+                    path={r.path}
+                    element={<ModuleGuard moduleKey={r.path}>{r.element}</ModuleGuard>}
+                  />
+                ))}
+              </Route>
+            </Routes>
+          </BrowserRouter>
+          <Toaster richColors position="top-right" />
+        </QueryClientProvider>
+      </LanguageProvider>
     </ThemeProvider>
   );
 }

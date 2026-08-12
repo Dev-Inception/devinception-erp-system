@@ -12,6 +12,7 @@ import {
 } from '@/components/ui/dialog';
 import { api } from '@/lib/api';
 import { useStorefrontStore } from '@/store/storefront';
+import { useAuthStore } from '@/store/auth';
 
 interface StoreRow {
   id: string;
@@ -22,15 +23,19 @@ interface StoreRow {
 /**
  * Mandatory store selection, shown once right after a fresh login (see
  * `useStorefrontStore.markLoggedIn`, called from login.tsx) — never on a
- * plain reload. Auto-resolves and never renders when there's nothing to
- * choose (zero or one store); otherwise blocks until a specific store is
- * picked (no "All Stores" here — that's only offered afterward from the
- * header switcher).
+ * plain reload. Super admin only: every other role is locked to the single
+ * store they were created under, set automatically at login (see login.tsx),
+ * so there's nothing for them to pick. Auto-resolves and never renders when
+ * there's nothing to choose (zero or one store); otherwise blocks until a
+ * specific store is picked (no "All Stores" here — that's only offered
+ * afterward from the header switcher).
  */
 export function StorePickerModal() {
+  const role = useAuthStore((s) => s.user?.role);
   const { data: stores = [] } = useQuery<StoreRow[]>({
     queryKey: ['stores'],
     queryFn: async () => (await api.get('/stores')).data,
+    enabled: role === 'SUPER_ADMIN',
   });
   const currentStoreId = useStorefrontStore((s) => s.currentStoreId);
   const needsSelection = useStorefrontStore((s) => s.needsSelection);
@@ -38,14 +43,15 @@ export function StorePickerModal() {
   const [selected, setSelected] = useState('');
 
   useEffect(() => {
+    if (role !== 'SUPER_ADMIN') return;
     if (stores.length === 0 && currentStoreId === null) {
       setCurrentStore('ALL');
     } else if (stores.length === 1 && currentStoreId !== stores[0].id) {
       setCurrentStore(stores[0].id);
     }
-  }, [stores, currentStoreId, setCurrentStore]);
+  }, [role, stores, currentStoreId, setCurrentStore]);
 
-  if (stores.length <= 1) return null;
+  if (role !== 'SUPER_ADMIN' || stores.length <= 1) return null;
 
   const hasResolvedSelection =
     currentStoreId === 'ALL' || (!!currentStoreId && stores.some((s) => s.id === currentStoreId));

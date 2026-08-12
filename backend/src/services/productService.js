@@ -109,6 +109,7 @@ async function listProducts({
   store,
   includeInactive = false,
   perWarehouse = false,
+  actor,
   ...query
 } = {}) {
   // The inventory list and product pickers have no pagination UI, so this
@@ -131,7 +132,7 @@ async function listProducts({
   // that location (or one of the store's locations). This also keeps legacy
   // products with stock rows in more than one warehouse accurate until their
   // ownership is migrated.
-  const { warehouseIds } = await resolveWarehouseScope({ warehouse, store });
+  const { warehouseIds } = await resolveWarehouseScope({ warehouse, store, actor });
   if (warehouseIds) {
     const stockedProductIds = await StockLevel.distinct('product', {
       ...warehouseMongoFilter(warehouseIds),

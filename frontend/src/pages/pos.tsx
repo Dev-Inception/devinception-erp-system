@@ -29,6 +29,7 @@ import { useAuthStore } from '@/store/auth';
 import { grantsPermission } from '@/lib/modules';
 import { openSaleInvoicePopup, type SaleForInvoice } from '@/lib/invoicePopup';
 import { GatePassDialog } from '@/components/gate-pass-dialog';
+import { useLanguage } from '@/components/language-provider';
 
 interface Product {
   id: string;
@@ -126,6 +127,7 @@ const STEPS: { n: Step; label: string }[] = [
 ];
 
 export function PosPage() {
+  const { t } = useLanguage();
   const qc = useQueryClient();
   const authUser = useAuthStore((s) => s.user);
   const canTakeAdvance = grantsPermission(authUser?.permissions, 'finance:manage');
@@ -430,7 +432,25 @@ export function PosPage() {
 
   const resumeDraft = (draft: DraftSale) => {
     setDraftId(draft.id);
-    setCustomer(draft.customer);
+    // The parked customer reference can go stale (e.g. deleted since this
+    // sale was parked) — checkout requires a *live* customer, so don't trust
+    // a broken reference silently. Surfacing it here, at resume time, avoids
+    // a confusing "customer is required" failure at the very last step after
+    // the cashier has already gone through the whole sale again.
+    const hasLiveCustomer = Boolean(draft.customer?.id);
+    if (hasLiveCustomer) {
+      setCustomer(draft.customer);
+    } else {
+      setCustomer(null);
+      setCustomerForm({
+        name: draft.customer?.name ?? '',
+        phone: draft.customer?.phone ?? '',
+        address: '',
+      });
+      toast.error(
+        "This parked sale's customer could not be found — please select the customer again.",
+      );
+    }
     setCart(draft.cart);
     setSelectedLabour(draft.selectedLabour);
     setDriver(draft.driver);
@@ -439,7 +459,7 @@ export function PosPage() {
     setDiscountType(draft.discountType);
     setTaxPct(draft.taxPct);
     setAdvanceAmount(draft.advanceAmount);
-    setStep(draft.step);
+    setStep(hasLiveCustomer ? draft.step : 1);
   };
 
   const deleteDraftMutation = useMutation({
@@ -456,6 +476,11 @@ export function PosPage() {
     mutationFn: async (): Promise<CompletedSale> => {
       if (!hasSpecificStore) {
         throw new Error('Select a specific store from the header before completing a sale.');
+      }
+      // Every sale is booked on account first (see the advance-payment note
+      // below), so it always needs a live customer to owe the balance to.
+      if (!customer?.id) {
+        throw new Error('Select or re-add the customer before completing this sale.');
       }
       const sale: CompletedSale = (
         await api.post('/sales', {
@@ -544,16 +569,16 @@ export function PosPage() {
           <ShoppingCart className="h-5 w-5" />
         </div>
         <div className="flex-1">
-          <h1 className="text-lg font-semibold leading-tight">Point of Sale</h1>
+          <h1 className="text-lg font-semibold leading-tight">{t('Point of Sale')}</h1>
           <p className="text-sm text-muted-foreground">
-            {STEPS.find((s) => s.n === step)?.label} — step {step} of {STEPS.length}
+            {t(STEPS.find((s) => s.n === step)?.label ?? '')} — step {step} of {STEPS.length}
           </p>
         </div>
         {/* <Button variant="outline" onClick={resetAll}>
           New Sale
         </Button> */}
         <Button onClick={resetAll}>
-          <ShoppingCart className="h-4 w-4" /> New Sale (POS)
+          <ShoppingCart className="h-4 w-4" /> {t('New Sale (POS)')}
         </Button>
       </div>
 
@@ -585,7 +610,7 @@ export function PosPage() {
                     step === s.n ? 'text-foreground' : 'text-muted-foreground',
                   )}
                 >
-                  {s.label}
+                  {t(s.label)}
                 </span>
               </div>
               {i < STEPS.length - 1 && (
@@ -610,9 +635,9 @@ export function PosPage() {
                     <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 text-primary">
                       <User className="h-6 w-6" />
                     </div>
-                    <h2 className="text-base font-semibold">Who is this sale for?</h2>
+                    <h2 className="text-base font-semibold">{t('Who is this sale for?')}</h2>
                     <p className="text-sm text-muted-foreground">
-                      Enter the customer's details to start.
+                      {t("Enter the customer's details to start.")}
                     </p>
                   </div>
 
@@ -632,7 +657,7 @@ export function PosPage() {
                         className="shrink-0 text-xs font-medium text-primary underline underline-offset-2"
                         onClick={() => setCustomer(null)}
                       >
-                        Change
+                        {t('Change')}
                       </button>
                     </div>
                   ) : (
@@ -644,7 +669,7 @@ export function PosPage() {
                       }}
                     >
                       <div className="space-y-1.5">
-                        <Label>Name *</Label>
+                        <Label>{t('Name *')}</Label>
                         <Input
                           required
                           autoFocus
@@ -655,7 +680,7 @@ export function PosPage() {
                         />
                       </div>
                       <div className="space-y-1.5">
-                        <Label>Phone *</Label>
+                        <Label>{t('Phone *')}</Label>
                         <Input
                           required
                           value={customerForm.phone}
@@ -665,7 +690,7 @@ export function PosPage() {
                         />
                       </div>
                       <div className="space-y-1.5">
-                        <Label>Address</Label>
+                        <Label>{t('Address')}</Label>
                         <Input
                           value={customerForm.address}
                           onChange={(e) =>
@@ -675,7 +700,7 @@ export function PosPage() {
                       </div>
                       <Button type="submit" className="w-full" disabled={createCustomer.isPending}>
                         {createCustomer.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
-                        Add &amp; continue
+                        {t('Add & continue')}
                       </Button>
                     </form>
                   )}
@@ -685,15 +710,15 @@ export function PosPage() {
               {/* Right: parked (drafted) sales */}
               <Card className="flex flex-col overflow-hidden">
                 <div className="border-b p-4">
-                  <h2 className="font-semibold">Parked Sales</h2>
+                  <h2 className="font-semibold">{t('Parked Sales')}</h2>
                   <span className="text-xs text-muted-foreground">
-                    Resume a customer you set aside earlier
+                    {t('Resume a customer you set aside earlier')}
                   </span>
                 </div>
                 <div className="flex-1 space-y-1.5 overflow-y-auto p-4">
                   {drafts.length === 0 && (
                     <p className="py-6 text-center text-sm text-muted-foreground">
-                      No parked sales
+                      {t('No parked sales')}
                     </p>
                   )}
                   {drafts.map((d) => (
@@ -711,7 +736,7 @@ export function PosPage() {
                         </p>
                       </div>
                       <Button size="sm" variant="outline" onClick={() => resumeDraft(d)}>
-                        Resume
+                        {t('Resume')}
                       </Button>
                       <Button
                         size="icon"
@@ -740,14 +765,14 @@ export function PosPage() {
                   onFocus={() => setProductPickerOpen(true)}
                   // delay so a click on a result registers before closing
                   onBlur={() => setTimeout(() => setProductPickerOpen(false), 150)}
-                  placeholder="Scan barcode, click to browse, or search product…"
+                  placeholder={t('Scan barcode, click to browse, or search product…')}
                   className="h-11 pl-9"
                 />
                 {productPickerOpen && (
                   <div className="absolute z-10 mt-1 max-h-72 w-full overflow-y-auto rounded-lg border bg-popover shadow-lg">
                     {groupedMatches.length === 0 && (
                       <p className="p-3 text-center text-sm text-muted-foreground">
-                        No products found
+                        {t('No products found')}
                       </p>
                     )}
                     {groupedMatches.map((variants) => {
@@ -763,7 +788,9 @@ export function PosPage() {
                             <p className="truncate font-medium">{p.name}</p>
                             <p className="text-xs text-muted-foreground">
                               {p.sku}
-                              {variants.length > 1 ? ` · ${variants.length} warehouses` : ''}
+                              {variants.length > 1
+                                ? ` · ${variants.length} ${t('warehouses')}`
+                                : ''}
                             </p>
                           </div>
                           <span className="shrink-0 font-semibold text-primary">
@@ -780,12 +807,12 @@ export function PosPage() {
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b bg-muted/50 text-left text-xs uppercase tracking-wide text-muted-foreground">
-                      <th className="px-3 py-2 font-medium">Product</th>
-                      <th className="px-3 py-2 font-medium">Source</th>
-                      <th className="px-3 py-2 font-medium">Warehouse / Vendor</th>
-                      <th className="px-3 py-2 text-right font-medium">Price</th>
-                      <th className="px-3 py-2 text-right font-medium">Qty</th>
-                      <th className="px-3 py-2 text-right font-medium">Total</th>
+                      <th className="px-3 py-2 font-medium">{t('Product')}</th>
+                      <th className="px-3 py-2 font-medium">{t('Source')}</th>
+                      <th className="px-3 py-2 font-medium">{t('Warehouse / Vendor')}</th>
+                      <th className="px-3 py-2 text-right font-medium">{t('Price')}</th>
+                      <th className="px-3 py-2 text-right font-medium">{t('Qty')}</th>
+                      <th className="px-3 py-2 text-right font-medium">{t('Total')}</th>
                       <th className="px-3 py-2" />
                     </tr>
                   </thead>
@@ -793,7 +820,7 @@ export function PosPage() {
                     {cart.length === 0 && (
                       <tr>
                         <td colSpan={7} className="px-3 py-10 text-center text-muted-foreground">
-                          Search and select a product to add it here
+                          {t('Search and select a product to add it here')}
                         </td>
                       </tr>
                     )}
@@ -809,7 +836,7 @@ export function PosPage() {
                             <p className="text-xs text-muted-foreground">{l.product.sku}</p>
                             {notStockedHere && !l.vendorId && (
                               <p className="mt-0.5 text-xs text-destructive">
-                                Not stocked here — pick a vendor
+                                {t('Not stocked here — pick a vendor')}
                               </p>
                             )}
                           </td>
@@ -819,8 +846,8 @@ export function PosPage() {
                               value={lineSource(l)}
                               onChange={(e) => setLineSource(l.key, e.target.value as CartSource)}
                             >
-                              <option value="WAREHOUSE">Warehouse</option>
-                              <option value="VENDOR">Vendor</option>
+                              <option value="WAREHOUSE">{t('Warehouse')}</option>
+                              <option value="VENDOR">{t('Vendor')}</option>
                             </select>
                           </td>
                           <td className="px-3 py-2">
@@ -836,8 +863,8 @@ export function PosPage() {
                                     <option key={w.id} value={w.id}>
                                       {w.name} —{' '}
                                       {variant
-                                        ? `${variant.currentStock} in stock`
-                                        : 'not stocked here'}
+                                        ? `${variant.currentStock} ${t('in stock')}`
+                                        : t('not stocked here')}
                                     </option>
                                   );
                                 })}
@@ -898,7 +925,7 @@ export function PosPage() {
                     <tfoot>
                       <tr className="border-t bg-muted/30">
                         <td colSpan={5} className="px-3 py-2 text-right font-semibold">
-                          Subtotal
+                          {t('Subtotal')}
                         </td>
                         <td className="px-3 py-2 text-right font-semibold">
                           {formatCurrency(subtotal)}
@@ -917,10 +944,10 @@ export function PosPage() {
               <div className="grid gap-4 lg:grid-cols-2">
                 <div className="space-y-3">
                   <div className="flex items-center gap-2 font-semibold">
-                    <HardHat className="h-4 w-4" /> Labour
+                    <HardHat className="h-4 w-4" /> {t('Labour')}
                   </div>
                   <p className="text-sm text-muted-foreground">
-                    Optionally select who is loading the goods.
+                    {t('Optionally select who is loading the goods.')}
                   </p>
                   <div className="relative">
                     <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -931,14 +958,14 @@ export function PosPage() {
                       onFocus={() => setLabourPickerOpen(true)}
                       // delay so a click on a result registers before closing
                       onBlur={() => setTimeout(() => setLabourPickerOpen(false), 150)}
-                      placeholder="Click to browse, or search labour…"
+                      placeholder={t('Click to browse, or search labour…')}
                       className="pl-8"
                     />
                     {labourPickerOpen && (
                       <div className="absolute z-10 mt-1 max-h-56 w-full overflow-y-auto rounded-lg border bg-popover shadow-lg">
                         {filteredLabour.length === 0 && (
                           <p className="p-3 text-center text-sm text-muted-foreground">
-                            No labour found
+                            {t('No labour found')}
                           </p>
                         )}
                         {filteredLabour.map((l) => {
@@ -973,7 +1000,7 @@ export function PosPage() {
                   {selectedLabour.length > 0 && (
                     <div className="space-y-1.5 rounded-lg border p-3">
                       <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                        Selected labour · rent
+                        {t('Selected labour · rent')}
                       </p>
                       {selectedLabour.map((l) => (
                         <div
@@ -985,7 +1012,7 @@ export function PosPage() {
                           <Input
                             type="number"
                             min={0}
-                            placeholder="Rent"
+                            placeholder={t('Rent')}
                             className="h-8 w-24 text-right"
                             value={l.rent || ''}
                             onChange={(e) => setLabourRent(l.id, Number(e.target.value))}
@@ -1014,7 +1041,7 @@ export function PosPage() {
                         setLabourCreating(true);
                       }}
                     >
-                      <Plus className="h-4 w-4" /> Add Labour
+                      <Plus className="h-4 w-4" /> {t('Add Labour')}
                     </Button>
                   ) : (
                     <form
@@ -1025,7 +1052,7 @@ export function PosPage() {
                       }}
                     >
                       <div className="space-y-1">
-                        <Label className="text-xs">Name *</Label>
+                        <Label className="text-xs">{t('Name *')}</Label>
                         <Input
                           required
                           autoFocus
@@ -1034,7 +1061,7 @@ export function PosPage() {
                         />
                       </div>
                       <div className="space-y-1">
-                        <Label className="text-xs">Phone *</Label>
+                        <Label className="text-xs">{t('Phone *')}</Label>
                         <Input
                           required
                           value={labourForm.phoneNumber}
@@ -1051,7 +1078,7 @@ export function PosPage() {
                           className="flex-1"
                           onClick={() => setLabourCreating(false)}
                         >
-                          Cancel
+                          {t('Cancel')}
                         </Button>
                         <Button
                           type="submit"
@@ -1060,7 +1087,7 @@ export function PosPage() {
                           disabled={createLabour.isPending}
                         >
                           {createLabour.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
-                          Add
+                          {t('Add')}
                         </Button>
                       </div>
                     </form>
@@ -1069,32 +1096,32 @@ export function PosPage() {
 
                 <div className="space-y-3">
                   <div className="flex items-center gap-2 font-semibold">
-                    <Truck className="h-4 w-4" /> Transport
+                    <Truck className="h-4 w-4" /> {t('Transport')}
                   </div>
                   <div className="grid gap-3 sm:grid-cols-2">
                     <div className="space-y-1">
-                      <Label>Driver name *</Label>
+                      <Label>{t('Driver name *')}</Label>
                       <Input
                         value={driver.name}
                         onChange={(e) => setDriver({ ...driver, name: e.target.value })}
                       />
                     </div>
                     <div className="space-y-1">
-                      <Label>Vehicle number *</Label>
+                      <Label>{t('Vehicle number *')}</Label>
                       <Input
                         value={driver.vehicleNumber}
                         onChange={(e) => setDriver({ ...driver, vehicleNumber: e.target.value })}
                       />
                     </div>
                     <div className="space-y-1">
-                      <Label>Driver phone</Label>
+                      <Label>{t('Driver phone')}</Label>
                       <Input
                         value={driver.phone}
                         onChange={(e) => setDriver({ ...driver, phone: e.target.value })}
                       />
                     </div>
                     <div className="space-y-1">
-                      <Label>Transport fare</Label>
+                      <Label>{t('Transport fare')}</Label>
                       <Input
                         type="number"
                         min={0}
@@ -1108,11 +1135,13 @@ export function PosPage() {
               </div>
 
               <div className="space-y-1 rounded-lg border p-3 text-sm">
-                <p className="font-medium">Items to load</p>
+                <p className="font-medium">{t('Items to load')}</p>
                 {cart.map((l) => (
                   <div key={l.product.id} className="flex justify-between text-muted-foreground">
                     <span>{l.product.name}</span>
-                    <span className="tabular-nums">Qty {l.qty}</span>
+                    <span className="tabular-nums">
+                      {t('Qty')} {l.qty}
+                    </span>
                   </div>
                 ))}
               </div>
@@ -1124,13 +1153,16 @@ export function PosPage() {
               {!hasSpecificStore && (
                 <div className="flex items-center gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
                   <AlertTriangle className="h-4 w-4 shrink-0" />
-                  Select a specific store from the header before completing this sale — "All Stores"
-                  can't be recorded on an invoice.
+                  {t(
+                    'Select a specific store from the header before completing this sale — "All Stores" can\'t be recorded on an invoice.',
+                  )}
                 </div>
               )}
               <div className="space-y-2">
                 <div className="flex items-center gap-2">
-                  <span className="w-16 shrink-0 text-sm text-muted-foreground">Discount</span>
+                  <span className="w-16 shrink-0 text-sm text-muted-foreground">
+                    {t('Discount')}
+                  </span>
                   <div className="flex overflow-hidden rounded-md border">
                     <button
                       type="button"
@@ -1167,7 +1199,7 @@ export function PosPage() {
                   />
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className="w-16 shrink-0 text-sm text-muted-foreground">Tax %</span>
+                  <span className="w-16 shrink-0 text-sm text-muted-foreground">{t('Tax %')}</span>
                   <Input
                     type="number"
                     min={0}
@@ -1181,40 +1213,46 @@ export function PosPage() {
 
               <div className="space-y-1 border-t pt-3 text-sm">
                 <div className="flex justify-between text-muted-foreground">
-                  <span>Subtotal</span>
+                  <span>{t('Subtotal')}</span>
                   <span>{formatCurrency(subtotal)}</span>
                 </div>
                 {discountAmount > 0 && (
                   <div className="flex justify-between text-muted-foreground">
-                    <span>Discount{discountType === 'percent' ? ` (${discountValue}%)` : ''}</span>
+                    <span>
+                      {t('Discount')}
+                      {discountType === 'percent' ? ` (${discountValue}%)` : ''}
+                    </span>
                     <span>−{formatCurrency(discountAmount)}</span>
                   </div>
                 )}
                 <div className="flex justify-between text-muted-foreground">
-                  <span>Tax{taxPct > 0 ? ` (${taxPct}%)` : ''}</span>
+                  <span>
+                    {t('Tax')}
+                    {taxPct > 0 ? ` (${taxPct}%)` : ''}
+                  </span>
                   <span>{formatCurrency(taxTotal)}</span>
                 </div>
                 {transportFareAmount > 0 && (
                   <div className="flex justify-between text-muted-foreground">
-                    <span>Transport Fare</span>
+                    <span>{t('Transport Fare')}</span>
                     <span>{formatCurrency(transportFareAmount)}</span>
                   </div>
                 )}
                 {labourRentTotal > 0 && (
                   <div className="flex justify-between text-muted-foreground">
-                    <span>Labour Rent</span>
+                    <span>{t('Labour Rent')}</span>
                     <span>{formatCurrency(labourRentTotal)}</span>
                   </div>
                 )}
                 <div className="flex justify-between text-base font-bold">
-                  <span>Total</span>
+                  <span>{t('Total')}</span>
                   <span>{formatCurrency(grandTotal)}</span>
                 </div>
               </div>
 
               {canTakeAdvance ? (
                 <div className="space-y-1 border-t pt-3">
-                  <Label>Advance payment (cash, optional)</Label>
+                  <Label>{t('Advance payment (cash, optional)')}</Label>
                   <Input
                     type="number"
                     min={0}
@@ -1224,15 +1262,15 @@ export function PosPage() {
                   />
                   <p className="text-xs text-muted-foreground">
                     {advance <= 0
-                      ? "No advance — the full amount goes on the customer's account."
+                      ? t("No advance — the full amount goes on the customer's account.")
                       : advance >= grandTotal
-                        ? 'Paid in full now.'
-                        : `${formatCurrency(grandTotal - advance)} remains on the customer's account.`}
+                        ? t('Paid in full now.')
+                        : `${formatCurrency(grandTotal - advance)} ${t("remains on the customer's account.")}`}
                   </p>
                 </div>
               ) : (
                 <p className="rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">
-                  This sale will be invoiced on the customer's account.
+                  {t("This sale will be invoiced on the customer's account.")}
                 </p>
               )}
             </div>
@@ -1242,12 +1280,14 @@ export function PosPage() {
             <div className="mx-auto max-w-md space-y-4">
               <div className="flex flex-col items-center gap-1 rounded-lg bg-success/10 p-4 text-center text-success">
                 <CheckCircle2 className="h-7 w-7" />
-                <span className="font-medium">Sale {completedSale.saleNumber} completed</span>
+                <span className="font-medium">
+                  {t('Sale')} {completedSale.saleNumber} {t('completed')}
+                </span>
               </div>
 
               <div className="space-y-1 rounded-lg border p-3 text-sm">
                 <div className="flex justify-between">
-                  <span className="text-muted-foreground">Customer</span>
+                  <span className="text-muted-foreground">{t('Customer')}</span>
                   <span className="font-medium">{completedSale.customer?.name ?? '—'}</span>
                 </div>
 
@@ -1266,45 +1306,45 @@ export function PosPage() {
 
                 <div className="mt-1 space-y-1 border-t pt-2">
                   <div className="flex justify-between text-muted-foreground">
-                    <span>Subtotal</span>
+                    <span>{t('Subtotal')}</span>
                     <span>{formatCurrency(Number(completedSale.subtotal))}</span>
                   </div>
                   {Number(completedSale.discountTotal) > 0 && (
                     <div className="flex justify-between text-muted-foreground">
-                      <span>Discount</span>
+                      <span>{t('Discount')}</span>
                       <span>−{formatCurrency(Number(completedSale.discountTotal))}</span>
                     </div>
                   )}
                   {Number(completedSale.taxTotal) > 0 && (
                     <div className="flex justify-between text-muted-foreground">
-                      <span>Tax</span>
+                      <span>{t('Tax')}</span>
                       <span>{formatCurrency(Number(completedSale.taxTotal))}</span>
                     </div>
                   )}
                   {Number(completedSale.transportFare ?? 0) > 0 && (
                     <div className="flex justify-between text-muted-foreground">
-                      <span>Transport Fare</span>
+                      <span>{t('Transport Fare')}</span>
                       <span>{formatCurrency(Number(completedSale.transportFare))}</span>
                     </div>
                   )}
                   {Number(completedSale.labourRentTotal ?? 0) > 0 && (
                     <div className="flex justify-between text-muted-foreground">
-                      <span>Labour Rent</span>
+                      <span>{t('Labour Rent')}</span>
                       <span>{formatCurrency(Number(completedSale.labourRentTotal))}</span>
                     </div>
                   )}
                   <div className="flex justify-between text-base font-bold">
-                    <span>Total</span>
+                    <span>{t('Total')}</span>
                     <span>{formatCurrency(Number(completedSale.grandTotal))}</span>
                   </div>
                   <div className="flex justify-between text-muted-foreground">
-                    <span>Paid</span>
+                    <span>{t('Paid')}</span>
                     <span className="font-medium text-foreground">
                       {formatCurrency(Number(completedSale.paidAmount ?? 0))}
                     </span>
                   </div>
                   <div className="flex justify-between text-muted-foreground">
-                    <span>Remaining</span>
+                    <span>{t('Remaining')}</span>
                     <span
                       className={cn(
                         'font-medium',
@@ -1322,7 +1362,7 @@ export function PosPage() {
                   <div className="mt-1 space-y-1 border-t pt-2">
                     {completedSale.labour && completedSale.labour.length > 0 && (
                       <div className="flex justify-between gap-4">
-                        <span className="shrink-0 text-muted-foreground">Labour</span>
+                        <span className="shrink-0 text-muted-foreground">{t('Labour')}</span>
                         <span className="text-right font-medium">
                           {completedSale.labour.map((l) => l.name).join(', ')}
                         </span>
@@ -1330,7 +1370,7 @@ export function PosPage() {
                     )}
                     {completedSale.transport?.driverName && (
                       <div className="flex justify-between gap-4">
-                        <span className="shrink-0 text-muted-foreground">Transport</span>
+                        <span className="shrink-0 text-muted-foreground">{t('Transport')}</span>
                         <span className="text-right font-medium">
                           {completedSale.transport.driverName}
                           {completedSale.transport.vehicleNumber
@@ -1352,7 +1392,7 @@ export function PosPage() {
                   )
                 }
               >
-                View / Print Invoice
+                {t('View / Print Invoice')}
               </Button>
 
               {(completedSale.warehouseGatePasses?.length || completedSale.vendorGatePassId) && (
@@ -1360,7 +1400,9 @@ export function PosPage() {
                   {completedSale.warehouseGatePasses?.map((g) => {
                     const wh = warehouses.find((w) => w.id === g.warehouseId);
                     const multiple = (completedSale.warehouseGatePasses?.length ?? 0) > 1;
-                    const label = multiple ? `Gate Pass — ${wh?.name ?? 'Warehouse'}` : 'Gate Pass';
+                    const label = multiple
+                      ? `${t('Gate Pass')} — ${wh?.name ?? t('Warehouse')}`
+                      : t('Gate Pass');
                     return (
                       <Button
                         key={g.gatePassId}
@@ -1374,7 +1416,9 @@ export function PosPage() {
                           })
                         }
                       >
-                        <span className="min-w-0 truncate">View / Print {label}</span>
+                        <span className="min-w-0 truncate">
+                          {t('View / Print')} {label}
+                        </span>
                       </Button>
                     );
                   })}
@@ -1386,11 +1430,11 @@ export function PosPage() {
                         setOpenGatePass({
                           id: completedSale.vendorGatePassId!,
                           qrUrl: completedSale.vendorGatePassQrUrl,
-                          title: 'Vendor Gate Pass',
+                          title: t('Vendor Gate Pass'),
                         })
                       }
                     >
-                      View / Print Gate Pass (Vendor)
+                      {t('View / Print Gate Pass (Vendor)')}
                     </Button>
                   )}
                 </div>
@@ -1405,11 +1449,11 @@ export function PosPage() {
               disabled={step === 1 || step === 5 || completeSale.isPending}
               onClick={() => setStep((s) => (s - 1) as Step)}
             >
-              <ArrowLeft className="h-4 w-4" /> Back
+              <ArrowLeft className="h-4 w-4" /> {t('Back')}
             </Button>
             {step > 1 && step < 5 && (
               <Button variant="destructive">
-                <NotepadTextDashed className="h-4 w-4" /> Save as Draft
+                <NotepadTextDashed className="h-4 w-4" /> {t('Save as Draft')}
               </Button>
             )}
           </div>
@@ -1425,7 +1469,7 @@ export function PosPage() {
               onClick={() => (customer ? setStep(2) : createCustomer.mutate())}
             >
               {createCustomer.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
-              Next <ArrowRight className="h-4 w-4" />
+              {t('Next')} <ArrowRight className="h-4 w-4" />
             </Button>
           )}
           {step === 2 && (
@@ -1433,12 +1477,12 @@ export function PosPage() {
               disabled={cart.length === 0 || cart.some((l) => !l.qty || l.qty <= 0)}
               onClick={() => setStep(3)}
             >
-              Next <ArrowRight className="h-4 w-4" />
+              {t('Next')} <ArrowRight className="h-4 w-4" />
             </Button>
           )}
           {step === 3 && (
             <Button disabled={!canStep3} onClick={() => setStep(4)}>
-              Next <ArrowRight className="h-4 w-4" />
+              {t('Next')} <ArrowRight className="h-4 w-4" />
             </Button>
           )}
           {step === 4 && (
@@ -1447,7 +1491,7 @@ export function PosPage() {
               onClick={() => completeSale.mutate()}
             >
               {completeSale.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
-              Complete Sale
+              {t('Complete Sale')}
             </Button>
           )}
           {step === 5 && (
@@ -1456,7 +1500,7 @@ export function PosPage() {
                 resetAll();
               }}
             >
-              New Sale
+              {t('New Sale')}
             </Button>
           )}
         </div>

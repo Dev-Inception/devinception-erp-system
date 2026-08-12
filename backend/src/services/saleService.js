@@ -16,7 +16,12 @@ const counterService = require('./counterService');
 const { calculateInvoiceTotals, resolveUnitPrice } = require('./invoiceCalculationService');
 const { parsePagination } = require('../utils/query');
 const { normalizeQuantity, requirePositiveQuantity } = require('../utils/quantity');
-const { resolveWarehouseScope, warehouseMongoFilter } = require('../utils/storeScope');
+const {
+  resolveWarehouseScope,
+  warehouseMongoFilter,
+  actorStoreId,
+  assertStoreAccess,
+} = require('../utils/storeScope');
 const gatePassService = require('./gatePassService');
 
 /**
@@ -215,6 +220,7 @@ async function createSale(actor, input) {
   // invoice records, permanently, which shop the customer was actually in.
   const storeDoc = await Store.findById(store);
   if (!storeDoc) throw ApiError.badRequest('A store is required');
+  assertStoreAccess(actor, storeDoc._id);
 
   const customerDoc = customer ? await Customer.findById(customer) : null;
   if (customer && !customerDoc) throw ApiError.notFound('Customer not found');
@@ -459,6 +465,7 @@ async function createSale(actor, input) {
 async function updateSale(actor, saleId, input) {
   const sale = await Sale.findById(saleId);
   if (!sale) throw ApiError.notFound('Sale not found');
+  assertStoreAccess(actor, sale.store);
   if (sale.returnedTotal > 0) {
     throw ApiError.badRequest(
       'This sale has product returns against it and can no longer be edited',
@@ -678,6 +685,7 @@ async function updateSale(actor, saleId, input) {
 async function recordPayment(actor, saleId, { amount, method, bankAccount, note }) {
   const sale = await Sale.findById(saleId);
   if (!sale) throw ApiError.notFound('Sale not found');
+  assertStoreAccess(actor, sale.store);
   if (!sale.customer) {
     throw ApiError.badRequest('This sale has no customer on account to receive payment from');
   }
@@ -720,7 +728,16 @@ async function recordPayment(actor, saleId, { amount, method, bankAccount, note 
   return sale;
 }
 
-async function listSales({ customer, warehouse, store, from, to, paymentMethod, ...query } = {}) {
+async function listSales({
+  customer,
+  warehouse,
+  store,
+  from,
+  to,
+  paymentMethod,
+  actor,
+  ...query
+} = {}) {
   const { page, limit, skip } = parsePagination(query);
   const filter = {};
   if (customer) filter.customer = customer;
@@ -728,10 +745,12 @@ async function listSales({ customer, warehouse, store, from, to, paymentMethod, 
   // Every sale now records its own storefront directly — filter on that
   // rather than the indirect (and looser) warehouse-membership scoping,
   // which only every sale's `warehouse` field, not which shop it happened at.
-  if (store && mongoose.isValidObjectId(store)) {
-    filter.store = store;
+  // A store-restricted actor's own store always wins over the query param.
+  const effectiveStore = actorStoreId(actor) || store;
+  if (effectiveStore && mongoose.isValidObjectId(effectiveStore)) {
+    filter.store = effectiveStore;
   } else if (warehouse) {
-    const { warehouseIds } = await resolveWarehouseScope({ warehouse });
+    const { warehouseIds } = await resolveWarehouseScope({ warehouse, actor });
     Object.assign(filter, warehouseMongoFilter(warehouseIds));
   }
   if (from || to) {
@@ -752,12 +771,13 @@ async function listSales({ customer, warehouse, store, from, to, paymentMethod, 
   return { sales, total, page, limit };
 }
 
-async function getSaleById(id) {
+async function getSaleById(actor, id) {
   const sale = await Sale.findById(id)
     .populate('customer', 'name phone')
     .populate('store', 'name code')
     .populate('warehouse', 'name');
   if (!sale) throw ApiError.notFound('Sale not found');
+  assertStoreAccess(actor, sale.store?._id ?? sale.store);
   return sale;
 }
 

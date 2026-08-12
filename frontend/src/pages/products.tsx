@@ -18,6 +18,7 @@ import { formatCurrency, cn } from '@/lib/utils';
 import { useWarehouses } from '@/components/layout/warehouse-switcher';
 import { useStorefrontFilter } from '@/store/storefront';
 import { Pagination } from '@/components/ui/pagination';
+import { useLanguage } from '@/components/language-provider';
 
 interface Product {
   id: string;
@@ -69,6 +70,7 @@ function ProductDialog({
   editing: Product | null;
 }) {
   const qc = useQueryClient();
+  const { t } = useLanguage();
   const { data: catalog } = useQuery<Catalog>({
     queryKey: ['catalog'],
     queryFn: async () => (await api.get('/catalog')).data,
@@ -245,11 +247,11 @@ function ProductDialog({
           </div>
           <div className="col-span-2 flex justify-end gap-2 pt-2">
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-              Cancel
+              {t('Cancel')}
             </Button>
             <Button type="submit" disabled={save.isPending}>
               {save.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
-              {editing ? 'Save changes' : 'Create'}
+              {editing ? t('Save changes') : t('Create')}
             </Button>
           </div>
         </form>
@@ -276,6 +278,7 @@ function StockDialog({
   onClose: () => void;
 }) {
   const qc = useQueryClient();
+  const { t } = useLanguage();
   const [type, setType] = useState<(typeof ADJUST_TYPES)[number]['key']>('STOCK_IN');
   const [quantity, setQuantity] = useState<number>(0);
   const [note, setNote] = useState('');
@@ -315,15 +318,15 @@ function StockDialog({
           }}
         >
           <div className="grid grid-cols-4 gap-1.5">
-            {ADJUST_TYPES.map((t) => (
+            {ADJUST_TYPES.map((opt) => (
               <Button
-                key={t.key}
+                key={opt.key}
                 type="button"
                 size="sm"
-                variant={type === t.key ? 'default' : 'outline'}
-                onClick={() => setType(t.key)}
+                variant={type === opt.key ? 'default' : 'outline'}
+                onClick={() => setType(opt.key)}
               >
-                {t.label}
+                {t(opt.label)}
               </Button>
             ))}
           </div>
@@ -349,10 +352,11 @@ function StockDialog({
           </div>
           <div className="flex justify-end gap-2 pt-1">
             <Button type="button" variant="outline" onClick={onClose}>
-              Cancel
+              {t('Cancel')}
             </Button>
             <Button type="submit" disabled={adjust.isPending}>
-              {adjust.isPending && <Loader2 className="h-4 w-4 animate-spin" />}Apply
+              {adjust.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+              {t('Apply')}
             </Button>
           </div>
         </form>
@@ -362,6 +366,7 @@ function StockDialog({
 }
 
 export function ProductsPage() {
+  const { t } = useLanguage();
   const [search, setSearch] = useState('');
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<Product | null>(null);
@@ -406,7 +411,7 @@ export function ProductsPage() {
             setDialogOpen(true);
           }}
         >
-          <Plus className="h-4 w-4" /> Add Product
+          <Plus className="h-4 w-4" /> {t('Add Product')}
         </Button>
       </div>
 
@@ -415,13 +420,13 @@ export function ProductsPage() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b bg-muted/50 text-left text-xs uppercase tracking-wide text-muted-foreground">
-                <th className="px-4 py-3 font-medium">Product</th>
-                <th className="px-4 py-3 font-medium">SKU</th>
-                <th className="px-4 py-3 font-medium">Category</th>
-                <th className="px-4 py-3 text-right font-medium">Purchase</th>
-                <th className="px-4 py-3 text-right font-medium">Sale</th>
-                <th className="px-4 py-3 text-right font-medium">Stock</th>
-                <th className="px-4 py-3 text-right font-medium">Action</th>
+                <th className="px-4 py-3 font-medium">{t('Product')}</th>
+                <th className="px-4 py-3 font-medium">{t('SKU')}</th>
+                <th className="px-4 py-3 font-medium">{t('Category')}</th>
+                <th className="px-4 py-3 text-right font-medium">{t('Purchase')}</th>
+                <th className="px-4 py-3 text-right font-medium">{t('Sale')}</th>
+                <th className="px-4 py-3 text-right font-medium">{t('Stock')}</th>
+                <th className="px-4 py-3 text-right font-medium">{t('Action')}</th>
               </tr>
             </thead>
             <tbody>
@@ -465,7 +470,7 @@ export function ProductsPage() {
                     </td>
                     <td className="px-4 py-3 text-right">
                       <Button size="sm" variant="outline" onClick={() => setStockFor(p)}>
-                        <PackagePlus className="h-4 w-4" /> Stock
+                        <PackagePlus className="h-4 w-4" /> {t('Stock')}
                       </Button>
                     </td>
                   </tr>

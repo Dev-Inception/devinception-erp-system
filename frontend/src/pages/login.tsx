@@ -135,12 +135,19 @@ export function LoginPage() {
     setLoading(true);
     try {
       await login(email, password);
-      // Fresh login — the store picker modal should prompt again if there's
-      // more than one storefront, even if a selection was already persisted.
-      useStorefrontStore.getState().markLoggedIn();
+      const user = useAuthStore.getState().user;
+      if (user?.role === 'SUPER_ADMIN') {
+        // Fresh login — the store picker modal should prompt again if
+        // there's more than one storefront, even if a selection was already
+        // persisted.
+        useStorefrontStore.getState().markLoggedIn();
+      } else {
+        // Every other role is confined to the one store they were created
+        // under — set it directly, no picker to show.
+        useStorefrontStore.getState().setCurrentStore(user?.storeId ?? 'ALL');
+      }
       // Land on the first module this user can actually see (a cashier, for
       // example, can't open the dashboard, so send them to their first module).
-      const user = useAuthStore.getState().user;
       navigate(landingPath(user?.role, user?.permissions), { replace: true });
     } catch {
       setError('Invalid email or password');

@@ -1,5 +1,6 @@
 const User = require('../models/userModel');
 const Role = require('../models/roleModel');
+const Store = require('../models/storeModel');
 const ApiError = require('../utils/ApiError');
 const { ROLES } = require('../utils/constants');
 
@@ -32,7 +33,11 @@ async function listUsers({ page = 1, limit = 20, role, search }) {
 
   const skip = (Math.max(page, 1) - 1) * limit;
   const [users, total] = await Promise.all([
-    User.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit),
+    User.find(filter)
+      .populate('store', 'name code')
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit),
     User.countDocuments(filter),
   ]);
 
@@ -40,20 +45,31 @@ async function listUsers({ page = 1, limit = 20, role, search }) {
 }
 
 async function getUserById(id) {
-  const user = await User.findById(id);
+  const user = await User.findById(id).populate('store', 'name code');
   if (!user) throw ApiError.notFound('User not found');
   return user;
 }
 
-// Admin creates a user with an explicit role (e.g. onboarding staff).
-async function createUser(actor, { name, email, password, role }) {
+// Admin creates a user with an explicit role (e.g. onboarding staff). Every
+// role except super_admin is confined to one storefront: they never see or
+// act on another store's data (see utils/storeScope.js), so the store they
+// belong to has to be decided at creation time.
+async function createUser(actor, { name, email, password, role, store }) {
   const roleName = role || ROLES.CASHIER;
   await assertAssignableRole(actor, roleName);
 
   const existing = await User.findOne({ email });
   if (existing) throw ApiError.conflict('Email is already registered');
 
-  return User.create({ name, email, password, role: roleName });
+  let storeId = null;
+  if (roleName !== ROLES.SUPER_ADMIN) {
+    if (!store) throw ApiError.badRequest('A store is required for this role');
+    const storeDoc = await Store.findById(store);
+    if (!storeDoc) throw ApiError.badRequest('Store not found');
+    storeId = storeDoc._id;
+  }
+
+  return User.create({ name, email, password, role: roleName, store: storeId });
 }
 
 async function updateUserRole(actor, targetId, newRole) {

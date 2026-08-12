@@ -8,6 +8,7 @@ import { Label } from '@/components/ui/label';
 import { api } from '@/lib/api';
 import { cn, formatCurrency } from '@/lib/utils';
 import { useStorefrontFilter } from '@/store/storefront';
+import { useLanguage } from '@/components/language-provider';
 
 interface DayBookRow {
   id: string;
@@ -71,6 +72,7 @@ function csvEscape(v: unknown) {
 }
 
 export function DayBookPage() {
+  const { t } = useLanguage();
   const [date, setDate] = useState(todayStr);
   const today = todayStr();
   const storefront = useStorefrontFilter();
@@ -172,15 +174,15 @@ export function DayBookPage() {
           </div>
           {date !== today && (
             <Button type="button" variant="outline" onClick={() => setDate(today)}>
-              Today
+              {t('Today')}
             </Button>
           )}
           <div className="ml-auto flex gap-2">
             <Button variant="outline" onClick={() => window.print()} disabled={!data}>
-              <Printer className="h-4 w-4" /> Print / PDF
+              <Printer className="h-4 w-4" /> {t('Print / PDF')}
             </Button>
             <Button onClick={downloadCsv} disabled={!data || rows.length === 0}>
-              <Download className="h-4 w-4" /> CSV
+              <Download className="h-4 w-4" /> {t('CSV')}
             </Button>
           </div>
         </CardContent>
@@ -222,12 +224,12 @@ export function DayBookPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-y bg-muted/50 text-left text-xs uppercase text-muted-foreground">
-                  <th className="px-4 py-2 font-medium">Time</th>
-                  <th className="px-4 py-2 font-medium">Type</th>
-                  <th className="px-4 py-2 font-medium">Voucher #</th>
-                  <th className="px-4 py-2 font-medium">Description</th>
-                  <th className="px-4 py-2 font-medium">Warehouse</th>
-                  <th className="px-4 py-2 text-right font-medium">Amount</th>
+                  <th className="px-4 py-2 font-medium">{t('Time')}</th>
+                  <th className="px-4 py-2 font-medium">{t('Type')}</th>
+                  <th className="px-4 py-2 font-medium">{t('Voucher #')}</th>
+                  <th className="px-4 py-2 font-medium">{t('Description')}</th>
+                  <th className="px-4 py-2 font-medium">{t('Warehouse')}</th>
+                  <th className="px-4 py-2 text-right font-medium">{t('Amount')}</th>
                 </tr>
               </thead>
               <tbody>
