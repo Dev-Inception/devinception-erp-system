@@ -107,6 +107,7 @@ async function listProducts({
   search,
   warehouse,
   store,
+  category,
   includeInactive = false,
   perWarehouse = false,
   actor,
@@ -126,6 +127,7 @@ async function listProducts({
       { barcode: { $regex: term, $options: 'i' } },
     ];
   }
+  if (category && mongoose.isValidObjectId(category)) filter.category = category;
 
   // The unfiltered inventory is the complete product catalog. A warehouse/
   // store filter has a narrower meaning: only products currently in stock at

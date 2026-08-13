@@ -4,7 +4,7 @@ const asyncHandler = require('../utils/asyncHandler');
 const { sendSuccess } = require('../utils/ApiResponse');
 
 const listGatePasses = asyncHandler(async (req, res) => {
-  const { page, limit, warehouse, store, status, sourceType } = req.query;
+  const { page, limit, warehouse, store, status, sourceType, from, to } = req.query;
   const result = await gatePassService.listGatePasses({
     page,
     limit,
@@ -12,6 +12,8 @@ const listGatePasses = asyncHandler(async (req, res) => {
     store,
     status,
     sourceType,
+    from,
+    to,
     actor: req.user,
   });
   return sendSuccess(res, 200, 'Gate passes fetched', {

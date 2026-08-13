@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Plus, Loader2, Pencil, Trash2, HardHat } from 'lucide-react';
+import { Plus, Loader2, Pencil, Trash2, HardHat, Search } from 'lucide-react';
 import { toast } from 'sonner';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -134,10 +134,23 @@ export function LabourPage() {
     queryFn: async () => (await api.get('/labour')).data,
   });
 
+  const filtered = useMemo(
+    () =>
+      isSearching
+        ? labour.filter(
+            (l) => l.name.toLowerCase().includes(q) || l.phoneNumber.toLowerCase().includes(q),
+          )
+        : labour,
+    [labour, isSearching, q],
+  );
+
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<Labour | null>(null);
-  const total = labour?.length ?? 0;
+  const total = filtered.length;
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const pageItems = isSearching
+    ? filtered.slice(0, fetchLimit)
+    : filtered.slice((fetchPage - 1) * PAGE_SIZE, fetchPage * PAGE_SIZE);
 
   const del = useMutation({
     mutationFn: async (id: string) => (await api.delete(`/labour/${id}`)).data,
@@ -154,8 +167,22 @@ export function LabourPage() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <p className="text-sm text-muted-foreground">{labour.length} labour(s)</p>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-end gap-3">
+          <div className="space-y-1.5">
+            <Label className="text-xs">{t('Search')}</Label>
+            <div className="relative">
+              <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder={t('Search labour…')}
+                className="w-72 pl-8"
+              />
+            </div>
+          </div>
+          <p className="pb-2 text-sm text-muted-foreground">{total} labour(s)</p>
+        </div>
         {canManage && (
           <Button
             onClick={() => {
@@ -186,7 +213,7 @@ export function LabourPage() {
               </tr>
             )}
             {!isLoading &&
-              labour.map((l) => (
+              pageItems.map((l) => (
                 <tr key={l.id} className="border-b last:border-0 hover:bg-muted/30">
                   <td className="px-4 py-3 font-medium">
                     <div className="flex items-center gap-2">
@@ -225,10 +252,10 @@ export function LabourPage() {
                   )}
                 </tr>
               ))}
-            {!isLoading && labour.length === 0 && (
+            {!isLoading && pageItems.length === 0 && (
               <tr>
                 <td colSpan={3} className="px-4 py-10 text-center text-muted-foreground">
-                  No labour records yet.
+                  {isSearching ? 'No labour match your search.' : 'No labour records yet.'}
                 </td>
               </tr>
             )}

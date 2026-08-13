@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Plus, Loader2, Pencil, Trash2, Ruler } from 'lucide-react';
+import { Plus, Loader2, Pencil, Trash2, Ruler, Search } from 'lucide-react';
 import { toast } from 'sonner';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -135,10 +135,23 @@ export function UnitsPage() {
     queryFn: async () => (await api.get('/units')).data,
   });
 
+  const filtered = useMemo(
+    () =>
+      isSearching
+        ? units.filter(
+            (u) => u.name.toLowerCase().includes(q) || u.abbreviation.toLowerCase().includes(q),
+          )
+        : units,
+    [units, isSearching, q],
+  );
+
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<Unit | null>(null);
-  const total = units?.length ?? 0;
+  const total = filtered.length;
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const pageItems = isSearching
+    ? filtered.slice(0, fetchLimit)
+    : filtered.slice((fetchPage - 1) * PAGE_SIZE, fetchPage * PAGE_SIZE);
 
   const del = useMutation({
     mutationFn: async (id: string) => (await api.delete(`/units/${id}`)).data,
@@ -156,8 +169,22 @@ export function UnitsPage() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <p className="text-sm text-muted-foreground">{units.length} unit(s)</p>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-end gap-3">
+          <div className="space-y-1.5">
+            <Label className="text-xs">{t('Search')}</Label>
+            <div className="relative">
+              <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder={t('Search units…')}
+                className="w-72 pl-8"
+              />
+            </div>
+          </div>
+          <p className="pb-2 text-sm text-muted-foreground">{total} unit(s)</p>
+        </div>
         {canManage && (
           <Button
             onClick={() => {
@@ -188,7 +215,7 @@ export function UnitsPage() {
               </tr>
             )}
             {!isLoading &&
-              units.map((u) => (
+              pageItems.map((u) => (
                 <tr key={u.id} className="border-b last:border-0 hover:bg-muted/30">
                   <td className="px-4 py-3 font-medium">
                     <div className="flex items-center gap-2">
@@ -227,10 +254,10 @@ export function UnitsPage() {
                   )}
                 </tr>
               ))}
-            {!isLoading && units.length === 0 && (
+            {!isLoading && pageItems.length === 0 && (
               <tr>
                 <td colSpan={3} className="px-4 py-10 text-center text-muted-foreground">
-                  No units yet.
+                  {isSearching ? 'No units match your search.' : 'No units yet.'}
                 </td>
               </tr>
             )}

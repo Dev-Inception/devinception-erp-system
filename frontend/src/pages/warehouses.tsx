@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Plus,
@@ -8,6 +8,7 @@ import {
   Check,
   Pencil,
   Trash2,
+  Search,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Card, CardContent } from '@/components/ui/card';
@@ -141,10 +142,24 @@ export function WarehousesPage() {
   // Warehouse create/update/delete all require inventory:manage on the backend.
   const canManage = grantsPermission(perms, 'inventory:manage');
 
+  const [search, setSearch] = useState('');
+  const q = search.trim().toLowerCase();
+  const isSearching = q.length > 0;
+
   const { data: warehouses = [], isLoading } = useQuery<WarehouseRow[]>({
     queryKey: ['warehouses'],
     queryFn: async () => (await api.get('/warehouses')).data,
   });
+
+  const filtered = useMemo(
+    () =>
+      isSearching
+        ? warehouses.filter(
+            (w) => w.name.toLowerCase().includes(q) || (w.location ?? '').toLowerCase().includes(q),
+          )
+        : warehouses,
+    [warehouses, isSearching, q],
+  );
 
   const setDefault = useMutation({
     mutationFn: async (id: string) => (await api.post(`/warehouses/${id}/set-default`)).data,
@@ -169,10 +184,24 @@ export function WarehousesPage() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <p className="text-sm text-muted-foreground">
-          {warehouses.length} warehouse(s) — each keeps its own inventory.
-        </p>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-end gap-3">
+          <div className="space-y-1.5">
+            <Label className="text-xs">{t('Search')}</Label>
+            <div className="relative">
+              <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder={t('Search warehouses…')}
+                className="w-72 pl-8"
+              />
+            </div>
+          </div>
+          <p className="pb-2 text-sm text-muted-foreground">
+            {filtered.length} warehouse(s) — each keeps its own inventory.
+          </p>
+        </div>
         {canManage && (
           <WarehouseDialog
             trigger={
@@ -186,9 +215,13 @@ export function WarehousesPage() {
 
       {isLoading ? (
         <p className="text-sm text-muted-foreground">Loading…</p>
+      ) : filtered.length === 0 ? (
+        <p className="text-sm text-muted-foreground">
+          {isSearching ? 'No warehouses match your search.' : 'No warehouses yet.'}
+        </p>
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-          {warehouses.map((w) => (
+          {filtered.map((w) => (
             <Card key={w.id}>
               <CardContent className="space-y-3 p-5">
                 <div className="flex items-start justify-between">

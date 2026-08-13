@@ -200,14 +200,17 @@ export function VendorsPage() {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="relative">
-          <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search vendors…"
-            className="w-72 pl-8"
-          />
+        <div className="space-y-1.5">
+          <Label className="text-xs">{t('Search')}</Label>
+          <div className="relative">
+            <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder={t('Search vendors…')}
+              className="w-72 pl-8"
+            />
+          </div>
         </div>
         <VendorDialog
           trigger={

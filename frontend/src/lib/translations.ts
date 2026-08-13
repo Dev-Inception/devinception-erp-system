@@ -249,4 +249,23 @@ export const ACTION_TRANSLATIONS: Record<string, string> = {
   Payables: 'قابل ادائیگی',
   'Sales Trend (30 days)': 'فروخت کا رجحان (30 دن)',
   'Top Products': 'برتر پروڈکٹس',
+
+  // Date range filters
+  From: 'سے',
+  To: 'تک',
+
+  // Search box placeholders
+  'Search categories…': 'کیٹیگریز تلاش کریں…',
+  'Search customers…': 'کسٹمرز تلاش کریں…',
+  'Search labour…': 'مزدور تلاش کریں…',
+  'Search by gate pass #…': 'گیٹ پاس نمبر سے تلاش کریں…',
+  'Search roles…': 'کردار تلاش کریں…',
+  'Search products…': 'پروڈکٹس تلاش کریں…',
+  'Search stores…': 'اسٹورز تلاش کریں…',
+  'Search by sale # or customer…': 'سیل نمبر یا کسٹمر سے تلاش کریں…',
+  'Search by return #, sale # or customer…': 'ریٹرن نمبر، سیل نمبر یا کسٹمر سے تلاش کریں…',
+  'Search units…': 'یونٹس تلاش کریں…',
+  'Search by receipt #, vendor or truck…': 'رسید نمبر، وینڈر یا ٹرک سے تلاش کریں…',
+  'Search vendors…': 'وینڈرز تلاش کریں…',
+  'Search warehouses…': 'گودام تلاش کریں…',
 };

@@ -251,7 +251,16 @@ async function getGatePassBySale(saleId) {
   return getGatePassById(gatePass._id);
 }
 
-async function listGatePasses({ warehouse, store, status, sourceType, actor, ...query } = {}) {
+async function listGatePasses({
+  warehouse,
+  store,
+  status,
+  sourceType,
+  from,
+  to,
+  actor,
+  ...query
+} = {}) {
   await refreshLegacySaleGatePasses();
   const { page, limit, skip } = parsePagination(query);
   const filter = {};
@@ -267,6 +276,11 @@ async function listGatePasses({ warehouse, store, status, sourceType, actor, ...
   }
   if (status) filter.status = status;
   if (sourceType) filter.sourceType = sourceType;
+  if (from || to) {
+    filter.saleDate = {};
+    if (from) filter.saleDate.$gte = new Date(from);
+    if (to) filter.saleDate.$lte = new Date(to);
+  }
 
   const [gatePasses, total] = await Promise.all([
     GatePass.find(filter)

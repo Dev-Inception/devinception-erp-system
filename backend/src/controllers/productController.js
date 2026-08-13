@@ -48,8 +48,17 @@ function serialize(product) {
 }
 
 const listProducts = asyncHandler(async (req, res) => {
-  const { page, limit, search, warehouse, warehouseId, store, includeInactive, perWarehouse } =
-    req.query;
+  const {
+    page,
+    limit,
+    search,
+    warehouse,
+    warehouseId,
+    store,
+    category,
+    includeInactive,
+    perWarehouse,
+  } = req.query;
   const selectedWarehouse = warehouse || warehouseId;
   const result = await productService.listProducts({
     page,
@@ -59,6 +68,7 @@ const listProducts = asyncHandler(async (req, res) => {
     // alias so clients using the UI field name are still correctly scoped.
     warehouse: selectedWarehouse,
     store,
+    category,
     includeInactive: includeInactive === 'true',
     // Opt-in: one row per warehouse the product actually has stock in,
     // instead of one row with the total summed across every warehouse. The

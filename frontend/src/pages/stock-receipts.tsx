@@ -490,14 +490,17 @@ export function StockReceiptsPage() {
               className="w-40"
             />
           </div>
-          <div className="relative w-64">
-            <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search by receipt #, vendor or truck…"
-              className="pl-8"
-            />
+          <div className="w-64 space-y-1.5">
+            <Label>{t('Search')}</Label>
+            <div className="relative">
+              <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder={t('Search by receipt #, vendor or truck…')}
+                className="pl-8"
+              />
+            </div>
           </div>
           {canManage && (
             <Button onClick={() => setCreating(true)}>

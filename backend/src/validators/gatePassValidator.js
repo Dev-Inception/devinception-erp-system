@@ -19,6 +19,8 @@ const listGatePassValidator = [
     .toUpperCase()
     .isIn(['SALE', 'PURCHASE'])
     .withMessage('Invalid gate pass source type'),
+  query('from').optional({ values: 'falsy' }).isISO8601().withMessage('Invalid from date'),
+  query('to').optional({ values: 'falsy' }).isISO8601().withMessage('Invalid to date'),
 ];
 
 const publicTokenParamValidator = [

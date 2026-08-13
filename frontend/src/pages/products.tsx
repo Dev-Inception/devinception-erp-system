@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Search, Plus, AlertTriangle, Loader2, PackagePlus } from 'lucide-react';
+import { Search, Plus, AlertTriangle, Loader2, PackagePlus, ChevronDown } from 'lucide-react';
 import { toast } from 'sonner';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -181,7 +181,7 @@ function ProductDialog({
               onChange={(e) => field('categoryId', e.target.value)}
               className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
             >
-              <option value="">—</option>
+              <option value="">Select category</option>
               {catalog?.categories.map((c) => (
                 <option key={c.id} value={c.id}>
                   {c.name}
@@ -376,8 +376,14 @@ export function ProductsPage() {
   const { currentId } = useWarehouses();
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
+  const [category, setCategory] = useState('');
   const [page, setPage] = useState(1);
   const storefront = useStorefrontFilter();
+
+  const { data: catalog } = useQuery<Catalog>({
+    queryKey: ['catalog'],
+    queryFn: async () => (await api.get('/catalog')).data,
+  });
 
   const q = search.trim().toLowerCase();
   const isSearching = q.length > 0;
@@ -385,8 +391,13 @@ export function ProductsPage() {
   const fetchLimit = isSearching ? SEARCH_FETCH_LIMIT : PAGE_SIZE;
 
   const { data: products = [], isLoading } = useQuery<Product[]>({
-    queryKey: ['products', search, storefront.store],
-    queryFn: async () => (await api.get('/products', { params: { search, ...storefront } })).data,
+    queryKey: ['products', search, category, storefront.store],
+    queryFn: async () =>
+      (
+        await api.get('/products', {
+          params: { search, category: category || undefined, ...storefront },
+        })
+      ).data,
   });
   const total = products?.length ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
@@ -394,15 +405,33 @@ export function ProductsPage() {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-3">
+        <div className="flex items-end gap-3">
+          <div className="space-y-1.5">
+            <Label className="text-xs">{t('Search')}</Label>
+            <div className="relative">
+              <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder={t('Search products…')}
+                className="w-72 pl-8"
+              />
+            </div>
+          </div>
           <div className="relative">
-            <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search products…"
-              className="w-72 pl-8"
-            />
+            <select
+              value={category}
+              onChange={(e) => setCategory(e.target.value)}
+              className="h-9 w-48 appearance-none rounded-md border border-input bg-transparent py-1 pl-3 pr-9 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:border-input"
+            >
+              <option value="">{t('Category')}</option>
+              {catalog?.categories.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+            <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           </div>
         </div>
         <Button

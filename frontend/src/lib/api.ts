@@ -667,6 +667,7 @@ async function realFetchProducts(params: {
   search?: unknown;
   warehouse?: unknown;
   store?: unknown;
+  category?: unknown;
   perWarehouse?: unknown;
 }) {
   const res = await http.get('/products', {
@@ -674,6 +675,7 @@ async function realFetchProducts(params: {
       search: params.search || undefined,
       warehouse: params.warehouse || undefined,
       store: params.store || undefined,
+      category: params.category || undefined,
       perWarehouse: params.perWarehouse || undefined,
       limit: 100,
     },
@@ -685,6 +687,7 @@ async function realProductsList(params: any) {
     search: params.search,
     warehouse: params.warehouseId,
     store: params.store,
+    category: params.category,
     // The POS product search asks for one row per warehouse actually
     // stocking the product, instead of one row totalled across all of them,
     // so it can offer a per-line warehouse picker with real availability.

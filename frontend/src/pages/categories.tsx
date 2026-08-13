@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Plus, Loader2, Pencil, Trash2, Tags } from 'lucide-react';
+import { Plus, Loader2, Pencil, Trash2, Tags, Search } from 'lucide-react';
 import { toast } from 'sonner';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -130,8 +130,22 @@ export function CategoriesPage() {
     queryKey: ['categories'],
     queryFn: async () => (await api.get('/categories')).data,
   });
-  const total = categories?.length ?? 0;
+
+  const filtered = useMemo(
+    () =>
+      isSearching
+        ? categories.filter(
+            (c) =>
+              c.name.toLowerCase().includes(q) || (c.description ?? '').toLowerCase().includes(q),
+          )
+        : categories,
+    [categories, isSearching, q],
+  );
+  const total = filtered.length;
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const pageItems = isSearching
+    ? filtered.slice(0, fetchLimit)
+    : filtered.slice((fetchPage - 1) * PAGE_SIZE, fetchPage * PAGE_SIZE);
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<Category | null>(null);
@@ -152,10 +166,24 @@ export function CategoriesPage() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <p className="text-sm text-muted-foreground">
-          {categories.length} categor{categories.length === 1 ? 'y' : 'ies'}
-        </p>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-end gap-3">
+          <div className="space-y-1.5">
+            <Label className="text-xs">{t('Search')}</Label>
+            <div className="relative">
+              <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder={t('Search categories…')}
+                className="w-72 pl-8"
+              />
+            </div>
+          </div>
+          <p className="pb-2 text-sm text-muted-foreground">
+            {total} categor{total === 1 ? 'y' : 'ies'}
+          </p>
+        </div>
         {canManage && (
           <Button
             onClick={() => {
@@ -186,7 +214,7 @@ export function CategoriesPage() {
               </tr>
             )}
             {!isLoading &&
-              categories.map((c) => (
+              pageItems.map((c) => (
                 <tr key={c.id} className="border-b last:border-0 hover:bg-muted/30">
                   <td className="px-4 py-3 font-medium">
                     <div className="flex items-center gap-2">
@@ -225,10 +253,10 @@ export function CategoriesPage() {
                   )}
                 </tr>
               ))}
-            {!isLoading && categories.length === 0 && (
+            {!isLoading && pageItems.length === 0 && (
               <tr>
                 <td colSpan={3} className="px-4 py-10 text-center text-muted-foreground">
-                  No categories yet.
+                  {isSearching ? 'No categories match your search.' : 'No categories yet.'}
                 </td>
               </tr>
             )}

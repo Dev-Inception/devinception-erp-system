@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Plus, Loader2, Building2, Star, Check, Pencil, Trash2 } from 'lucide-react';
+import { Plus, Loader2, Building2, Star, Check, Pencil, Trash2, Search } from 'lucide-react';
 import { toast } from 'sonner';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -186,10 +186,27 @@ export function StoresPage() {
   const perms = useAuthStore((s) => s.user?.permissions);
   const canManage = grantsPermission(perms, 'stores:manage');
 
+  const [search, setSearch] = useState('');
+  const q = search.trim().toLowerCase();
+  const isSearching = q.length > 0;
+
   const { data: stores = [], isLoading } = useQuery<StoreRow[]>({
     queryKey: ['stores'],
     queryFn: async () => (await api.get('/stores')).data,
   });
+
+  const filtered = useMemo(
+    () =>
+      isSearching
+        ? stores.filter(
+            (s) =>
+              s.name.toLowerCase().includes(q) ||
+              s.code.toLowerCase().includes(q) ||
+              s.address.toLowerCase().includes(q),
+          )
+        : stores,
+    [stores, isSearching, q],
+  );
 
   const setDefault = useMutation({
     mutationFn: async (id: string) => (await api.post(`/stores/${id}/set-default`)).data,
@@ -214,10 +231,24 @@ export function StoresPage() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <p className="text-sm text-muted-foreground">
-          {stores.length} store(s) — each groups one or more warehouses.
-        </p>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-end gap-3">
+          <div className="space-y-1.5">
+            <Label className="text-xs">{t('Search')}</Label>
+            <div className="relative">
+              <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder={t('Search stores…')}
+                className="w-72 pl-8"
+              />
+            </div>
+          </div>
+          <p className="pb-2 text-sm text-muted-foreground">
+            {filtered.length} store(s) — each groups one or more warehouses.
+          </p>
+        </div>
         {canManage && (
           <StoreDialog
             trigger={
@@ -231,9 +262,13 @@ export function StoresPage() {
 
       {isLoading ? (
         <p className="text-sm text-muted-foreground">Loading…</p>
+      ) : filtered.length === 0 ? (
+        <p className="text-sm text-muted-foreground">
+          {isSearching ? 'No stores match your search.' : 'No stores yet.'}
+        </p>
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-          {stores.map((s) => (
+          {filtered.map((s) => (
             <Card key={s.id}>
               <CardContent className="space-y-3 p-5">
                 <div className="flex items-start justify-between">

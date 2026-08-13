@@ -4,6 +4,7 @@ import { CheckCircle2, Clock3, Search } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { api } from '@/lib/api';
 import { useStorefrontFilter } from '@/store/storefront';
 import { useLanguage } from '@/components/language-provider';
@@ -31,17 +32,25 @@ interface GatePass {
 export function GatePassesPage() {
   const [status, setStatus] = useState<'ALL' | 'PENDING' | 'PROCESSED'>('ALL');
   const [search, setSearch] = useState('');
+  const [from, setFrom] = useState('');
+  const [to, setTo] = useState('');
   const storefront = useStorefrontFilter();
   const { t } = useLanguage();
   const { data, isLoading } = useQuery<{
     gatePasses: GatePass[];
     total: number;
   }>({
-    queryKey: ['gate-passes', status, storefront.store],
+    queryKey: ['gate-passes', status, from, to, storefront.store],
     queryFn: async () =>
       (
         await api.get('/gate-passes', {
-          params: { limit: 100, ...(status === 'ALL' ? {} : { status }), ...storefront },
+          params: {
+            limit: 100,
+            ...(status === 'ALL' ? {} : { status }),
+            from: from || undefined,
+            to: to || undefined,
+            ...storefront,
+          },
         })
       ).data,
   });
@@ -61,14 +70,35 @@ export function GatePassesPage() {
             Review pending and processed vehicle loads.
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="relative w-64">
-            <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+        <div className="flex flex-wrap items-end gap-2">
+          <div className="w-64 space-y-1.5">
+            <Label className="text-xs">{t('Search')}</Label>
+            <div className="relative">
+              <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder={t('Search by gate pass #…')}
+                className="pl-8"
+              />
+            </div>
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs">{t('From')}</Label>
             <Input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search by gate pass #…"
-              className="pl-8"
+              type="date"
+              value={from}
+              onChange={(e) => setFrom(e.target.value)}
+              className="w-36"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs">{t('To')}</Label>
+            <Input
+              type="date"
+              value={to}
+              onChange={(e) => setTo(e.target.value)}
+              className="w-36"
             />
           </div>
           {(['ALL', 'PENDING', 'PROCESSED'] as const).map((value) => (
