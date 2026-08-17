@@ -535,6 +535,11 @@ export function PosPage() {
         labourRentTotal,
         paidAmount: advance,
         balanceDue: Math.max(0, grandTotal - advance),
+        // The advance was recorded against AR after the sale itself posted,
+        // so subtract it from the snapshot the create-sale response carried —
+        // the customer's remaining balance is lower by exactly that amount.
+        totalRemaining:
+          sale.totalRemaining != null ? Math.max(0, Number(sale.totalRemaining) - advance) : null,
       };
     },
     onSuccess: (sale) => {

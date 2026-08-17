@@ -3,7 +3,6 @@ import { NavLink } from 'react-router-dom';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/store/auth';
-import { useLanguage } from '@/components/language-provider';
 import { MODULES, SECTION_ORDER, canSeeModule } from '@/lib/modules';
 
 const STORAGE_KEY = 'devinception-sidebar-collapsed';
@@ -12,7 +11,6 @@ export function Sidebar() {
   // Gate nav by the current user's real backend permissions (from login/me).
   const role = useAuthStore((s) => s.user?.role);
   const permissions = useAuthStore((s) => s.user?.permissions);
-  const { t } = useLanguage();
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem(STORAGE_KEY) === '1');
 
   const toggle = () => {
@@ -65,7 +63,7 @@ export function Sidebar() {
           <div key={group.section} className="mb-4">
             {!collapsed && (
               <p className="px-3 pb-1 text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                {t(group.section)}
+                {group.section}
               </p>
             )}
             {group.items.map((item) => (
@@ -73,7 +71,7 @@ export function Sidebar() {
                 key={item.to}
                 to={item.to}
                 end={item.to === '/'}
-                title={collapsed ? t(item.label) : undefined}
+                title={collapsed ? item.label : undefined}
                 className={({ isActive }) =>
                   cn(
                     'flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors',
@@ -85,7 +83,7 @@ export function Sidebar() {
                 }
               >
                 <item.icon className="h-4 w-4 shrink-0" />
-                {!collapsed && <span className="truncate">{t(item.label)}</span>}
+                {!collapsed && <span className="truncate">{item.label}</span>}
               </NavLink>
             ))}
           </div>

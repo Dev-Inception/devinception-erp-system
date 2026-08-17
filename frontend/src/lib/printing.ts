@@ -20,6 +20,7 @@ interface DocData {
   date: string;
   partyName?: string;
   partyPhone?: string;
+  invoiceType?: string;
   items: LineItem[];
   subtotal: number;
   tax: number;
@@ -29,6 +30,10 @@ interface DocData {
   total: number;
   paidAmount?: number;
   balanceDue?: number;
+  // Customer's running receivable, snapshotted at this sale's moment — null/
+  // undefined for walk-in sales, which carry no account balance.
+  previousBalance?: number | null;
+  totalRemaining?: number | null;
   labour?: { name: string; phone?: string }[];
   transport?: { driverName?: string; driverPhone?: string; vehicleNumber?: string };
   notes?: string;
@@ -49,29 +54,107 @@ const thermalStyles = `
 
 const a4Styles = `
   <style>
-    * { font-family: Inter, Arial, sans-serif; }
+    * { font-family: Inter, Arial, sans-serif; box-sizing: border-box; }
     body { margin: 0; padding: 16mm; color: #111; font-size: 13px; }
-    .head { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #4f46e5; padding-bottom: 12px; }
-    h1 { color: #4f46e5; margin: 0; font-size: 24px; }
-    table { width: 100%; border-collapse: collapse; margin-top: 24px; }
-    th { background: #f3f4f6; text-align: left; padding: 8px; font-size: 12px; text-transform: uppercase; }
-    td { padding: 8px; border-bottom: 1px solid #eee; }
+    .sheet { border: 1px solid #d1d5db; border-radius: 10px; padding: 20px 24px; }
+    .head { display: flex; justify-content: space-between; align-items: center; gap: 16px; border-bottom: 3px solid #4f46e5; padding-bottom: 14px; }
+    .brand { display: flex; align-items: center; gap: 14px; }
+    .logo { width: 52px; height: 52px; min-width: 52px; border-radius: 50%; border: 2px solid #4f46e5; display: flex; align-items: center; justify-content: center; font-size: 20px; font-weight: 700; color: #4f46e5; }
+    h1 { margin: 0; font-size: 22px; letter-spacing: 0.3px; }
+    .brand .muted { margin: 2px 0 0; font-size: 11.5px; color: #555; line-height: 1.5; }
+    .badge { text-align: right; }
+    .badge .no { display: inline-block; background: #f3f4f6; border-radius: 6px; padding: 6px 14px; font-weight: 700; font-size: 14px; }
+    .meta { display: flex; justify-content: space-between; gap: 24px; margin-top: 14px; padding: 10px 0; border-bottom: 1px solid #eee; font-size: 12.5px; }
+    .meta > div { line-height: 1.7; }
+    .meta .label { color: #6b7280; display: inline-block; min-width: 62px; }
+    table { width: 100%; border-collapse: collapse; margin-top: 18px; }
+    th { background: #1f2937; color: #fff; text-align: left; padding: 8px 10px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.4px; }
+    td { padding: 7px 10px; border-bottom: 1px solid #eee; }
+    tbody tr:nth-child(even) { background: #f9fafb; }
     .r { text-align: right; }
-    .totals { margin-top: 16px; width: 280px; margin-left: auto; }
-    .totals .grand { font-size: 16px; font-weight: bold; border-top: 2px solid #111; padding-top: 6px; }
+    .c { text-align: center; }
+    .totals { margin-top: 18px; width: 300px; margin-left: auto; border: 1px solid #e5e7eb; border-radius: 8px; padding: 12px 14px; }
+    .totals .row { display: flex; justify-content: space-between; padding: 3px 0; font-size: 12.5px; }
+    .totals .row.muted { color: #6b7280; }
+    .totals .divider { border-top: 1px solid #e5e7eb; margin: 6px 0; }
+    .totals .grand { font-size: 15px; font-weight: bold; }
+    .totals .account { border-top: 2px solid #111; margin-top: 6px; padding-top: 8px; }
+    .totals .remaining { font-size: 16px; font-weight: bold; color: #4f46e5; }
+    .words { margin-top: 16px; font-size: 12px; color: #374151; }
+    .words strong { color: #111; }
     .toolbar { display: flex; gap: 8px; justify-content: flex-end; margin-bottom: 16px; }
     .toolbar button { font: inherit; padding: 8px 16px; border-radius: 6px; border: 1px solid #4f46e5; background: #4f46e5; color: #fff; cursor: pointer; }
     .toolbar button.outline { background: #fff; color: #4f46e5; }
-    @media print { .toolbar { display: none !important; } }
+    @media print { .toolbar { display: none !important; } .sheet { border: none; padding: 0; } }
   </style>`;
 
 function rows(items: LineItem[]) {
   return items
     .map(
-      (i) =>
-        `<tr><td>${i.name}</td><td class="r">${i.qty}</td><td class="r">${formatCurrency(i.price)}</td><td class="r">${formatCurrency(i.amount)}</td></tr>`,
+      (i, idx) =>
+        `<tr><td class="c">${idx + 1}</td><td>${i.name}</td><td class="r">${i.qty}</td><td class="r">${formatCurrency(i.price)}</td><td class="r">${formatCurrency(i.amount)}</td></tr>`,
     )
     .join('');
+}
+
+const ONES = [
+  '',
+  'One',
+  'Two',
+  'Three',
+  'Four',
+  'Five',
+  'Six',
+  'Seven',
+  'Eight',
+  'Nine',
+  'Ten',
+  'Eleven',
+  'Twelve',
+  'Thirteen',
+  'Fourteen',
+  'Fifteen',
+  'Sixteen',
+  'Seventeen',
+  'Eighteen',
+  'Nineteen',
+];
+const TENS = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety'];
+
+function threeDigitsToWords(n: number): string {
+  const parts: string[] = [];
+  if (n >= 100) {
+    parts.push(`${ONES[Math.floor(n / 100)]} Hundred`);
+    n %= 100;
+  }
+  if (n >= 20) {
+    parts.push(TENS[Math.floor(n / 10)] + (n % 10 ? `-${ONES[n % 10].toLowerCase()}` : ''));
+  } else if (n > 0) {
+    parts.push(ONES[n]);
+  }
+  return parts.join(' ');
+}
+
+// Whole-rupee amount spelled out for the invoice footer, e.g. 110400 ->
+// "One Hundred Ten Thousand Four Hundred". Cents/paisa are not spoken.
+function amountInWords(value: number): string {
+  const n = Math.round(Math.abs(value));
+  if (n === 0) return 'Zero';
+  const scales: [number, string][] = [
+    [1_000_000_000, 'Billion'],
+    [1_000_000, 'Million'],
+    [1_000, 'Thousand'],
+  ];
+  let remaining = n;
+  const parts: string[] = [];
+  for (const [scale, label] of scales) {
+    if (remaining >= scale) {
+      parts.push(`${threeDigitsToWords(Math.floor(remaining / scale))} ${label}`);
+      remaining %= scale;
+    }
+  }
+  if (remaining > 0) parts.push(threeDigitsToWords(remaining));
+  return parts.join(' ');
 }
 
 export function renderTemplate(type: TemplateType, d: DocData): string {
@@ -101,42 +184,77 @@ export function renderTemplate(type: TemplateType, d: DocData): string {
   }
 
   // A4 invoice
+  const hasAccount = d.previousBalance != null && d.totalRemaining != null;
+  const totalItems = d.items.reduce((sum, i) => sum + (Number(i.qty) || 0), 0);
+  const netAmount = hasAccount ? (d.previousBalance as number) + d.total : d.total;
+  const logoInitial = (d.company.name || '?').trim().charAt(0).toUpperCase();
+
   return `<!doctype html><html><head>${a4Styles}</head><body>
     <div class="toolbar">
       <button type="button" class="outline" onclick="window.print()">Download PDF</button>
       <button type="button" onclick="window.print()">Print</button>
     </div>
-    <div class="head">
-      <div><h1>INVOICE</h1><p>${d.company.name}<br/>${d.company.address ?? ''}<br/>${d.company.phone ?? ''}</p></div>
-      <div class="r"><strong>${d.number}</strong><br/>${d.date}${d.partyName ? `<br/>${d.partyName}` : ''}${d.partyPhone ? `<br/>${d.partyPhone}` : ''}</div>
-    </div>
-    <table>
-      <thead><tr><th>Item</th><th class="r">Qty</th><th class="r">Rate</th><th class="r">Amount</th></tr></thead>
-      <tbody>${rows(d.items)}</tbody>
-    </table>
-    ${
-      d.labour?.length || d.transport?.driverName
-        ? `<div style="margin-top:16px;font-size:12px;color:#333;">
-      ${d.labour?.length ? `<p style="margin:2px 0;"><strong>Labour:</strong> ${d.labour.map((l) => l.name).join(', ')}</p>` : ''}
+    <div class="sheet">
+      <div class="head">
+        <div class="brand">
+          <div class="logo">${logoInitial}</div>
+          <div>
+            <h1>${d.company.name}</h1>
+            <p class="muted">${d.company.address ?? ''}${d.company.phone ? `<br/>${d.company.phone}` : ''}</p>
+          </div>
+        </div>
+        <div class="badge"><span class="no">${d.number}</span></div>
+      </div>
+      <div class="meta">
+        <div>
+          <div><span class="label">Name:</span> ${d.partyName ?? 'Walk-in Customer'}</div>
+          ${d.partyPhone ? `<div><span class="label">Contact:</span> ${d.partyPhone}</div>` : ''}
+        </div>
+        <div class="r">
+          <div><span class="label">Date:</span> ${d.date}</div>
+          ${d.invoiceType ? `<div><span class="label">Inv Type:</span> ${d.invoiceType}</div>` : ''}
+        </div>
+      </div>
+      <table>
+        <thead><tr><th class="c">Sr</th><th>Item Name</th><th class="r">Qty</th><th class="r">Rate</th><th class="r">Amount</th></tr></thead>
+        <tbody>${rows(d.items)}</tbody>
+      </table>
       ${
-        d.transport?.driverName
-          ? `<p style="margin:2px 0;"><strong>Transport:</strong> ${d.transport.driverName}${d.transport.vehicleNumber ? ` (${d.transport.vehicleNumber})` : ''}${d.transport.driverPhone ? ` · ${d.transport.driverPhone}` : ''}</p>`
+        d.labour?.length || d.transport?.driverName
+          ? `<div style="margin-top:16px;font-size:12px;color:#333;">
+        ${d.labour?.length ? `<p style="margin:2px 0;"><strong>Labour:</strong> ${d.labour.map((l) => l.name).join(', ')}</p>` : ''}
+        ${
+          d.transport?.driverName
+            ? `<p style="margin:2px 0;"><strong>Transport:</strong> ${d.transport.driverName}${d.transport.vehicleNumber ? ` (${d.transport.vehicleNumber})` : ''}${d.transport.driverPhone ? ` · ${d.transport.driverPhone}` : ''}</p>`
+            : ''
+        }
+      </div>`
           : ''
       }
-    </div>`
-        : ''
-    }
-    <table class="totals">
-      <tr><td>Subtotal</td><td class="r">${formatCurrency(d.subtotal)}</td></tr>
-      ${d.discount ? `<tr><td>Discount</td><td class="r">-${formatCurrency(d.discount)}</td></tr>` : ''}
-      <tr><td>Tax</td><td class="r">${formatCurrency(d.tax)}</td></tr>
-      ${d.transportFare ? `<tr><td>Transport Fare</td><td class="r">${formatCurrency(d.transportFare)}</td></tr>` : ''}
-      ${d.labourRentTotal ? `<tr><td>Labour Rent</td><td class="r">${formatCurrency(d.labourRentTotal)}</td></tr>` : ''}
-      <tr class="grand"><td>Total</td><td class="r">${formatCurrency(d.total)}</td></tr>
-      ${d.paidAmount !== undefined ? `<tr><td>Paid</td><td class="r">${formatCurrency(d.paidAmount)}</td></tr>` : ''}
-      ${d.balanceDue !== undefined ? `<tr><td>Balance Due</td><td class="r">${formatCurrency(d.balanceDue)}</td></tr>` : ''}
-    </table>
-    ${d.notes ? `<p style="margin-top:24px;color:#666">${d.notes}</p>` : ''}
+      <div class="totals">
+        <div class="row muted"><span>Total Items</span><span>${totalItems}</span></div>
+        <div class="row muted"><span>Subtotal</span><span>${formatCurrency(d.subtotal)}</span></div>
+        ${d.discount ? `<div class="row muted"><span>Discount</span><span>-${formatCurrency(d.discount)}</span></div>` : ''}
+        ${d.tax ? `<div class="row muted"><span>Tax</span><span>${formatCurrency(d.tax)}</span></div>` : ''}
+        ${d.transportFare ? `<div class="row muted"><span>Transport Fare</span><span>${formatCurrency(d.transportFare)}</span></div>` : ''}
+        ${d.labourRentTotal ? `<div class="row muted"><span>Labour Rent</span><span>${formatCurrency(d.labourRentTotal)}</span></div>` : ''}
+        <div class="divider"></div>
+        <div class="row grand"><span>Gross Total</span><span>${formatCurrency(d.total)}</span></div>
+        ${d.paidAmount ? `<div class="row muted"><span>Paid</span><span>${formatCurrency(d.paidAmount)}</span></div>` : ''}
+        ${d.paidAmount && d.balanceDue ? `<div class="row muted"><span>Balance Due (this invoice)</span><span>${formatCurrency(d.balanceDue)}</span></div>` : ''}
+        ${
+          hasAccount
+            ? `<div class="account">
+          <div class="row"><span>Previous Balance</span><span>${formatCurrency(d.previousBalance as number)}</span></div>
+          <div class="row"><span>Net Amount</span><span>${formatCurrency(netAmount)}</span></div>
+          <div class="row remaining"><span>Total Remaining</span><span>${formatCurrency(d.totalRemaining as number)}</span></div>
+        </div>`
+            : ''
+        }
+      </div>
+      <p class="words">Amount: <strong>${amountInWords(d.total)} Only.</strong></p>
+      ${d.notes ? `<p style="margin-top:12px;color:#b91c1c;font-size:12px;">${d.notes}</p>` : ''}
+    </div>
   </body></html>`;
 }
 

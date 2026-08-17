@@ -8,7 +8,7 @@ const Product = require('../models/productModel');
 const StockLevel = require('../models/stockLevelModel');
 const BankAccount = require('../models/bankAccountModel');
 const ApiError = require('../utils/ApiError');
-const { toPaisa } = require('../utils/money');
+const { toPaisa, toRupees } = require('../utils/money');
 const { ACCOUNT, REF, PAYMENT_METHOD, BANK_METHODS } = require('../utils/finance');
 const journalService = require('./journalService');
 const stockService = require('./stockService');
@@ -781,4 +781,31 @@ async function getSaleById(actor, id) {
   return sale;
 }
 
-module.exports = { createSale, updateSale, recordPayment, listSales, getSaleById };
+/**
+ * The customer's receivable balance immediately before and after this sale
+ * posted — the "Previous Balance" / "Total Remaining" shown on the printed
+ * invoice. A snapshot at the sale's own moment in time, not the customer's
+ * live current balance, so a reprint later still reflects what the customer
+ * saw at checkout. Null for walk-in sales (no customer to carry a balance).
+ */
+async function getSaleBalances(sale) {
+  const customerId = sale.customer?._id ?? sale.customer;
+  if (!customerId) return { previousBalance: null, totalRemaining: null };
+
+  const at = sale.date instanceof Date ? sale.date : new Date(sale.date);
+  const justBefore = new Date(at.getTime() - 1);
+  const [previous, remaining] = await Promise.all([
+    journalService.balanceAsOf(ACCOUNT.AR, customerId, justBefore),
+    journalService.balanceAsOf(ACCOUNT.AR, customerId, at),
+  ]);
+  return { previousBalance: toRupees(previous), totalRemaining: toRupees(remaining) };
+}
+
+module.exports = {
+  createSale,
+  updateSale,
+  recordPayment,
+  listSales,
+  getSaleById,
+  getSaleBalances,
+};

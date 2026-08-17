@@ -58,19 +58,27 @@ function serialize(sale) {
   return s;
 }
 
+// Merges the point-in-time customer balance snapshot onto the serialized
+// sale, for callers (invoice printing) that need "Previous Balance" / "Total
+// Remaining" alongside the sale itself.
+async function serializeWithBalances(sale) {
+  const balances = await saleService.getSaleBalances(sale);
+  return { ...serialize(sale), ...balances };
+}
+
 const createSale = asyncHandler(async (req, res) => {
   const sale = await saleService.createSale(req.user, req.body);
-  return sendSuccess(res, 201, 'Sale recorded', { sale: serialize(sale) });
+  return sendSuccess(res, 201, 'Sale recorded', { sale: await serializeWithBalances(sale) });
 });
 
 const updateSale = asyncHandler(async (req, res) => {
   const sale = await saleService.updateSale(req.user, req.params.id, req.body);
-  return sendSuccess(res, 200, 'Sale updated', { sale: serialize(sale) });
+  return sendSuccess(res, 200, 'Sale updated', { sale: await serializeWithBalances(sale) });
 });
 
 const recordPayment = asyncHandler(async (req, res) => {
   const sale = await saleService.recordPayment(req.user, req.params.id, req.body);
-  return sendSuccess(res, 200, 'Payment recorded', { sale: serialize(sale) });
+  return sendSuccess(res, 200, 'Payment recorded', { sale: await serializeWithBalances(sale) });
 });
 
 const listSales = asyncHandler(async (req, res) => {
@@ -94,7 +102,7 @@ const listSales = asyncHandler(async (req, res) => {
 
 const getSale = asyncHandler(async (req, res) => {
   const sale = await saleService.getSaleById(req.user, req.params.id);
-  return sendSuccess(res, 200, 'Sale fetched', { sale: serialize(sale) });
+  return sendSuccess(res, 200, 'Sale fetched', { sale: await serializeWithBalances(sale) });
 });
 
 module.exports = { createSale, updateSale, recordPayment, listSales, getSale };

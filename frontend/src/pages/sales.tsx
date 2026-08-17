@@ -60,6 +60,8 @@ interface Sale {
   paidBank: string;
   paidAmount: string;
   balanceDue: string;
+  previousBalance?: number | null;
+  totalRemaining?: number | null;
   transportFare?: string;
   labourRentTotal?: string;
   transport?: { driverName?: string; driverPhone?: string; vehicleNumber?: string };

@@ -971,6 +971,10 @@ function mapSale(s: any) {
     // settled later via "Record Payment"; balanceDue accounts for returns too.
     paidAmount: s.paidAmount ?? 0,
     balanceDue: s.balanceDue ?? 0,
+    // Customer's receivable balance snapshotted at this sale's moment — null
+    // for walk-in sales (no customer to carry a running balance).
+    previousBalance: s.previousBalance ?? null,
+    totalRemaining: s.totalRemaining ?? null,
     additionalPaidAmount: s.additionalPaidAmount ?? 0,
     returnedTotal: s.returnedTotal ?? 0,
     items: (s.items ?? []).map((it: any) => ({

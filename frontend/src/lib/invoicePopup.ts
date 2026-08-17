@@ -14,12 +14,22 @@ interface SaleItemForInvoice {
   amount: number | string;
 }
 
+const PAYMENT_METHOD_LABEL: Record<string, string> = {
+  CASH: 'Cash',
+  CARD: 'Card',
+  BANK_TRANSFER: 'Bank Transfer',
+  ONLINE: 'Online',
+  MIXED: 'Mixed',
+  CREDIT: 'Credit',
+};
+
 export interface SaleForInvoice {
   saleNumber: string;
   date: string;
   storeName?: string;
   storeAddress?: string;
   customer?: { name: string; phone?: string };
+  paymentMethod?: string;
   items: SaleItemForInvoice[];
   subtotal: number | string;
   taxTotal: number | string;
@@ -29,6 +39,10 @@ export interface SaleForInvoice {
   grandTotal: number | string;
   paidAmount?: number | string;
   balanceDue?: number | string;
+  // Customer's account balance snapshotted at this sale — omitted/null for
+  // walk-in sales, which don't carry a running balance.
+  previousBalance?: number | string | null;
+  totalRemaining?: number | string | null;
   labour?: { name: string }[];
   transport?: { driverName?: string; driverPhone?: string; vehicleNumber?: string };
 }
@@ -48,6 +62,7 @@ function buildInvoiceHtml(sale: SaleForInvoice) {
     date: new Date(sale.date).toLocaleString(),
     partyName: sale.customer?.name ?? 'Walk-in Customer',
     partyPhone: sale.customer?.phone || undefined,
+    invoiceType: sale.paymentMethod ? PAYMENT_METHOD_LABEL[sale.paymentMethod] : undefined,
     items: sale.items.map((i) => ({
       name: i.name,
       qty: Number(i.quantity),
@@ -62,6 +77,14 @@ function buildInvoiceHtml(sale: SaleForInvoice) {
     total: Number(sale.grandTotal),
     paidAmount: sale.paidAmount !== undefined ? Number(sale.paidAmount) : undefined,
     balanceDue: sale.balanceDue !== undefined ? Number(sale.balanceDue) : undefined,
+    previousBalance:
+      sale.previousBalance !== undefined && sale.previousBalance !== null
+        ? Number(sale.previousBalance)
+        : null,
+    totalRemaining:
+      sale.totalRemaining !== undefined && sale.totalRemaining !== null
+        ? Number(sale.totalRemaining)
+        : null,
     labour: sale.labour,
     transport: sale.transport,
   });

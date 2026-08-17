@@ -165,6 +165,17 @@ async function accountStatement(account, ref = null, { from, to, store } = {}) {
 }
 
 /**
+ * Natural balance (paisa) for one `ref` as of a specific instant — everything
+ * posted up to and including `at`. Used to snapshot a customer's receivable
+ * balance at the moment of a given sale (invoice "previous balance" / "total
+ * remaining"), rather than the live current balance.
+ */
+async function balanceAsOf(account, ref, at, { store } = {}) {
+  const totals = await accountTotals(account, ref, { to: at, store });
+  return naturalBalance(account, totals.debit, totals.credit);
+}
+
+/**
  * Natural balances (paisa) for every `ref` under an account kind, in one
  * aggregation. Used to list all customer receivables / vendor payables at once
  * without a query per party. Returns Map<refIdString, balancePaisa>.
@@ -205,5 +216,6 @@ module.exports = {
   accountBalance,
   accountTotals,
   accountStatement,
+  balanceAsOf,
   balancesByRef,
 };
