@@ -10,13 +10,22 @@ const { ROLES } = require('../utils/constants');
  */
 
 // Verify the target role exists and that the actor is allowed to assign it.
-// Only a super admin may grant the super_admin role.
-async function assertAssignableRole(actor, roleName) {
+// Only a super admin may grant the super_admin role, and the system only
+// ever has one — `excludeUserId` lets a super admin re-save their own role
+// without tripping over themselves as "already existing".
+async function assertAssignableRole(actor, roleName, excludeUserId = null) {
   const role = await Role.findOne({ name: roleName });
   if (!role) throw ApiError.badRequest(`Unknown role: ${roleName}`);
 
-  if (role.name === ROLES.SUPER_ADMIN && actor.role !== ROLES.SUPER_ADMIN) {
-    throw ApiError.forbidden('Only a super admin can assign the super_admin role');
+  if (role.name === ROLES.SUPER_ADMIN) {
+    if (actor.role !== ROLES.SUPER_ADMIN) {
+      throw ApiError.forbidden('Only a super admin can assign the super_admin role');
+    }
+    const filter = { role: ROLES.SUPER_ADMIN };
+    if (excludeUserId) filter._id = { $ne: excludeUserId };
+    if (await User.exists(filter)) {
+      throw ApiError.badRequest('A super admin already exists — only one is allowed');
+    }
   }
   return role;
 }
@@ -82,7 +91,7 @@ async function updateUserRole(actor, targetId, newRole) {
   }
 
   // Validates the role exists and gates assigning super_admin.
-  await assertAssignableRole(actor, newRole);
+  await assertAssignableRole(actor, newRole, targetId);
 
   target.role = newRole;
   await target.save();
@@ -103,6 +112,23 @@ async function setUserActive(actor, targetId, isActive) {
   target.isActive = isActive;
   await target.save();
   return target;
+}
+
+// Force-set a user's password (admin/super-admin action — no current
+// password required, unlike the self-service authService.changePassword).
+// Re-saving triggers the model's pre-save hash + bumps passwordChangedAt,
+// which invalidates that user's existing JWTs the same way a self-service
+// change does.
+async function setUserPassword(actor, targetId, newPassword) {
+  const target = await User.findById(targetId);
+  if (!target) throw ApiError.notFound('User not found');
+
+  if (target.role === ROLES.SUPER_ADMIN && actor.role !== ROLES.SUPER_ADMIN) {
+    throw ApiError.forbidden('Only a super admin can manage super admins');
+  }
+
+  target.password = newPassword;
+  await target.save();
 }
 
 // Edit a user's profile (name and/or email). Role and active status have their
@@ -147,5 +173,6 @@ module.exports = {
   updateUser,
   updateUserRole,
   setUserActive,
+  setUserPassword,
   deleteUser,
 };

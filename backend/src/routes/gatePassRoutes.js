@@ -50,5 +50,12 @@ router.patch(
   validate,
   gatePassController.updateProcessedGatePass,
 );
+router.delete(
+  '/:gatePassId',
+  authorize(ROLES.SUPER_ADMIN),
+  gatePassIdParamValidator,
+  validate,
+  gatePassController.deleteGatePass,
+);
 
 module.exports = router;

@@ -27,9 +27,11 @@ function assertStoreAccess(actor, storeId) {
  * different result (a real store with no warehouses assigned yet — matches
  * nothing, not everything).
  *
- * When `actor` is store-restricted, their store always wins — the caller's
- * `store`/`warehouse` params are ignored rather than trusted, so a scoped
- * user can never widen their own view by passing a different id.
+ * When `actor` is store-restricted, their store always wins over a passed-in
+ * `store` id — a scoped user can never widen their own view by passing a
+ * different store. An explicit `warehouse` id is still honored on top of
+ * that, but only to narrow further: it's kept only when it's actually one of
+ * the effective store's own warehouses, so it can never escape the store.
  */
 async function resolveWarehouseScope({ store, warehouse, actor } = {}) {
   const restricted = actorStoreId(actor);
@@ -38,7 +40,15 @@ async function resolveWarehouseScope({ store, warehouse, actor } = {}) {
   if (effectiveStore && mongoose.isValidObjectId(effectiveStore)) {
     const doc = await Store.findById(effectiveStore).select('warehouses').lean();
     if (!doc) throw ApiError.notFound('Store not found');
-    return { warehouseIds: doc.warehouses.map(String) };
+    const storeWarehouseIds = doc.warehouses.map(String);
+    if (
+      warehouse &&
+      mongoose.isValidObjectId(warehouse) &&
+      storeWarehouseIds.includes(String(warehouse))
+    ) {
+      return { warehouseIds: [String(warehouse)] };
+    }
+    return { warehouseIds: storeWarehouseIds };
   }
   if (!restricted && warehouse && mongoose.isValidObjectId(warehouse)) {
     return { warehouseIds: [String(warehouse)] };

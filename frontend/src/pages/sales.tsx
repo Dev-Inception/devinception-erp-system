@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import {
   ShoppingCart,
   FileText,
@@ -10,6 +10,7 @@ import {
   Pencil,
   RotateCcw,
   Wallet,
+  Undo2,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Card } from '@/components/ui/card';
@@ -23,8 +24,8 @@ import {
   DropdownMenuItem,
 } from '@/components/ui/dropdown-menu';
 import { GatePassDialog } from '@/components/gate-pass-dialog';
-import { UpdateSaleDialog } from '@/components/update-sale-dialog';
 import { ReturnProductDialog } from '@/components/return-product-dialog';
+import { SaleReturnsDialog } from '@/components/sale-returns-dialog';
 import { RecordPaymentDialog } from '@/components/record-payment-dialog';
 import { Pagination } from '@/components/ui/pagination';
 import { api } from '@/lib/api';
@@ -33,6 +34,7 @@ import { openSaleInvoicePopup } from '@/lib/invoicePopup';
 import { useAuthStore } from '@/store/auth';
 import { grantsPermission } from '@/lib/modules';
 import { useStorefrontFilter } from '@/store/storefront';
+import { useWarehouses } from '@/components/layout/warehouse-switcher';
 import { useLanguage } from '@/components/language-provider';
 
 interface SaleItem {
@@ -64,37 +66,19 @@ interface Sale {
   totalRemaining?: number | null;
   transportFare?: string;
   labourRentTotal?: string;
+  labour?: { id: string; name: string; phone?: string; rent: number }[];
   transport?: { driverName?: string; driverPhone?: string; vehicleNumber?: string };
   paymentMethod: string;
   status: string;
   customer?: { name: string };
   storeName?: string;
   items: SaleItem[];
+  returnedTotal?: number;
   gatePassId?: string;
   gatePassQrUrl?: string;
-}
-
-interface SaleReturnItem {
-  productId: string;
-  name: string;
-  quantity: number;
-  unitPrice: number;
-  lineTotal: number;
-}
-
-interface SaleReturn {
-  id: string;
-  number: string;
-  saleId: string;
-  saleNumber: string;
-  customerName: string;
-  date: string;
-  items: SaleReturnItem[];
-  subtotal: number;
-  discount: number;
-  tax: number;
-  total: number;
-  note?: string;
+  warehouseGatePasses?: { warehouseId: string; gatePassId: string; gatePassQrUrl?: string }[];
+  vendorGatePassId?: string;
+  vendorGatePassQrUrl?: string;
 }
 
 const PAYMENT_LABEL: Record<string, string> = {
@@ -113,10 +97,10 @@ const SEARCH_FETCH_LIMIT = 200;
 
 export function SalesPage() {
   const { t } = useLanguage();
+  const navigate = useNavigate();
   const authUser = useAuthStore((s) => s.user);
   const canManageSales = grantsPermission(authUser?.permissions, 'sales:update');
-
-  const [tab, setTab] = useState<'sales' | 'returns'>('sales');
+  const { warehouses } = useWarehouses();
 
   const [search, setSearch] = useState('');
   const [from, setFrom] = useState('');
@@ -149,14 +133,19 @@ export function SalesPage() {
           },
         })
       ).data as { sales: Sale[]; total: number; page: number; limit: number },
-    enabled: tab === 'sales',
   });
   const sales = data?.sales ?? [];
   const total = data?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
-  const [gatePassSale, setGatePassSale] = useState<Sale | null>(null);
-  const [editingSale, setEditingSale] = useState<Sale | null>(null);
+  // Set from a DropdownMenuItem click — either a sale's own gate pass or one
+  // of a return's, so a single dialog instance below handles both.
+  const [openGatePass, setOpenGatePass] = useState<{
+    id: string;
+    qrUrl?: string;
+    title: string;
+  } | null>(null);
   const [returningSale, setReturningSale] = useState<Sale | null>(null);
+  const [viewingReturnsFor, setViewingReturnsFor] = useState<Sale | null>(null);
   const [payingSale, setPayingSale] = useState<Sale | null>(null);
 
   const filteredSales = isSearching
@@ -167,49 +156,6 @@ export function SalesPage() {
       )
     : sales;
 
-  // Sale Returns tab — its own filters/pagination, independent of the Sales
-  // tab above, mirroring the same from/to + search pattern.
-  const [returnSearch, setReturnSearch] = useState('');
-  const [returnFrom, setReturnFrom] = useState('');
-  const [returnTo, setReturnTo] = useState('');
-  const [returnPage, setReturnPage] = useState(1);
-
-  const returnQ = returnSearch.trim().toLowerCase();
-  const isReturnSearching = returnQ.length > 0;
-  const returnFetchPage = isReturnSearching ? 1 : returnPage;
-  const returnFetchLimit = isReturnSearching ? SEARCH_FETCH_LIMIT : PAGE_SIZE;
-
-  useEffect(() => {
-    setReturnPage(1);
-  }, [returnFrom, returnTo, returnSearch]);
-
-  const { data: returnData, isLoading: returnsLoading } = useQuery({
-    queryKey: ['sale-returns', returnFrom, returnTo, returnFetchPage, returnFetchLimit],
-    queryFn: async () =>
-      (
-        await api.get('/sales/returns', {
-          params: {
-            from: returnFrom,
-            to: returnTo,
-            page: returnFetchPage,
-            limit: returnFetchLimit,
-          },
-        })
-      ).data as { returns: SaleReturn[]; total: number; page: number; limit: number },
-    enabled: tab === 'returns',
-  });
-  const returns = returnData?.returns ?? [];
-  const returnTotal = returnData?.total ?? 0;
-  const returnTotalPages = Math.max(1, Math.ceil(returnTotal / PAGE_SIZE));
-  const filteredReturns = isReturnSearching
-    ? returns.filter(
-        (r) =>
-          r.number?.toLowerCase().includes(returnQ) ||
-          r.saleNumber?.toLowerCase().includes(returnQ) ||
-          (r.customerName || 'walk-in').toLowerCase().includes(returnQ),
-      )
-    : returns;
-
   const handleViewInvoice = async (s: Sale) => {
     // Open synchronously so the browser ties the popup to this click rather
     // than treating it as an unrequested popup.
@@ -218,7 +164,31 @@ export function SalesPage() {
       '<p style="font-family:sans-serif;padding:24px;color:#666">Preparing invoice…</p>',
     );
     try {
-      await openSaleInvoicePopup(s, win);
+      // Only sales with returns need the extra round trip — everything else
+      // prints immediately with no returns section.
+      const returns =
+        Number(s.returnedTotal) > 0
+          ? ((await api.get(`/sales/${s.id}/returns`)).data as {
+              number: string;
+              date: string;
+              items: { name: string; quantity: number; lineTotal: number }[];
+            }[])
+          : [];
+      await openSaleInvoicePopup(
+        {
+          ...s,
+          returns: returns.map((r) => ({
+            number: r.number,
+            date: r.date,
+            items: r.items.map((it) => ({
+              name: it.name,
+              quantity: it.quantity,
+              amount: it.lineTotal,
+            })),
+          })),
+        },
+        win,
+      );
     } catch {
       toast.error('Enable popups to view the printable invoice');
     }
@@ -226,354 +196,247 @@ export function SalesPage() {
 
   return (
     <div className="space-y-4">
-      <div className="flex gap-1 border-b">
-        {(
-          [
-            { key: 'sales', label: 'Sales' },
-            { key: 'returns', label: 'Sale Returns' },
-          ] as const
-        ).map((t) => (
-          <button
-            key={t.key}
-            type="button"
-            onClick={() => setTab(t.key)}
-            className={cn(
-              '-mb-px border-b-2 px-3 py-2 text-sm font-medium',
-              tab === t.key
-                ? 'border-primary text-foreground'
-                : 'border-transparent text-muted-foreground hover:text-foreground',
-            )}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
-
-      {tab === 'sales' && (
-        <>
-          <div className="flex flex-wrap items-end justify-between gap-4">
-            <p className="text-sm text-muted-foreground">
-              {isSearching ? filteredSales.length : total} sale(s)
-            </p>
-            <div className="flex flex-wrap items-end gap-3">
-              <div className="space-y-1.5">
-                <Label>Payment</Label>
-                <select
-                  value={paymentMethod}
-                  onChange={(e) => setPaymentMethod(e.target.value)}
-                  className="flex h-9 w-36 rounded-md border border-input bg-transparent px-3 text-sm"
-                >
-                  <option value="">All methods</option>
-                  {Object.entries(PAYMENT_LABEL).map(([value, label]) => (
-                    <option key={value} value={value}>
-                      {label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="space-y-1.5">
-                <Label>From</Label>
-                <Input
-                  type="date"
-                  value={from}
-                  onChange={(e) => setFrom(e.target.value)}
-                  className="w-40"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label>To</Label>
-                <Input
-                  type="date"
-                  value={to}
-                  onChange={(e) => setTo(e.target.value)}
-                  className="w-40"
-                />
-              </div>
-              <div className="w-64 space-y-1.5">
-                <Label>{t('Search')}</Label>
-                <div className="relative">
-                  <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                  <Input
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                    placeholder={t('Search by sale # or customer…')}
-                    className="pl-8"
-                  />
-                </div>
-              </div>
-              <Button asChild>
-                <Link to="/pos">
-                  <ShoppingCart className="h-4 w-4" /> {t('New Sale (POS)')}
-                </Link>
-              </Button>
+      <>
+        <div className="flex flex-wrap items-end justify-between gap-4">
+          <p className="text-sm text-muted-foreground">
+            {isSearching ? filteredSales.length : total} sale(s)
+          </p>
+          <div className="flex flex-wrap items-end gap-3">
+            <div className="space-y-1.5">
+              <Label>Payment</Label>
+              <select
+                value={paymentMethod}
+                onChange={(e) => setPaymentMethod(e.target.value)}
+                className="flex h-9 w-36 rounded-md border border-input bg-transparent px-3 text-sm"
+              >
+                <option value="">All methods</option>
+                {Object.entries(PAYMENT_LABEL).map(([value, label]) => (
+                  <option key={value} value={value}>
+                    {label}
+                  </option>
+                ))}
+              </select>
             </div>
+            <div className="space-y-1.5">
+              <Label>From</Label>
+              <Input
+                type="date"
+                value={from}
+                onChange={(e) => setFrom(e.target.value)}
+                className="w-40"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>To</Label>
+              <Input
+                type="date"
+                value={to}
+                onChange={(e) => setTo(e.target.value)}
+                className="w-40"
+              />
+            </div>
+            <div className="w-64 space-y-1.5">
+              <Label>{t('Search')}</Label>
+              <div className="relative">
+                <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder={t('Search by sale # or customer…')}
+                  className="pl-8"
+                />
+              </div>
+            </div>
+            <Button asChild>
+              <Link to="/pos">
+                <ShoppingCart className="h-4 w-4" /> {t('New Sale (POS)')}
+              </Link>
+            </Button>
           </div>
+        </div>
 
-          <Card className="overflow-hidden">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b bg-muted/50 text-left text-xs uppercase tracking-wide text-muted-foreground">
-                  <th className="px-4 py-3 font-medium">{t('Sale #')}</th>
-                  <th className="px-4 py-3 font-medium">{t('Date')}</th>
-                  <th className="px-4 py-3 font-medium">{t('Customer')}</th>
-                  <th className="px-4 py-3 font-medium">{t('Store')}</th>
-                  <th className="px-4 py-3 font-medium">{t('Payment')}</th>
-                  <th className="px-4 py-3 text-right font-medium">{t('Advance Payment')}</th>
-                  <th className="px-4 py-3 text-right font-medium">{t('Remaining Amount')}</th>
-                  <th className="px-4 py-3 text-right font-medium">{t('Total Amount')}</th>
-                  <th className="px-4 py-3 text-right font-medium">{t('Actions')}</th>
+        <Card className="overflow-hidden">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b bg-muted/50 text-left text-xs uppercase tracking-wide text-muted-foreground">
+                <th className="px-4 py-3 font-medium">{t('Sale #')}</th>
+                <th className="px-4 py-3 font-medium">{t('Date')}</th>
+                <th className="px-4 py-3 font-medium">{t('Customer')}</th>
+                <th className="px-4 py-3 font-medium">{t('Store')}</th>
+                <th className="px-4 py-3 font-medium">{t('Payment')}</th>
+                <th className="px-4 py-3 text-right font-medium">{t('Advance Payment')}</th>
+                <th className="px-4 py-3 text-right font-medium">{t('Remaining Amount')}</th>
+                <th className="px-4 py-3 text-right font-medium">{t('Total Amount')}</th>
+                <th className="px-4 py-3 text-right font-medium">{t('Actions')}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {isLoading && (
+                <tr>
+                  <td colSpan={9} className="px-4 py-10 text-center text-muted-foreground">
+                    Loading…
+                  </td>
                 </tr>
-              </thead>
-              <tbody>
-                {isLoading && (
-                  <tr>
-                    <td colSpan={9} className="px-4 py-10 text-center text-muted-foreground">
-                      Loading…
+              )}
+              {!isLoading &&
+                filteredSales.map((s) => (
+                  <tr key={s.id} className="border-b last:border-0 hover:bg-muted/30">
+                    <td className="px-4 py-3 font-medium">{s.saleNumber}</td>
+                    <td className="px-4 py-3 text-muted-foreground">
+                      {new Date(s.date).toLocaleString()}
                     </td>
-                  </tr>
-                )}
-                {!isLoading &&
-                  filteredSales.map((s) => (
-                    <tr key={s.id} className="border-b last:border-0 hover:bg-muted/30">
-                      <td className="px-4 py-3 font-medium">{s.saleNumber}</td>
-                      <td className="px-4 py-3 text-muted-foreground">
-                        {new Date(s.date).toLocaleString()}
-                      </td>
-                      <td className="px-4 py-3 text-muted-foreground">
-                        {s.customer?.name ?? 'Walk-in'}
-                      </td>
-                      <td className="px-4 py-3 text-muted-foreground">{s.storeName ?? '—'}</td>
-                      <td className="px-4 py-3 text-muted-foreground">
-                        {PAYMENT_LABEL[s.paymentMethod] ?? s.paymentMethod}
-                      </td>
-                      <td className="px-4 py-3 text-right tabular-nums text-muted-foreground">
-                        {Number(s.paidAmount) > 0 ? formatCurrency(Number(s.paidAmount)) : '—'}
-                      </td>
-                      <td className="px-4 py-3 text-right tabular-nums">
-                        <span
-                          className={
-                            Number(s.balanceDue) > 0
-                              ? 'font-medium text-destructive'
-                              : 'text-success'
-                          }
-                        >
-                          {formatCurrency(Number(s.balanceDue))}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-right font-medium">
-                        {formatCurrency(Number(s.grandTotal))}
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button
-                              size="icon"
-                              variant="ghost"
-                              className="h-8 w-8"
-                              title={t('Actions')}
+                    <td className="px-4 py-3 text-muted-foreground">
+                      {s.customer?.name ?? 'Walk-in'}
+                    </td>
+                    <td className="px-4 py-3 text-muted-foreground">{s.storeName ?? '—'}</td>
+                    <td className="px-4 py-3 text-muted-foreground">
+                      {PAYMENT_LABEL[s.paymentMethod] ?? s.paymentMethod}
+                    </td>
+                    <td className="px-4 py-3 text-right tabular-nums text-muted-foreground">
+                      {Number(s.paidAmount) > 0 ? formatCurrency(Number(s.paidAmount)) : '—'}
+                    </td>
+                    <td className="px-4 py-3 text-right tabular-nums">
+                      <span
+                        className={
+                          Number(s.balanceDue) > 0 ? 'font-medium text-destructive' : 'text-success'
+                        }
+                      >
+                        {formatCurrency(Number(s.balanceDue))}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-right font-medium">
+                      {formatCurrency(Number(s.grandTotal))}
+                      {Number(s.returnedTotal) > 0 && (
+                        <div className="mt-0.5 text-xs font-normal text-destructive">
+                          {t('Returned')} {formatCurrency(Number(s.returnedTotal))}
+                        </div>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-8 w-8"
+                            title={t('Actions')}
+                          >
+                            <MoreHorizontal className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem onSelect={() => handleViewInvoice(s)}>
+                            <FileText className="h-4 w-4" /> View Invoice
+                          </DropdownMenuItem>
+                          {(s.warehouseGatePasses ?? []).map((g) => {
+                            const wh = warehouses.find((w) => w.id === g.warehouseId);
+                            const multiple = (s.warehouseGatePasses?.length ?? 0) > 1;
+                            const label = multiple
+                              ? `${t('Gate Pass')} — ${wh?.name ?? t('Warehouse')}`
+                              : t('Gate Pass');
+                            return (
+                              <DropdownMenuItem
+                                key={g.gatePassId}
+                                onSelect={() =>
+                                  setOpenGatePass({
+                                    id: g.gatePassId,
+                                    qrUrl: g.gatePassQrUrl,
+                                    title: label,
+                                  })
+                                }
+                              >
+                                <QrCode className="h-4 w-4" /> {t('View')} {label}
+                              </DropdownMenuItem>
+                            );
+                          })}
+                          {s.vendorGatePassId && (
+                            <DropdownMenuItem
+                              onSelect={() =>
+                                setOpenGatePass({
+                                  id: s.vendorGatePassId!,
+                                  qrUrl: s.vendorGatePassQrUrl,
+                                  title: t('Vendor Gate Pass'),
+                                })
+                              }
                             >
-                              <MoreHorizontal className="h-4 w-4" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
-                            <DropdownMenuItem onSelect={() => handleViewInvoice(s)}>
-                              <FileText className="h-4 w-4" /> View Invoice
+                              <QrCode className="h-4 w-4" /> {t('View Gate Pass (Vendor)')}
                             </DropdownMenuItem>
-                            <DropdownMenuItem onSelect={() => setGatePassSale(s)}>
-                              <QrCode className="h-4 w-4" /> View Gate Pass
+                          )}
+                          {Number(s.returnedTotal) > 0 && (
+                            <DropdownMenuItem onSelect={() => setViewingReturnsFor(s)}>
+                              <Undo2 className="h-4 w-4" /> {t('View Returns')}
                             </DropdownMenuItem>
-                            {canManageSales && (
-                              <>
-                                <DropdownMenuItem onSelect={() => setEditingSale(s)}>
-                                  <Pencil className="h-4 w-4" /> Update Sale
+                          )}
+                          {canManageSales && (
+                            <>
+                              <DropdownMenuItem
+                                disabled={Number(s.returnedTotal) > 0}
+                                title={
+                                  Number(s.returnedTotal) > 0
+                                    ? t('Sales with returns against them can no longer be edited')
+                                    : undefined
+                                }
+                                onSelect={() => navigate(`/sales/${s.id}/edit`)}
+                              >
+                                <Pencil className="h-4 w-4" /> Update Sale
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onSelect={() => setReturningSale(s)}>
+                                <RotateCcw className="h-4 w-4" /> Return Product
+                              </DropdownMenuItem>
+                              {Number(s.balanceDue) > 0 && (
+                                <DropdownMenuItem onSelect={() => setPayingSale(s)}>
+                                  <Wallet className="h-4 w-4" /> Record Payment
                                 </DropdownMenuItem>
-                                <DropdownMenuItem onSelect={() => setReturningSale(s)}>
-                                  <RotateCcw className="h-4 w-4" /> Return Product
-                                </DropdownMenuItem>
-                                {Number(s.balanceDue) > 0 && (
-                                  <DropdownMenuItem onSelect={() => setPayingSale(s)}>
-                                    <Wallet className="h-4 w-4" /> Record Payment
-                                  </DropdownMenuItem>
-                                )}
-                              </>
-                            )}
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </td>
-                    </tr>
-                  ))}
-                {!isLoading && isSearching && filteredSales.length === 0 && (
-                  <tr>
-                    <td colSpan={9} className="px-4 py-10 text-center text-muted-foreground">
-                      No sales match “{search}”.
+                              )}
+                            </>
+                          )}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                     </td>
                   </tr>
-                )}
-                {!isLoading && total === 0 && (
-                  <tr>
-                    <td colSpan={9} className="px-4 py-10 text-center text-muted-foreground">
-                      No sales yet — ring one up in the POS.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-            {!isSearching && (
-              <Pagination
-                page={page}
-                totalPages={totalPages}
-                total={total}
-                pageSize={PAGE_SIZE}
-                onPageChange={setPage}
-                className="border-t"
-              />
-            )}
-          </Card>
-        </>
-      )}
-
-      {tab === 'returns' && (
-        <>
-          <div className="flex flex-wrap items-end justify-between gap-4">
-            <p className="text-sm text-muted-foreground">
-              {isReturnSearching ? filteredReturns.length : returnTotal} return(s)
-            </p>
-            <div className="flex flex-wrap items-end gap-3">
-              <div className="space-y-1.5">
-                <Label>From</Label>
-                <Input
-                  type="date"
-                  value={returnFrom}
-                  onChange={(e) => setReturnFrom(e.target.value)}
-                  className="w-40"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label>To</Label>
-                <Input
-                  type="date"
-                  value={returnTo}
-                  onChange={(e) => setReturnTo(e.target.value)}
-                  className="w-40"
-                />
-              </div>
-              <div className="w-64 space-y-1.5">
-                <Label>{t('Search')}</Label>
-                <div className="relative">
-                  <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                  <Input
-                    value={returnSearch}
-                    onChange={(e) => setReturnSearch(e.target.value)}
-                    placeholder={t('Search by return #, sale # or customer…')}
-                    className="pl-8"
-                  />
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <Card className="overflow-hidden">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b bg-muted/50 text-left text-xs uppercase tracking-wide text-muted-foreground">
-                  <th className="px-4 py-3 font-medium">{t('Return #')}</th>
-                  <th className="px-4 py-3 font-medium">{t('Date')}</th>
-                  <th className="px-4 py-3 font-medium">{t('Sale #')}</th>
-                  <th className="px-4 py-3 font-medium">{t('Customer')}</th>
-                  <th className="px-4 py-3 font-medium">{t('Items')}</th>
-                  <th className="px-4 py-3 text-right font-medium">{t('Amount')}</th>
-                  <th className="px-4 py-3 font-medium">{t('Note')}</th>
+                ))}
+              {!isLoading && isSearching && filteredSales.length === 0 && (
+                <tr>
+                  <td colSpan={9} className="px-4 py-10 text-center text-muted-foreground">
+                    No sales match “{search}”.
+                  </td>
                 </tr>
-              </thead>
-              <tbody>
-                {returnsLoading && (
-                  <tr>
-                    <td colSpan={7} className="px-4 py-10 text-center text-muted-foreground">
-                      Loading…
-                    </td>
-                  </tr>
-                )}
-                {!returnsLoading &&
-                  filteredReturns.map((r) => (
-                    <tr key={r.id} className="border-b last:border-0 hover:bg-muted/30">
-                      <td className="px-4 py-3 font-medium">{r.number}</td>
-                      <td className="px-4 py-3 text-muted-foreground">
-                        {new Date(r.date).toLocaleString()}
-                      </td>
-                      <td className="px-4 py-3 text-muted-foreground">{r.saleNumber}</td>
-                      <td className="px-4 py-3 text-muted-foreground">
-                        {r.customerName || 'Walk-in'}
-                      </td>
-                      <td className="px-4 py-3 text-muted-foreground">
-                        {r.items.map((it) => `${it.name} ×${it.quantity}`).join(', ')}
-                      </td>
-                      <td className="px-4 py-3 text-right font-medium">
-                        {formatCurrency(Number(r.total))}
-                      </td>
-                      <td className="px-4 py-3 text-muted-foreground">{r.note || '—'}</td>
-                    </tr>
-                  ))}
-                {!returnsLoading && isReturnSearching && filteredReturns.length === 0 && (
-                  <tr>
-                    <td colSpan={7} className="px-4 py-10 text-center text-muted-foreground">
-                      No returns match “{returnSearch}”.
-                    </td>
-                  </tr>
-                )}
-                {!returnsLoading && returnTotal === 0 && (
-                  <tr>
-                    <td colSpan={7} className="px-4 py-10 text-center text-muted-foreground">
-                      No returns recorded yet.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-            {!isReturnSearching && (
-              <Pagination
-                page={returnPage}
-                totalPages={returnTotalPages}
-                total={returnTotal}
-                pageSize={PAGE_SIZE}
-                onPageChange={setReturnPage}
-                className="border-t"
-              />
-            )}
-          </Card>
-        </>
-      )}
+              )}
+              {!isLoading && total === 0 && (
+                <tr>
+                  <td colSpan={9} className="px-4 py-10 text-center text-muted-foreground">
+                    No sales yet — ring one up in the POS.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+          {!isSearching && (
+            <Pagination
+              page={page}
+              totalPages={totalPages}
+              total={total}
+              pageSize={PAGE_SIZE}
+              onPageChange={setPage}
+              className="border-t"
+            />
+          )}
+        </Card>
+      </>
 
       <GatePassDialog
-        gatePassId={gatePassSale?.gatePassId}
-        gatePassQrUrl={gatePassSale?.gatePassQrUrl}
-        open={gatePassSale !== null}
-        onOpenChange={(o) => !o && setGatePassSale(null)}
+        gatePassId={openGatePass?.id}
+        gatePassQrUrl={openGatePass?.qrUrl}
+        title={openGatePass?.title}
+        open={openGatePass !== null}
+        onOpenChange={(o) => !o && setOpenGatePass(null)}
       />
 
-      <UpdateSaleDialog
-        sale={
-          editingSale && {
-            id: editingSale.id,
-            saleNumber: editingSale.saleNumber,
-            items: editingSale.items.map((it) => ({
-              productId: it.productId,
-              name: it.name,
-              quantity: it.quantity,
-              unitPrice: Number(it.unitPrice),
-              source: it.source,
-              vendorId: it.vendorId,
-              vendorName: it.vendorName,
-              warehouseId: it.warehouseId,
-            })),
-            discountTotal: Number(editingSale.discountTotal),
-            taxPercent: Number(editingSale.taxPercent),
-            transportFare: Number(editingSale.transportFare ?? 0),
-            labourRentTotal: Number(editingSale.labourRentTotal ?? 0),
-            transport: editingSale.transport,
-          }
-        }
-        open={editingSale !== null}
-        onOpenChange={(o) => !o && setEditingSale(null)}
+      <SaleReturnsDialog
+        sale={viewingReturnsFor}
+        open={viewingReturnsFor !== null}
+        onOpenChange={(o) => !o && setViewingReturnsFor(null)}
+        onViewGatePass={setOpenGatePass}
       />
 
       <ReturnProductDialog

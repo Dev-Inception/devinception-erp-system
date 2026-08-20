@@ -72,6 +72,9 @@ const createSaleValidator = [
   body('store').isMongoId().withMessage('A store is required'),
   body('customer').optional({ values: 'falsy' }).isMongoId().withMessage('Invalid customer'),
   body('date').optional({ values: 'falsy' }).isISO8601().withMessage('Invalid date'),
+  // Set when this sale is converting an existing estimate — see
+  // saleService.createSale, which marks that estimate CONVERTED afterward.
+  body('estimate').optional({ values: 'falsy' }).isMongoId().withMessage('Invalid estimate'),
   ...itemsAndTermsValidator,
   body('payment.method').isIn(PAYMENT_METHODS).withMessage('A valid payment method is required'),
   body('payment.cash')

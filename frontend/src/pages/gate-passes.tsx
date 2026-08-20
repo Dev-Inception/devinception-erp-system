@@ -1,11 +1,14 @@
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { CheckCircle2, Clock3, Search } from 'lucide-react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { CheckCircle2, Clock3, Eye, Search, Trash2 } from 'lucide-react';
+import { toast } from 'sonner';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { GatePassDialog } from '@/components/gate-pass-dialog';
 import { api } from '@/lib/api';
+import { useAuthStore } from '@/store/auth';
 import { useStorefrontFilter } from '@/store/storefront';
 import { useLanguage } from '@/components/language-provider';
 
@@ -14,12 +17,13 @@ interface GatePassItem {
   name: string;
   sku?: string;
   quantity: number;
+  returnedQuantity?: number;
 }
 
 interface GatePass {
   id: string;
   number: string;
-  sourceType: 'SALE' | 'PURCHASE';
+  sourceType: 'SALE' | 'PURCHASE' | 'RETURN';
   saleNumber: string;
   saleDate: string;
   status: 'PENDING' | 'PROCESSED' | 'CANCELLED';
@@ -36,6 +40,10 @@ export function GatePassesPage() {
   const [to, setTo] = useState('');
   const storefront = useStorefrontFilter();
   const { t } = useLanguage();
+  const qc = useQueryClient();
+  const isSuperAdmin = useAuthStore((s) => s.user?.role) === 'SUPER_ADMIN';
+  const [viewing, setViewing] = useState<GatePass | null>(null);
+
   const { data, isLoading } = useQuery<{
     gatePasses: GatePass[];
     total: number;
@@ -60,6 +68,21 @@ export function GatePassesPage() {
   const filteredGatePasses = q
     ? gatePasses.filter((g) => g.number.toLowerCase().includes(q))
     : gatePasses;
+
+  const deleteGatePass = useMutation({
+    mutationFn: async (id: string) => api.delete(`/gate-passes/${id}`),
+    onSuccess: () => {
+      toast.success('Gate pass deleted');
+      qc.invalidateQueries({ queryKey: ['gate-passes'] });
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Could not delete gate pass'),
+  });
+
+  const remove = (gatePass: GatePass) => {
+    if (window.confirm(`Delete gate pass "${gatePass.number}"? This cannot be undone.`)) {
+      deleteGatePass.mutate(gatePass.id);
+    }
+  };
 
   return (
     <div className="space-y-4">
@@ -123,19 +146,20 @@ export function GatePassesPage() {
               <th className="px-4 py-3 font-medium">{t('Products / Qty')}</th>
               <th className="px-4 py-3 font-medium">{t('Scanned By')}</th>
               <th className="px-4 py-3 font-medium">{t('Status')}</th>
+              <th className="px-4 py-3 text-right font-medium">{t('Actions')}</th>
             </tr>
           </thead>
           <tbody>
             {isLoading && (
               <tr>
-                <td colSpan={5} className="px-4 py-10 text-center text-muted-foreground">
+                <td colSpan={6} className="px-4 py-10 text-center text-muted-foreground">
                   Loading…
                 </td>
               </tr>
             )}
             {!isLoading && filteredGatePasses.length === 0 && (
               <tr>
-                <td colSpan={5} className="px-4 py-10 text-center text-muted-foreground">
+                <td colSpan={6} className="px-4 py-10 text-center text-muted-foreground">
                   {q ? `No gate passes match "${search}".` : 'No gate passes found.'}
                 </td>
               </tr>
@@ -146,13 +170,18 @@ export function GatePassesPage() {
                 <td className="px-4 py-3">
                   <div>{gatePass.saleNumber}</div>
                   <div className="text-xs text-muted-foreground">
-                    {gatePass.sourceType === 'PURCHASE' ? 'Goods In' : 'Goods Out'}
+                    {gatePass.sourceType === 'SALE' ? 'Goods Out' : 'Goods In'}
                   </div>
                 </td>
                 <td className="px-4 py-3">
                   {gatePass.items.map((item) => (
                     <div key={item.productId}>
                       {item.name} × {item.quantity}
+                      {item.returnedQuantity ? (
+                        <span className="ml-1 text-xs text-destructive">
+                          ({item.returnedQuantity} returned)
+                        </span>
+                      ) : null}
                     </div>
                   ))}
                 </td>
@@ -174,11 +203,44 @@ export function GatePassesPage() {
                     </div>
                   )}
                 </td>
+                <td className="px-4 py-3 text-right">
+                  <div className="flex justify-end gap-1">
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="h-8 w-8"
+                      title={t('View')}
+                      onClick={() => setViewing(gatePass)}
+                    >
+                      <Eye className="h-4 w-4" />
+                    </Button>
+                    {isSuperAdmin && (
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="h-8 w-8"
+                        title={t('Delete')}
+                        disabled={deleteGatePass.isPending}
+                        onClick={() => remove(gatePass)}
+                      >
+                        <Trash2 className="h-4 w-4 text-destructive" />
+                      </Button>
+                    )}
+                  </div>
+                </td>
               </tr>
             ))}
           </tbody>
         </table>
       </Card>
+
+      <GatePassDialog
+        gatePassId={viewing?.id}
+        gatePassQrUrl={viewing ? `/gate-passes/${viewing.id}/qr` : undefined}
+        title={viewing?.number}
+        open={viewing !== null}
+        onOpenChange={(o) => !o && setViewing(null)}
+      />
     </div>
   );
 }

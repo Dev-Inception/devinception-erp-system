@@ -25,6 +25,14 @@ const saleReturnItemSchema = new mongoose.Schema(
   { _id: false },
 );
 
+const returnWarehouseGatePassSchema = new mongoose.Schema(
+  {
+    warehouse: { type: mongoose.Schema.Types.ObjectId, ref: 'Warehouse', required: true },
+    gatePass: { type: mongoose.Schema.Types.ObjectId, ref: 'GatePass', required: true },
+  },
+  { _id: false },
+);
+
 const saleReturnSchema = new mongoose.Schema(
   {
     number: { type: String, required: true, unique: true }, // RETURN-2026-000001
@@ -34,6 +42,9 @@ const saleReturnSchema = new mongoose.Schema(
     customerName: { type: String, default: '' }, // snapshot
     date: { type: Date, default: Date.now, index: true },
     items: { type: [saleReturnItemSchema], required: true },
+    // One entry per warehouse this return actually restocked — each gets its
+    // own "goods coming in" gate pass, documenting how much was returned.
+    warehouseGatePasses: { type: [returnWarehouseGatePassSchema], default: [] },
     subtotal: { type: Number, required: true, min: 0 }, // paisa, sum of item lineTotals
     // Discount and tax are apportioned from the original sale's totals,
     // proportional to how much of the sale's subtotal this return represents.

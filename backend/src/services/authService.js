@@ -17,7 +17,7 @@ async function login({ email, password }) {
     throw ApiError.unauthorized('Invalid email or password');
   }
   if (!user.isActive) {
-    throw ApiError.forbidden('Account is deactivated');
+    throw ApiError.forbidden('Your account has been deactivated by the Super Admin');
   }
 
   const tokens = tokenService.generateAuthTokens(user);

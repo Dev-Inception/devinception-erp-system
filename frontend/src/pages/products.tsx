@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Search, Plus, AlertTriangle, Loader2, PackagePlus, ChevronDown } from 'lucide-react';
+import { Search, Plus, AlertTriangle, Loader2, Pencil, Trash2, ChevronDown } from 'lucide-react';
 import { toast } from 'sonner';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -84,7 +84,7 @@ function ProductDialog({
           barcode: editing.barcode ?? '',
           categoryId: editing.categoryId ?? '',
           unitId: editing.unitId ?? '',
-          warehouseId: '',
+          warehouseId: editing.warehouseId ?? '',
           purchasePrice: Number(editing.purchasePrice),
           salePrice: Number(editing.salePrice),
           taxRate: Number(editing.taxRate),
@@ -100,7 +100,7 @@ function ProductDialog({
         categoryId: form.categoryId || undefined,
         unitId: form.unitId || undefined,
         barcode: form.barcode || undefined,
-        warehouseId: editing ? undefined : form.warehouseId,
+        warehouseId: form.warehouseId,
       };
       return editing
         ? (await api.patch(`/products/${editing.id}`, payload)).data
@@ -141,26 +141,24 @@ function ProductDialog({
             <Label>Name *</Label>
             <Input required value={form.name} onChange={(e) => field('name', e.target.value)} />
           </div>
-          {!editing && (
-            <div className="col-span-2 space-y-1.5">
-              <Label>Warehouse *</Label>
-              <select
-                required
-                value={form.warehouseId}
-                onChange={(e) => field('warehouseId', e.target.value)}
-                className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
-              >
-                <option value="" disabled>
-                  Select warehouse…
+          <div className="col-span-2 space-y-1.5">
+            <Label>Warehouse *</Label>
+            <select
+              required
+              value={form.warehouseId}
+              onChange={(e) => field('warehouseId', e.target.value)}
+              className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
+            >
+              <option value="" disabled>
+                Select warehouse…
+              </option>
+              {warehouses.map((w) => (
+                <option key={w.id} value={w.id}>
+                  {w.name}
                 </option>
-                {warehouses.map((w) => (
-                  <option key={w.id} value={w.id}>
-                    {w.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
+              ))}
+            </select>
+          </div>
           <div className="space-y-1.5">
             <Label>SKU *</Label>
             <Input
@@ -215,17 +213,18 @@ function ProductDialog({
               onChange={(e) => field('purchasePrice', Math.max(0, Number(e.target.value)))}
             />
           </div>
-          <div className="space-y-1.5">
-            <Label>Sale Price *</Label>
-            <Input
-              type="number"
-              step="0.01"
-              min="0"
-              required
-              value={form.salePrice || ''}
-              onChange={(e) => field('salePrice', Math.max(0, Number(e.target.value)))}
-            />
-          </div>
+          {editing && (
+            <div className="space-y-1.5">
+              <Label>Sale Price</Label>
+              <Input
+                type="number"
+                step="0.01"
+                min="0"
+                value={form.salePrice || ''}
+                onChange={(e) => field('salePrice', Math.max(0, Number(e.target.value)))}
+              />
+            </div>
+          )}
           <div className="space-y-1.5">
             <Label>Tax %</Label>
             <Input
@@ -260,125 +259,20 @@ function ProductDialog({
   );
 }
 
-/* ── Adjust stock for a product in the active warehouse ── */
-const ADJUST_TYPES = [
-  { key: 'STOCK_IN', label: 'Stock In' },
-  { key: 'STOCK_OUT', label: 'Stock Out' },
-  { key: 'ADJUSTMENT', label: 'Set Qty' },
-  { key: 'DAMAGED', label: 'Damaged' },
-] as const;
-
-function StockDialog({
-  product,
-  warehouseId,
-  onClose,
-}: {
-  product: Product;
-  warehouseId: string;
-  onClose: () => void;
-}) {
-  const qc = useQueryClient();
-  const { t } = useLanguage();
-  const [type, setType] = useState<(typeof ADJUST_TYPES)[number]['key']>('STOCK_IN');
-  const [quantity, setQuantity] = useState<number>(0);
-  const [note, setNote] = useState('');
-
-  const adjust = useMutation({
-    mutationFn: async () =>
-      (
-        await api.post('/stock/adjust', {
-          productId: product.id,
-          warehouseId,
-          type,
-          quantity,
-          note,
-        })
-      ).data,
-    onSuccess: (r) => {
-      toast.success(`Stock updated — ${product.name}: ${r.newQty}`);
-      qc.invalidateQueries({ queryKey: ['products'] });
-      qc.invalidateQueries({ queryKey: ['warehouses'] });
-      onClose();
-    },
-    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Adjustment failed'),
-  });
-
-  return (
-    <Dialog open onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="max-w-md">
-        <DialogHeader>
-          <DialogTitle>Adjust Stock — {product.name}</DialogTitle>
-          <DialogDescription>Current on-hand: {product.currentStock}</DialogDescription>
-        </DialogHeader>
-        <form
-          className="space-y-3"
-          onSubmit={(e) => {
-            e.preventDefault();
-            adjust.mutate();
-          }}
-        >
-          <div className="grid grid-cols-4 gap-1.5">
-            {ADJUST_TYPES.map((opt) => (
-              <Button
-                key={opt.key}
-                type="button"
-                size="sm"
-                variant={type === opt.key ? 'default' : 'outline'}
-                onClick={() => setType(opt.key)}
-              >
-                {t(opt.label)}
-              </Button>
-            ))}
-          </div>
-          <div className="space-y-1.5">
-            <Label>{type === 'ADJUSTMENT' ? 'New on-hand quantity' : 'Quantity'}</Label>
-            <Input
-              type="number"
-              step="0.001"
-              min={0}
-              required
-              autoFocus
-              value={quantity || ''}
-              onChange={(e) => setQuantity(Number(e.target.value))}
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label>Note (optional)</Label>
-            <Input
-              value={note}
-              onChange={(e) => setNote(e.target.value)}
-              placeholder="e.g. opening stock, correction…"
-            />
-          </div>
-          <div className="flex justify-end gap-2 pt-1">
-            <Button type="button" variant="outline" onClick={onClose}>
-              {t('Cancel')}
-            </Button>
-            <Button type="submit" disabled={adjust.isPending}>
-              {adjust.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
-              {t('Apply')}
-            </Button>
-          </div>
-        </form>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
 export function ProductsPage() {
   const { t } = useLanguage();
+  const qc = useQueryClient();
   const [search, setSearch] = useState('');
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<Product | null>(null);
-  const [stockFor, setStockFor] = useState<Product | null>(null);
-  // Resolved silently in the background (no picker) — Stock Adjustment still
-  // needs a warehouse id server-side, but the user never has to think about it.
-  const { currentId } = useWarehouses();
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [category, setCategory] = useState('');
+  const [warehouse, setWarehouse] = useState('');
   const [page, setPage] = useState(1);
   const storefront = useStorefrontFilter();
+  const { warehouses } = useWarehouses();
+  const warehouseName = (id?: string) => warehouses.find((w) => w.id === id)?.name ?? '—';
 
   const { data: catalog } = useQuery<Catalog>({
     queryKey: ['catalog'],
@@ -391,16 +285,39 @@ export function ProductsPage() {
   const fetchLimit = isSearching ? SEARCH_FETCH_LIMIT : PAGE_SIZE;
 
   const { data: products = [], isLoading } = useQuery<Product[]>({
-    queryKey: ['products', search, category, storefront.store],
+    queryKey: ['products', search, category, warehouse, storefront.store],
     queryFn: async () =>
       (
         await api.get('/products', {
-          params: { search, category: category || undefined, ...storefront },
+          params: {
+            search,
+            category: category || undefined,
+            warehouse: warehouse || undefined,
+            // An explicit warehouse pick is more specific than the storefront's
+            // store scope — the backend prioritizes `store` over `warehouse`
+            // when both are sent, which would otherwise silently ignore this
+            // filter whenever a specific store is also selected up top.
+            ...(warehouse ? {} : storefront),
+          },
         })
       ).data,
   });
   const total = products?.length ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+
+  const del = useMutation({
+    mutationFn: async (id: string) => (await api.delete(`/products/${id}`)).data,
+    onSuccess: () => {
+      toast.success('Product deleted');
+      qc.invalidateQueries({ queryKey: ['products'] });
+      qc.invalidateQueries({ queryKey: ['catalog'] });
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Could not delete product'),
+  });
+
+  const remove = (p: Product) => {
+    if (window.confirm(`Delete product "${p.name}"? This cannot be undone.`)) del.mutate(p.id);
+  };
 
   return (
     <div className="space-y-4">
@@ -433,6 +350,21 @@ export function ProductsPage() {
             </select>
             <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           </div>
+          <div className="relative">
+            <select
+              value={warehouse}
+              onChange={(e) => setWarehouse(e.target.value)}
+              className="h-9 w-48 appearance-none rounded-md border border-input bg-transparent py-1 pl-3 pr-9 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:border-input"
+            >
+              <option value="">{t('All Warehouses')}</option>
+              {warehouses.map((w) => (
+                <option key={w.id} value={w.id}>
+                  {w.name}
+                </option>
+              ))}
+            </select>
+            <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          </div>
         </div>
         <Button
           onClick={() => {
@@ -452,6 +384,7 @@ export function ProductsPage() {
                 <th className="px-4 py-3 font-medium">{t('Product')}</th>
                 <th className="px-4 py-3 font-medium">{t('SKU')}</th>
                 <th className="px-4 py-3 font-medium">{t('Category')}</th>
+                <th className="px-4 py-3 font-medium">{t('Warehouse')}</th>
                 <th className="px-4 py-3 text-right font-medium">{t('Purchase')}</th>
                 <th className="px-4 py-3 text-right font-medium">{t('Sale')}</th>
                 <th className="px-4 py-3 text-right font-medium">{t('Stock')}</th>
@@ -461,7 +394,7 @@ export function ProductsPage() {
             <tbody>
               {isLoading && (
                 <tr>
-                  <td colSpan={7} className="px-4 py-10 text-center text-muted-foreground">
+                  <td colSpan={8} className="px-4 py-10 text-center text-muted-foreground">
                     Loading…
                   </td>
                 </tr>
@@ -480,6 +413,12 @@ export function ProductsPage() {
                     </td>
                     <td className="px-4 py-3 text-muted-foreground">{p.sku}</td>
                     <td className="px-4 py-3 text-muted-foreground">{p.category?.name ?? '—'}</td>
+                    <td className="px-4 py-3 text-muted-foreground">
+                      {/* When filtering by warehouse, the Stock column is scoped to
+                          that warehouse — label the row with it too, rather than the
+                          product's static owning warehouse, so the two stay consistent. */}
+                      {warehouseName(warehouse || p.warehouseId)}
+                    </td>
                     <td className="px-4 py-3 text-right">
                       {formatCurrency(Number(p.purchasePrice))}
                     </td>
@@ -498,15 +437,36 @@ export function ProductsPage() {
                       </span>
                     </td>
                     <td className="px-4 py-3 text-right">
-                      <Button size="sm" variant="outline" onClick={() => setStockFor(p)}>
-                        <PackagePlus className="h-4 w-4" /> {t('Stock')}
-                      </Button>
+                      <div className="flex justify-end gap-1">
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="h-8 w-8"
+                          title={t('Edit')}
+                          onClick={() => {
+                            setEditing(p);
+                            setDialogOpen(true);
+                          }}
+                        >
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="h-8 w-8"
+                          title={t('Delete')}
+                          disabled={del.isPending}
+                          onClick={() => remove(p)}
+                        >
+                          <Trash2 className="h-4 w-4 text-destructive" />
+                        </Button>
+                      </div>
                     </td>
                   </tr>
                 ))}
               {!isLoading && products.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="px-4 py-10 text-center text-muted-foreground">
+                  <td colSpan={8} className="px-4 py-10 text-center text-muted-foreground">
                     No products found.
                   </td>
                 </tr>
@@ -532,17 +492,6 @@ export function ProductsPage() {
           open={dialogOpen}
           onOpenChange={setDialogOpen}
           editing={editing}
-        />
-      )}
-      {stockFor && (
-        <StockDialog
-          product={stockFor}
-          // Adjustments must target the product's own owning warehouse, not
-          // whatever is globally "current" — otherwise the backend rejects it
-          // as belonging to another warehouse. Only legacy owner-less products
-          // fall back to the global default.
-          warehouseId={stockFor.warehouseId ?? currentId ?? ''}
-          onClose={() => setStockFor(null)}
         />
       )}
     </div>

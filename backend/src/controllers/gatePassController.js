@@ -71,6 +71,11 @@ const updateProcessedGatePass = asyncHandler(async (req, res) => {
   });
 });
 
+const deleteGatePass = asyncHandler(async (req, res) => {
+  await gatePassService.deleteGatePass(req.params.gatePassId);
+  return sendSuccess(res, 200, 'Gate pass deleted');
+});
+
 module.exports = {
   listGatePasses,
   getGatePass,
@@ -79,4 +84,5 @@ module.exports = {
   getPublicGatePass,
   processGatePass,
   updateProcessedGatePass,
+  deleteGatePass,
 };

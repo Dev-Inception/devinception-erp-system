@@ -8,7 +8,7 @@ import { api } from '@/lib/api';
 import { useStorefrontFilter } from '@/store/storefront';
 import { useLanguage } from '@/components/language-provider';
 
-type Kind = 'customers' | 'vendors';
+type Kind = 'customers' | 'vendors' | 'labour';
 interface Party {
   id: string;
   name: string;
@@ -50,8 +50,8 @@ export function LedgersPage() {
     <div className="grid gap-4 lg:grid-cols-[300px_1fr]">
       <Card className="h-fit">
         <CardHeader className="pb-3">
-          <div className="grid grid-cols-2 gap-1 rounded-lg bg-muted p-1">
-            {(['customers', 'vendors'] as const).map((k) => (
+          <div className="grid grid-cols-3 gap-1 rounded-lg bg-muted p-1">
+            {(['customers', 'vendors', 'labour'] as const).map((k) => (
               <button
                 key={k}
                 onClick={() => {

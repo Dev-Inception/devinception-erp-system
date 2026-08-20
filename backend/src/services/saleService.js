@@ -2,7 +2,6 @@ const mongoose = require('mongoose');
 const Sale = require('../models/saleModel');
 const Store = require('../models/storeModel');
 const Customer = require('../models/customerModel');
-const Labour = require('../models/labourModel');
 const Vendor = require('../models/vendorModel');
 const Product = require('../models/productModel');
 const StockLevel = require('../models/stockLevelModel');
@@ -23,6 +22,8 @@ const {
   assertStoreAccess,
 } = require('../utils/storeScope');
 const gatePassService = require('./gatePassService');
+const pendingEntityService = require('./pendingEntityService');
+const labourService = require('./labourService');
 
 /**
  * POS sale flow. Resolves how the sale is settled (cash / bank / on account),
@@ -208,6 +209,9 @@ async function createSale(actor, input) {
     transportFare = 0,
     transport = {},
     payment = {},
+    // Set when this checkout is converting an existing estimate — marked
+    // CONVERTED below once the sale has actually posted.
+    estimate,
   } = input;
 
   if (!Array.isArray(items) || items.length === 0) {
@@ -232,32 +236,7 @@ async function createSale(actor, input) {
     ? await warehouseService.getWarehouseById(warehouse)
     : await stockService.ensureDefaultWarehouse();
 
-  // Accepts either a plain array of labour ids, or `{ labour, rent }` objects
-  // when each labourer has a per-job charge attached.
-  const labourInput = Array.isArray(labour) ? labour : [];
-  const labourIds = Array.from(
-    new Set(
-      labourInput
-        .map((l) => (l && typeof l === 'object' ? l.labour : l))
-        .filter(Boolean)
-        .map(String),
-    ),
-  );
-  const labourDocs = labourIds.length ? await Labour.find({ _id: { $in: labourIds } }) : [];
-  if (labourDocs.length !== labourIds.length) {
-    throw ApiError.badRequest('One or more labour entries are invalid');
-  }
-  const rentByLabour = new Map(
-    labourInput
-      .filter((l) => l && typeof l === 'object' && l.labour)
-      .map((l) => [String(l.labour), toPaisa(l.rent || 0)]),
-  );
-  const saleLabour = labourDocs.map((doc) => ({
-    labour: doc._id,
-    name: doc.name,
-    phoneNumber: doc.phoneNumber,
-    rent: rentByLabour.get(String(doc._id)) || 0,
-  }));
+  const saleLabour = await labourService.resolveLabourLines(labour);
   const labourRentPaisa = saleLabour.reduce((s, l) => s + l.rent, 0);
 
   // Build line items (paisa) and pre-check stock so we never half-sell. A
@@ -420,6 +399,33 @@ async function createSale(actor, input) {
     });
   }
 
+  // Labour payable: the rent charged to the customer was already booked as
+  // SALES revenue above — this books the matching expense/liability to the
+  // labourer, which nothing did before. Dr Operating Expense / Cr AP_LABOUR
+  // per labourer with a rent, in one balanced entry.
+  await labourService.postLabourPayable(saleLabour, {
+    when,
+    refType: REF.SALE,
+    refNo: number,
+    store: storeDoc._id,
+    actor,
+    label: 'sale',
+  });
+
+  // Vendor-sourced lines have no known cost yet — each becomes a Pending
+  // Entity for a super admin to price later (see pendingEntityService). Not
+  // fatal: the sale itself is already committed.
+  try {
+    await pendingEntityService.recordSaleVendorItems(
+      sale,
+      lineItems.filter((li) => li.source === 'VENDOR'),
+      actor,
+    );
+  } catch (error) {
+    // eslint-disable-next-line no-console
+    console.error(`Pending entity creation failed for sale ${number}:`, error);
+  }
+
   // The sale, stock deduction, and journal entries are already committed by
   // this point — a gate-pass hiccup (e.g. a stale index, a transient error)
   // must not fail the whole sale. Gate passes self-heal on next view
@@ -440,6 +446,18 @@ async function createSale(actor, input) {
       sale.warehouseGatePasses = persisted.warehouseGatePasses;
       sale.gatePass = persisted.gatePass;
       sale.vendorGatePass = persisted.vendorGatePass;
+    }
+  }
+
+  // Same best-effort treatment as gate passes above — the sale itself is
+  // already committed, so a hiccup marking the estimate converted must not
+  // fail (or appear to fail) the sale.
+  if (estimate) {
+    try {
+      await require('./estimateService').markConverted(estimate, sale._id);
+    } catch (error) {
+      // eslint-disable-next-line no-console
+      console.error(`Marking estimate ${estimate} converted failed for sale ${number}:`, error);
     }
   }
 
@@ -497,32 +515,7 @@ async function updateSale(actor, saleId, input) {
   let saleLabour = sale.labour;
   let labourRentPaisa = sale.labourRent;
   if (labour !== undefined) {
-    // Accepts either a plain array of labour ids, or `{ labour, rent }`
-    // objects when each labourer has a per-job charge attached.
-    const labourInput = Array.isArray(labour) ? labour : [];
-    const labourIds = Array.from(
-      new Set(
-        labourInput
-          .map((l) => (l && typeof l === 'object' ? l.labour : l))
-          .filter(Boolean)
-          .map(String),
-      ),
-    );
-    const labourDocs = labourIds.length ? await Labour.find({ _id: { $in: labourIds } }) : [];
-    if (labourDocs.length !== labourIds.length) {
-      throw ApiError.badRequest('One or more labour entries are invalid');
-    }
-    const rentByLabour = new Map(
-      labourInput
-        .filter((l) => l && typeof l === 'object' && l.labour)
-        .map((l) => [String(l.labour), toPaisa(l.rent || 0)]),
-    );
-    saleLabour = labourDocs.map((doc) => ({
-      labour: doc._id,
-      name: doc.name,
-      phoneNumber: doc.phoneNumber,
-      rent: rentByLabour.get(String(doc._id)) || 0,
-    }));
+    saleLabour = await labourService.resolveLabourLines(labour);
     labourRentPaisa = saleLabour.reduce((s, l) => s + l.rent, 0);
   }
 
@@ -592,6 +585,14 @@ async function updateSale(actor, saleId, input) {
   // Reverse the original revenue + COGS entries (using the sale's own
   // pre-edit stored totals), then post fresh ones below for the revised sale.
   await reverseSaleJournalEntries(sale, actor, when);
+  await labourService.reverseLabourPayable(sale.labour, {
+    when,
+    refType: REF.SALE,
+    refNo: sale.number,
+    store: sale.store,
+    actor,
+    label: 'sale',
+  });
 
   sale.items = lineItems;
   sale.labour = saleLabour;
@@ -613,6 +614,15 @@ async function updateSale(actor, saleId, input) {
   sale.lastEditedAt = when;
   sale.lastEditedBy = actor ? actor._id : null;
   await sale.save();
+
+  await labourService.postLabourPayable(sale.labour, {
+    when,
+    refType: REF.SALE,
+    refNo: sale.number,
+    store: sale.store,
+    actor,
+    label: 'sale',
+  });
 
   const revenueLines = [];
   if (sale.cashAmount > 0)

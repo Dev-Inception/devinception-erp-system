@@ -1,6 +1,16 @@
 const { body, query, param } = require('express-validator');
+const { PAYMENT_METHOD } = require('../utils/finance');
 
 const idParam = param('id').isMongoId().withMessage('Invalid stock receipt id');
+
+// A payment to the vendor settles in cash or into a bank/online account —
+// it can't be CREDIT or MIXED (those only make sense at a POS checkout).
+const PAYOUT_METHODS = [
+  PAYMENT_METHOD.CASH,
+  PAYMENT_METHOD.CARD,
+  PAYMENT_METHOD.BANK_TRANSFER,
+  PAYMENT_METHOD.ONLINE,
+];
 
 // Shared by create and update — `store` is deliberately excluded here: it's
 // required on create only (updateReceipt never changes which storefront a
@@ -27,6 +37,36 @@ const receiptFieldsValidator = [
     .isFloat({ min: 0 })
     .withMessage('Damaged quantity must be non-negative'),
   body('note').optional({ values: 'falsy' }).trim().isLength({ max: 500 }),
+  body('truckFare')
+    .optional({ values: 'falsy' })
+    .isFloat({ min: 0 })
+    .withMessage('Truck fare must be non-negative'),
+  body('truckFarePaidBy')
+    .optional({ values: 'falsy' })
+    .isIn(['SUPPLIER', 'US'])
+    .withMessage('Truck fare must be paid by either the supplier or us'),
+  body('truckFareMethod')
+    .optional({ values: 'falsy' })
+    .isIn(PAYOUT_METHODS)
+    .withMessage('Invalid truck fare payment method'),
+  // We need a way to pay when we're covering the fare — required whenever
+  // there's a positive fare and we're the one paying it.
+  body('truckFareMethod').custom((value, { req }) => {
+    if (req.body.truckFarePaidBy === 'US' && Number(req.body.truckFare) > 0 && !value) {
+      throw new Error('A payment method is required when we pay the truck fare');
+    }
+    return true;
+  }),
+  body('truckFareBankAccount')
+    .optional({ values: 'falsy' })
+    .isMongoId()
+    .withMessage('Invalid bank account'),
+  body('labour').optional({ values: 'falsy' }).isArray().withMessage('Labour must be an array'),
+  body('labour.*.labour').isMongoId().withMessage('Each labour entry must be a valid labour id'),
+  body('labour.*.rent')
+    .optional({ values: 'falsy' })
+    .isFloat({ min: 0 })
+    .withMessage('Labour rent must be non-negative'),
 ];
 
 const createReceiptValidator = [
@@ -37,6 +77,14 @@ const createReceiptValidator = [
 const updateReceiptValidator = [idParam, ...receiptFieldsValidator];
 
 const idParamValidator = [idParam];
+
+const recordPaymentValidator = [
+  idParam,
+  body('amount').isFloat({ gt: 0 }).withMessage('Amount must be positive'),
+  body('method').isIn(PAYOUT_METHODS).withMessage('Invalid payment method'),
+  body('bankAccount').optional({ values: 'falsy' }).isMongoId().withMessage('Invalid bank account'),
+  body('note').optional({ values: 'falsy' }).isString().trim().isLength({ max: 500 }),
+];
 
 const listReceiptsValidator = [
   query('vendor').optional({ values: 'falsy' }).isMongoId().withMessage('Invalid vendor'),
@@ -49,4 +97,5 @@ module.exports = {
   updateReceiptValidator,
   idParamValidator,
   listReceiptsValidator,
+  recordPaymentValidator,
 };

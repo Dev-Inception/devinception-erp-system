@@ -25,6 +25,12 @@ const customerSchema = new mongoose.Schema(
     },
     address: { type: String, trim: true, maxlength: 300, default: '' },
 
+    // The store this customer was added from. A store-restricted user always
+    // gets their own store; a super admin picks one explicitly at creation
+    // (from the header's store switcher). Null for legacy customers that
+    // predate store-tracking.
+    store: { type: mongoose.Schema.Types.ObjectId, ref: 'Store', default: null, index: true },
+
     creditLimit: { type: Number, default: 0, min: 0 },
 
     // Receivable balance, maintained by sale/payment flows. Read-only here.

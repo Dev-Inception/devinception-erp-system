@@ -9,6 +9,12 @@ const { ACCOUNT, REF } = require('../utils/finance');
 const journalService = require('./journalService');
 const stockService = require('./stockService');
 const counterService = require('./counterService');
+const gatePassService = require('./gatePassService');
+const GatePass = require('../models/gatePassModel');
+const pendingEntityService = require('./pendingEntityService');
+const paymentService = require('./paymentService');
+const labourService = require('./labourService');
+const { toPaisa } = require('../utils/money');
 const { normalizeQuantity } = require('../utils/quantity');
 const { parsePagination, escapeRegex } = require('../utils/query');
 const {
@@ -18,6 +24,70 @@ const {
   assertStoreAccess,
 } = require('../utils/storeScope');
 
+// Resolves and validates the truck-fare settlement up front — before
+// anything else is committed — so an insufficient-funds problem rejects the
+// whole receipt rather than leaving stock/inventory half-applied. Returns
+// null when there's nothing for us to pay (covered by the supplier, or no
+// fare at all).
+async function resolveTruckFarePayment(truckFare, truckFarePaidBy, truckFareMethod, bankAccount) {
+  const amount = toPaisa(truckFare || 0);
+  if (truckFarePaidBy !== 'US' || amount <= 0) return null;
+  if (!truckFareMethod) {
+    throw ApiError.badRequest('A payment method is required when we pay the truck fare');
+  }
+  const settle = await paymentService.settlementAccount(truckFareMethod, bankAccount);
+  await paymentService.assertSufficientFunds(settle.account, settle.ref, amount);
+  return { amount, settle };
+}
+
+// Posts the truck-fare operating expense: Dr Operating Expense / Cr Cash|Bank.
+async function postTruckFareExpense(receipt, resolved, actor) {
+  if (!resolved) return;
+  await journalService.post({
+    date: receipt.date,
+    description: `Truck fare for receipt ${receipt.number}`,
+    refType: REF.EXPENSE,
+    refId: receipt._id,
+    refNo: receipt.number,
+    warehouse: receipt.warehouse,
+    store: receipt.store,
+    createdBy: actor ? actor._id : null,
+    lines: [
+      journalService.line(ACCOUNT.OPERATING_EXPENSE, { debit: resolved.amount }),
+      journalService.line(resolved.settle.account, {
+        credit: resolved.amount,
+        ref: resolved.settle.ref,
+      }),
+    ],
+  });
+}
+
+// Reverses a previously-posted truck-fare expense (mirror entry), using the
+// receipt's own stored fields — called before an edit/delete changes or
+// removes it. No sufficient-funds check needed: this only ever credits cash
+// back in.
+async function reverseTruckFareExpense(receipt, actor) {
+  if (receipt.truckFarePaidBy !== 'US' || !receipt.truckFare) return;
+  const settle = await paymentService.settlementAccount(
+    receipt.truckFareMethod,
+    receipt.truckFareBankAccount,
+  );
+  await journalService.post({
+    date: new Date(),
+    description: `Reversal of truck fare for receipt ${receipt.number}`,
+    refType: REF.EXPENSE,
+    refId: receipt._id,
+    refNo: receipt.number,
+    warehouse: receipt.warehouse,
+    store: receipt.store,
+    createdBy: actor ? actor._id : null,
+    lines: [
+      journalService.line(settle.account, { debit: receipt.truckFare, ref: settle.ref }),
+      journalService.line(ACCOUNT.OPERATING_EXPENSE, { credit: receipt.truckFare }),
+    ],
+  });
+}
+
 /**
  * Records a truck delivery from a vendor: one document per truck, with a
  * line per product covering both the good quantity received (added to
@@ -25,7 +95,23 @@ const {
  * for tracking only — damaged goods are written off on arrival and never
  * enter sellable stock, so they carry no stock/ledger effect).
  */
-async function createReceipt(actor, { vendor, store, warehouse, date, truck, items, note }) {
+async function createReceipt(
+  actor,
+  {
+    vendor,
+    store,
+    warehouse,
+    date,
+    truck,
+    items,
+    note,
+    truckFare,
+    truckFarePaidBy = 'SUPPLIER',
+    truckFareMethod,
+    truckFareBankAccount,
+    labour = [],
+  },
+) {
   const vendorDoc = await Vendor.findById(vendor);
   if (!vendorDoc) throw ApiError.notFound('Vendor not found');
   // Every delivery is received for one physical storefront — required so
@@ -41,6 +127,17 @@ async function createReceipt(actor, { vendor, store, warehouse, date, truck, ite
   if (!Array.isArray(items) || items.length === 0) {
     throw ApiError.badRequest('At least one product line is required');
   }
+  const receiptLabour = await labourService.resolveLabourLines(labour);
+  const labourRentPaisa = receiptLabour.reduce((s, l) => s + l.rent, 0);
+  // Validated (and funds checked) up front, before any stock/inventory is
+  // touched — an insufficient-funds problem should reject the whole receipt,
+  // not leave it half-applied.
+  const truckFareResolved = await resolveTruckFarePayment(
+    truckFare,
+    truckFarePaidBy,
+    truckFareMethod,
+    truckFareBankAccount,
+  );
 
   const products = await Product.find({ _id: { $in: items.map((it) => it.product) } });
   const productsById = new Map(products.map((p) => [String(p._id), p]));
@@ -92,6 +189,12 @@ async function createReceipt(actor, { vendor, store, warehouse, date, truck, ite
       receivedQuantity: l.receivedQuantity,
       damagedQuantity: l.damagedQuantity,
     })),
+    truckFare: truckFareResolved ? truckFareResolved.amount : toPaisa(truckFare || 0),
+    truckFarePaidBy,
+    truckFareMethod: truckFareResolved ? truckFareMethod : null,
+    truckFareBankAccount: truckFareResolved ? truckFareResolved.settle.ref : null,
+    labour: receiptLabour,
+    labourRent: labourRentPaisa,
     note: (note || '').trim(),
     createdBy: actor ? actor._id : null,
   });
@@ -111,6 +214,41 @@ async function createReceipt(actor, { vendor, store, warehouse, date, truck, ite
         journalService.line(ACCOUNT.EQUITY, { credit: totalReceivedValue }),
       ],
     });
+  }
+
+  await postTruckFareExpense(receipt, truckFareResolved, actor);
+
+  // Labour payable: Dr Operating Expense / Cr AP_LABOUR per labourer with a
+  // rent — same treatment as a sale's labour charge (see labourService).
+  await labourService.postLabourPayable(receiptLabour, {
+    when,
+    refType: REF.PURCHASE,
+    refNo: number,
+    store: storeDoc._id,
+    actor,
+    label: 'stock receipt',
+  });
+
+  // Every received line becomes a Pending Entity — the vendor hasn't
+  // actually gone payable for this delivery yet (see pendingEntityService).
+  // Not fatal: the receipt and its stock addition are already committed.
+  try {
+    await pendingEntityService.recordStockReceiptItems(
+      receipt,
+      lines.filter((l) => l.receivedQuantity > 0),
+      actor,
+    );
+  } catch (error) {
+    // eslint-disable-next-line no-console
+    console.error(`Pending entity creation failed for stock receipt ${number}:`, error);
+  }
+
+  // "Goods coming in" gate pass — how much of each product actually entered
+  // the warehouse on this truck.
+  const gatePass = await gatePassService.createForReceipt(receipt);
+  if (gatePass) {
+    receipt.gatePass = gatePass._id;
+    await receipt.save();
   }
 
   return receipt;
@@ -165,7 +303,23 @@ async function reverseReceiptStock(receipt, actor) {
  * createReceipt. Blocked once any of the originally received stock has
  * already been sold (see reverseReceiptStock).
  */
-async function updateReceipt(actor, id, { vendor, warehouse, date, truck, items, note }) {
+async function updateReceipt(
+  actor,
+  id,
+  {
+    vendor,
+    warehouse,
+    date,
+    truck,
+    items,
+    note,
+    truckFare,
+    truckFarePaidBy = 'SUPPLIER',
+    truckFareMethod,
+    truckFareBankAccount,
+    labour = [],
+  },
+) {
   const receipt = await StockReceipt.findById(id);
   if (!receipt) throw ApiError.notFound('Stock receipt not found');
   assertStoreAccess(actor, receipt.store);
@@ -197,6 +351,25 @@ async function updateReceipt(actor, id, { vendor, warehouse, date, truck, items,
   }
 
   await reverseReceiptStock(receipt, actor);
+  // Reverse the original truck fare expense (if any) before re-resolving the
+  // revised one below, so the funds check sees the true post-reversal balance.
+  await reverseTruckFareExpense(receipt, actor);
+  const truckFareResolved = await resolveTruckFarePayment(
+    truckFare,
+    truckFarePaidBy,
+    truckFareMethod,
+    truckFareBankAccount,
+  );
+  await labourService.reverseLabourPayable(receipt.labour, {
+    when: new Date(),
+    refType: REF.PURCHASE,
+    refNo: receipt.number,
+    store: receipt.store,
+    actor,
+    label: 'stock receipt',
+  });
+  const receiptLabour = await labourService.resolveLabourLines(labour);
+  const labourRentPaisa = receiptLabour.reduce((s, l) => s + l.rent, 0);
 
   const when = date ? new Date(date) : receipt.date;
 
@@ -227,6 +400,12 @@ async function updateReceipt(actor, id, { vendor, warehouse, date, truck, items,
     receivedQuantity: l.receivedQuantity,
     damagedQuantity: l.damagedQuantity,
   }));
+  receipt.truckFare = truckFareResolved ? truckFareResolved.amount : toPaisa(truckFare || 0);
+  receipt.truckFarePaidBy = truckFarePaidBy;
+  receipt.truckFareMethod = truckFareResolved ? truckFareMethod : null;
+  receipt.truckFareBankAccount = truckFareResolved ? truckFareResolved.settle.ref : null;
+  receipt.labour = receiptLabour;
+  receipt.labourRent = labourRentPaisa;
   receipt.note = (note || '').trim();
   await receipt.save();
 
@@ -247,6 +426,25 @@ async function updateReceipt(actor, id, { vendor, warehouse, date, truck, items,
     });
   }
 
+  await postTruckFareExpense(receipt, truckFareResolved, actor);
+
+  await labourService.postLabourPayable(receiptLabour, {
+    when,
+    refType: REF.PURCHASE,
+    refNo: receipt.number,
+    store: receipt.store,
+    actor,
+    label: 'stock receipt',
+  });
+
+  // Re-snapshot the gate pass for the revised quantities/warehouse.
+  const gatePass = await gatePassService.createForReceipt(receipt);
+  const gatePassId = gatePass ? gatePass._id : null;
+  if (String(receipt.gatePass || '') !== String(gatePassId || '')) {
+    receipt.gatePass = gatePassId;
+    await receipt.save();
+  }
+
   return receipt;
 }
 
@@ -261,7 +459,65 @@ async function deleteReceipt(actor, id) {
   assertStoreAccess(actor, receipt.store);
 
   await reverseReceiptStock(receipt, actor);
+  await reverseTruckFareExpense(receipt, actor);
+  await labourService.reverseLabourPayable(receipt.labour, {
+    when: new Date(),
+    refType: REF.PURCHASE,
+    refNo: receipt.number,
+    store: receipt.store,
+    actor,
+    label: 'stock receipt',
+  });
+  // Its gate pass no longer documents a real delivery once the receipt (and
+  // the stock it added) is gone.
+  await GatePass.deleteOne({ sourceType: 'PURCHASE', stockReceipt: receipt._id });
   await receipt.deleteOne();
+  return receipt;
+}
+
+/**
+ * Records a payment to the vendor against this specific receipt's priced
+ * items (Pending Entities that have already been given a purchase price —
+ * see pendingEntityService.setPurchasePrice). Mirrors saleService.recordPayment
+ * but in the opposite direction: Dr AP(vendor) / Cr Cash|Bank, since this is
+ * paying down a payable rather than collecting a receivable.
+ */
+async function recordPayment(actor, id, { amount, method, bankAccount, note }) {
+  const receipt = await StockReceipt.findById(id);
+  if (!receipt) throw ApiError.notFound('Stock receipt not found');
+  assertStoreAccess(actor, receipt.store);
+
+  const amt = toPaisa(amount);
+  if (amt <= 0) throw ApiError.badRequest('Amount must be positive');
+
+  const totals = await pendingEntityService.pricedTotalsByStockReceipt([receipt._id]);
+  const pricedTotal = totals.get(String(receipt._id)) || 0;
+  const remaining = Math.max(0, pricedTotal - receipt.additionalPaidAmount);
+  if (amt > remaining) {
+    throw ApiError.badRequest('Amount exceeds the remaining balance owed on this receipt');
+  }
+
+  const settle = await paymentService.settlementAccount(method, bankAccount);
+  await paymentService.assertSufficientFunds(settle.account, settle.ref, amt);
+  const when = new Date();
+
+  await journalService.post({
+    date: when,
+    description: note || `Payment to ${receipt.vendorName} for receipt ${receipt.number}`,
+    refType: REF.PURCHASE,
+    refId: receipt._id,
+    refNo: receipt.number,
+    warehouse: receipt.warehouse,
+    store: receipt.store,
+    createdBy: actor ? actor._id : null,
+    lines: [
+      journalService.line(ACCOUNT.AP, { debit: amt, ref: receipt.vendor }),
+      journalService.line(settle.account, { credit: amt, ref: settle.ref }),
+    ],
+  });
+
+  receipt.additionalPaidAmount += amt;
+  await receipt.save();
   return receipt;
 }
 
@@ -302,4 +558,4 @@ async function listReceipts({ vendor, warehouse, store, from, to, search, actor,
   return { receipts, total, page, limit };
 }
 
-module.exports = { createReceipt, updateReceipt, deleteReceipt, listReceipts };
+module.exports = { createReceipt, updateReceipt, deleteReceipt, listReceipts, recordPayment };

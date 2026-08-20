@@ -16,6 +16,7 @@ const PERMISSIONS = {
   USERS_UPDATE: 'users:update',
   USERS_UPDATE_ROLE: 'users:update_role',
   USERS_SET_ACTIVE: 'users:set_active',
+  USERS_SET_PASSWORD: 'users:set_password',
   USERS_DELETE: 'users:delete',
 
   // Role management
@@ -52,6 +53,13 @@ const PERMISSIONS = {
   // Editing an already-completed sale, recording a later payment against it,
   // and processing product returns against it.
   SALES_UPDATE: 'sales:update',
+
+  // Customer estimates (quotes) — creation, follow-up, and conversion to a sale
+  ESTIMATES_READ: 'estimates:read',
+  ESTIMATES_CREATE: 'estimates:create',
+  // Editing an estimate, logging a follow-up, and marking it lost.
+  ESTIMATES_UPDATE: 'estimates:update',
+  ESTIMATES_DELETE: 'estimates:delete',
 
   // Finance: ledgers, cash & bank, payments
   FINANCE_READ: 'finance:read',

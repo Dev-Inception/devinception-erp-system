@@ -15,6 +15,7 @@ const ACCOUNT = {
   INVENTORY: 'INVENTORY', // stock at cost (asset)
   AR: 'AR', // accounts receivable (asset), ref = Customer
   AP: 'AP', // accounts payable (liability), ref = Vendor
+  AP_LABOUR: 'AP_LABOUR', // payable to a labourer (liability), ref = Labour
   SALES: 'SALES', // sales revenue (income)
   COGS: 'COGS', // cost of goods sold (expense)
   OPERATING_EXPENSE: 'OPERATING_EXPENSE', // rent, utilities, payroll, etc.
@@ -54,6 +55,7 @@ const REF = {
   CASH_ADJUST: 'CASH_ADJUST', // manual cash in/out
   EXPENSE: 'EXPENSE', // operating expense paid from cash/bank
   OPENING: 'OPENING', // opening balances
+  PENDING_ENTITY: 'PENDING_ENTITY', // vendor cost posted when a pending entity is priced
 };
 
 // How a sale (or purchase) was settled.

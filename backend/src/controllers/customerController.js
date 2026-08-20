@@ -14,7 +14,7 @@ const getCustomer = asyncHandler(async (req, res) => {
 });
 
 const createCustomer = asyncHandler(async (req, res) => {
-  const customer = await customerService.createCustomer(req.body);
+  const customer = await customerService.createCustomer(req.user, req.body);
   return sendSuccess(res, 201, 'Customer created', { customer });
 });
 

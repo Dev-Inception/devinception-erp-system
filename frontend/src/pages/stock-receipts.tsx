@@ -1,6 +1,19 @@
 import { useEffect, useRef, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Loader2, Plus, Search, Truck, Trash2, Pencil, AlertTriangle } from 'lucide-react';
+import {
+  Eye,
+  Loader2,
+  MoreHorizontal,
+  Plus,
+  Printer,
+  QrCode,
+  Search,
+  Truck,
+  Trash2,
+  Pencil,
+  AlertTriangle,
+  Wallet,
+} from 'lucide-react';
 import { toast } from 'sonner';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -14,9 +27,18 @@ import {
   DialogDescription,
   DialogClose,
 } from '@/components/ui/dialog';
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+} from '@/components/ui/dropdown-menu';
 import { Pagination } from '@/components/ui/pagination';
+import { GatePassDialog } from '@/components/gate-pass-dialog';
+import { RecordVendorPaymentDialog } from '@/components/record-vendor-payment-dialog';
 import { api } from '@/lib/api';
-import { cn } from '@/lib/utils';
+import { formatCurrency } from '@/lib/utils';
+import { openStockReceiptInvoicePopup } from '@/lib/invoicePopup';
 import { useAuthStore } from '@/store/auth';
 import { grantsPermission } from '@/lib/modules';
 import { useWarehouses } from '@/components/layout/warehouse-switcher';
@@ -40,6 +62,22 @@ interface ReceiptItem {
   name: string;
   receivedQuantity: number;
   damagedQuantity: number;
+  pricingStatus?: 'PENDING' | 'PRICED';
+  purchasePrice?: number;
+  lineTotal?: number;
+}
+
+interface ReceiptLabourRow {
+  labourId: string;
+  name: string;
+  phoneNumber: string;
+  rent: number;
+}
+
+interface LabourOption {
+  id: string;
+  name: string;
+  phoneNumber: string;
 }
 
 interface StockReceipt {
@@ -54,7 +92,22 @@ interface StockReceipt {
   date: string;
   truck: { vehicleNumber: string; driverName: string; driverPhone: string };
   items: ReceiptItem[];
+  labour: ReceiptLabourRow[];
+  labourRent: number;
   note: string;
+  gatePassId?: string;
+  gatePassQrUrl?: string;
+  // Vendor-payable info derived from Pending Entities — see
+  // pendingEntityService.pricedTotalsByStockReceipt on the backend.
+  pricedTotal: number;
+  paidAmount: number;
+  balanceDue: number;
+  // What the truck delivery cost, and who covered it — see
+  // stockReceiptService.resolveTruckFarePayment on the backend.
+  truckFare: number;
+  truckFarePaidBy: 'SUPPLIER' | 'US';
+  truckFareMethod?: string;
+  truckFareBankAccountId?: string;
 }
 
 const PAGE_SIZE = 20;
@@ -65,6 +118,10 @@ function ReceiptDialog({ receipt, onClose }: { receipt?: StockReceipt; onClose: 
   const qc = useQueryClient();
   const { t } = useLanguage();
   const editing = !!receipt;
+  // The backend gates labour create by role (super admin only), not a
+  // permission string — see labour.tsx for the same pattern.
+  const role = useAuthStore((s) => s.user?.role);
+  const canCreateLabour = role === 'SUPER_ADMIN';
   const { warehouses, currentId: defaultWarehouseId } = useWarehouses();
   const currentStoreId = useStorefrontStore((s) => s.currentStoreId);
   // A delivery is always received for one physical store — required on
@@ -78,6 +135,14 @@ function ReceiptDialog({ receipt, onClose }: { receipt?: StockReceipt; onClose: 
   const [vehicleNumber, setVehicleNumber] = useState(receipt?.truck.vehicleNumber ?? '');
   const [driverName, setDriverName] = useState(receipt?.truck.driverName ?? '');
   const [driverPhone, setDriverPhone] = useState(receipt?.truck.driverPhone ?? '');
+  const [truckFare, setTruckFare] = useState<number>(receipt?.truckFare ?? 0);
+  const [truckFarePaidBy, setTruckFarePaidBy] = useState<'SUPPLIER' | 'US'>(
+    receipt?.truckFarePaidBy ?? 'SUPPLIER',
+  );
+  const [truckFareMethod, setTruckFareMethod] = useState(receipt?.truckFareMethod ?? 'CASH');
+  const [truckFareBankAccountId, setTruckFareBankAccountId] = useState(
+    receipt?.truckFareBankAccountId ?? '',
+  );
   const [note, setNote] = useState(receipt?.note ?? '');
   const [items, setItems] = useState<ReceiptItem[]>(
     () =>
@@ -88,9 +153,21 @@ function ReceiptDialog({ receipt, onClose }: { receipt?: StockReceipt; onClose: 
         damagedQuantity: it.damagedQuantity,
       })) ?? [],
   );
+  const [labourRows, setLabourRows] = useState<ReceiptLabourRow[]>(receipt?.labour ?? []);
+  const [labourSearch, setLabourSearch] = useState('');
+  const [labourPickerOpen, setLabourPickerOpen] = useState(false);
+  const labourSearchRef = useRef<HTMLInputElement>(null);
+  const [creatingLabour, setCreatingLabour] = useState(false);
+  const [newLabour, setNewLabour] = useState({ name: '', phoneNumber: '' });
   const [productSearch, setProductSearch] = useState('');
   const [productPickerOpen, setProductPickerOpen] = useState(false);
   const productSearchRef = useRef<HTMLInputElement>(null);
+  const [creatingProduct, setCreatingProduct] = useState(false);
+  const [newProduct, setNewProduct] = useState({
+    name: '',
+    sku: '',
+    purchasePrice: 0,
+  });
 
   useEffect(() => {
     if (!editing && !warehouseId && defaultWarehouseId) setWarehouseId(defaultWarehouseId);
@@ -104,6 +181,24 @@ function ReceiptDialog({ receipt, onClose }: { receipt?: StockReceipt; onClose: 
     queryKey: ['stock-receipt-products', productSearch],
     queryFn: async () => (await api.get('/products', { params: { search: productSearch } })).data,
   });
+  const { data: labourList = [] } = useQuery<LabourOption[]>({
+    queryKey: ['labour'],
+    queryFn: async () => (await api.get('/labour')).data,
+  });
+  const filteredLabour = labourList.filter(
+    (l) =>
+      !labourRows.some((r) => r.labourId === l.id) &&
+      (l.name.toLowerCase().includes(labourSearch.toLowerCase()) ||
+        l.phoneNumber.includes(labourSearch)),
+  );
+  const needsTruckFareBank =
+    truckFarePaidBy === 'US' &&
+    (truckFareMethod === 'BANK_TRANSFER' || truckFareMethod === 'ONLINE');
+  const { data: bankAccounts = [] } = useQuery<{ id: string; name: string }[]>({
+    queryKey: ['bank-accounts'],
+    queryFn: async () => (await api.get('/bank/accounts')).data,
+    enabled: needsTruckFareBank,
+  });
 
   const addItem = (p: ProductOption) => {
     setProductSearch('');
@@ -116,8 +211,74 @@ function ReceiptDialog({ receipt, onClose }: { receipt?: StockReceipt; onClose: 
   };
   const patchItem = (productId: string, patch: Partial<ReceiptItem>) =>
     setItems((rows) => rows.map((r) => (r.productId === productId ? { ...r, ...patch } : r)));
+
+  const addLabour = (l: LabourOption) => {
+    setLabourSearch('');
+    setLabourPickerOpen(false);
+    labourSearchRef.current?.blur();
+    setLabourRows((rows) => {
+      if (rows.some((r) => r.labourId === l.id)) return rows;
+      return [...rows, { labourId: l.id, name: l.name, phoneNumber: l.phoneNumber, rent: 0 }];
+    });
+  };
+  const setLabourRent = (labourId: string, rent: number) =>
+    setLabourRows((rows) => rows.map((r) => (r.labourId === labourId ? { ...r, rent } : r)));
+  const removeLabour = (labourId: string) =>
+    setLabourRows((rows) => rows.filter((r) => r.labourId !== labourId));
+  const labourRentTotal = labourRows.reduce((s, r) => s + (r.rent || 0), 0);
+
+  // Quick-add a product straight from the receipt when it isn't in the
+  // catalog yet, instead of forcing a trip to the Products page and back.
+  // Owned by the receiving warehouse — purchase price matters here since
+  // that's the cost this receipt's stock-in gets valued at (see
+  // stockReceiptService, which uses the product's own purchasePrice).
+  const createProduct = useMutation({
+    mutationFn: async () =>
+      (
+        await api.post('/products', {
+          name: newProduct.name,
+          sku: newProduct.sku,
+          purchasePrice: newProduct.purchasePrice,
+          warehouseId,
+        })
+      ).data,
+    onSuccess: (p: ProductOption) => {
+      toast.success(`Product added — ${p.name}`);
+      qc.invalidateQueries({ queryKey: ['stock-receipt-products'] });
+      // So it shows up on the Inventory page immediately too, not just here.
+      qc.invalidateQueries({ queryKey: ['products'] });
+      addItem(p);
+      setCreatingProduct(false);
+      setNewProduct({ name: '', sku: '', purchasePrice: 0 });
+    },
+    onError: (e: any) =>
+      toast.error(
+        e?.response?.data?.message?.[0] ?? e?.response?.data?.message ?? 'Could not add product',
+      ),
+  });
   const removeItem = (productId: string) =>
     setItems((rows) => rows.filter((r) => r.productId !== productId));
+
+  const createLabour = useMutation({
+    mutationFn: async () =>
+      (
+        await api.post('/labour', {
+          name: newLabour.name,
+          phoneNumber: newLabour.phoneNumber,
+        })
+      ).data,
+    onSuccess: (l: LabourOption) => {
+      toast.success(`Labour added — ${l.name}`);
+      qc.invalidateQueries({ queryKey: ['labour'] });
+      addLabour(l);
+      setCreatingLabour(false);
+      setNewLabour({ name: '', phoneNumber: '' });
+    },
+    onError: (e: any) =>
+      toast.error(
+        e?.response?.data?.message?.[0] ?? e?.response?.data?.message ?? 'Could not add labour',
+      ),
+  });
 
   const save = useMutation({
     mutationFn: async () => {
@@ -139,6 +300,13 @@ function ReceiptDialog({ receipt, onClose }: { receipt?: StockReceipt; onClose: 
           receivedQuantity: r.receivedQuantity || 0,
           damagedQuantity: r.damagedQuantity || 0,
         })),
+        truckFare: truckFare || 0,
+        truckFarePaidBy,
+        truckFareMethod: truckFarePaidBy === 'US' ? truckFareMethod : undefined,
+        truckFareBankAccountId: needsTruckFareBank
+          ? truckFareBankAccountId || undefined
+          : undefined,
+        labour: labourRows.map((r) => ({ labourId: r.labourId, rent: r.rent || 0 })),
         note: note || undefined,
       };
       return (
@@ -169,7 +337,8 @@ function ReceiptDialog({ receipt, onClose }: { receipt?: StockReceipt; onClose: 
     warehouseId &&
     vehicleNumber.trim() &&
     items.length > 0 &&
-    items.every((r) => r.receivedQuantity > 0 || r.damagedQuantity > 0);
+    items.every((r) => r.receivedQuantity > 0 || r.damagedQuantity > 0) &&
+    (!needsTruckFareBank || truckFareBankAccountId);
 
   return (
     <Dialog open onOpenChange={(v) => !v && onClose()}>
@@ -254,6 +423,220 @@ function ReceiptDialog({ receipt, onClose }: { receipt?: StockReceipt; onClose: 
             </div>
           </div>
 
+          <div className="grid gap-3 rounded-md border p-3 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label>Truck Fare</Label>
+              <Input
+                type="number"
+                min={0}
+                step="0.01"
+                value={truckFare || ''}
+                onChange={(e) => setTruckFare(Number(e.target.value))}
+                placeholder="0.00"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Fare Covered By</Label>
+              <select
+                value={truckFarePaidBy}
+                onChange={(e) => setTruckFarePaidBy(e.target.value as 'SUPPLIER' | 'US')}
+                className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
+              >
+                <option value="SUPPLIER">Supplier (already paid)</option>
+                <option value="US">Us (pay the driver now)</option>
+              </select>
+            </div>
+            {truckFarePaidBy === 'US' && truckFare > 0 && (
+              <>
+                <div className="space-y-1.5">
+                  <Label>Payment Method</Label>
+                  <select
+                    value={truckFareMethod}
+                    onChange={(e) => setTruckFareMethod(e.target.value)}
+                    className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
+                  >
+                    <option value="CASH">Cash</option>
+                    <option value="BANK_TRANSFER">Bank transfer</option>
+                    <option value="ONLINE">Online</option>
+                    <option value="CARD">Card</option>
+                  </select>
+                </div>
+                {needsTruckFareBank && (
+                  <div className="space-y-1.5">
+                    <Label>Bank Account *</Label>
+                    <select
+                      required
+                      value={truckFareBankAccountId}
+                      onChange={(e) => setTruckFareBankAccountId(e.target.value)}
+                      className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
+                    >
+                      <option value="">Select account…</option>
+                      {bankAccounts.map((b) => (
+                        <option key={b.id} value={b.id}>
+                          {b.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <Label>Labour</Label>
+              {labourRentTotal > 0 && (
+                <span className="text-xs font-medium text-muted-foreground">
+                  {t('Total')} {formatCurrency(labourRentTotal)}
+                </span>
+              )}
+            </div>
+            <div className="relative">
+              <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                ref={labourSearchRef}
+                value={labourSearch}
+                onChange={(e) => setLabourSearch(e.target.value)}
+                onFocus={() => setLabourPickerOpen(true)}
+                onBlur={() => setTimeout(() => setLabourPickerOpen(false), 150)}
+                placeholder="Click to browse, or type to search labour…"
+                className="pl-8"
+              />
+              {labourPickerOpen && (
+                <div className="absolute z-10 mt-1 max-h-56 w-full overflow-y-auto rounded-md border bg-popover shadow-md">
+                  {filteredLabour.length === 0 ? (
+                    <p className="px-3 py-3 text-sm text-muted-foreground">
+                      No labour found{labourSearch ? ` for "${labourSearch}"` : ''}.
+                    </p>
+                  ) : (
+                    filteredLabour.map((l) => (
+                      <button
+                        key={l.id}
+                        type="button"
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => addLabour(l)}
+                        className="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-accent"
+                      >
+                        <span>{l.name}</span>
+                        <span className="text-xs text-muted-foreground">{l.phoneNumber}</span>
+                      </button>
+                    ))
+                  )}
+                  {canCreateLabour && (
+                    <button
+                      type="button"
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => {
+                        setNewLabour((f) => ({ ...f, name: labourSearch.trim() }));
+                        setCreatingLabour(true);
+                        setLabourPickerOpen(false);
+                      }}
+                      className="flex w-full items-center gap-2 border-t px-3 py-2 text-left text-sm font-medium text-primary hover:bg-accent"
+                    >
+                      <Plus className="h-4 w-4" /> {t('Add new labour')}
+                      {labourSearch.trim() ? ` "${labourSearch.trim()}"` : ''}
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {creatingLabour && (
+              // A plain div, not a <form> — this already sits inside the
+              // receipt's own <form>, and HTML forms can't nest. A nested
+              // <form>'s submit bubbles up as a plain DOM event and fires the
+              // outer form's onSubmit too, saving (and closing) the whole
+              // receipt. Enter-to-submit is wired manually below instead.
+              <div className="space-y-2 rounded-md border bg-muted/20 p-3">
+                <div
+                  className="grid gap-2 sm:grid-cols-2"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      if (newLabour.name && newLabour.phoneNumber) createLabour.mutate();
+                    }
+                  }}
+                >
+                  <div className="space-y-1">
+                    <Label className="text-xs">{t('Name *')}</Label>
+                    <Input
+                      required
+                      autoFocus
+                      minLength={2}
+                      maxLength={100}
+                      value={newLabour.name}
+                      onChange={(e) => setNewLabour((f) => ({ ...f, name: e.target.value }))}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">{t('Phone Number *')}</Label>
+                    <Input
+                      required
+                      value={newLabour.phoneNumber}
+                      onChange={(e) => setNewLabour((f) => ({ ...f, phoneNumber: e.target.value }))}
+                      placeholder="e.g. 0300-1234567"
+                    />
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="flex-1"
+                    onClick={() => setCreatingLabour(false)}
+                  >
+                    {t('Cancel')}
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    className="flex-1"
+                    disabled={createLabour.isPending || !newLabour.name || !newLabour.phoneNumber}
+                    onClick={() => createLabour.mutate()}
+                  >
+                    {createLabour.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+                    {t('Add')}
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {labourRows.length > 0 && (
+              <div className="space-y-2 rounded-md border p-2">
+                {labourRows.map((r) => (
+                  <div key={r.labourId} className="flex items-center gap-2">
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium">{r.name}</p>
+                      {r.phoneNumber && (
+                        <p className="truncate text-xs text-muted-foreground">{r.phoneNumber}</p>
+                      )}
+                    </div>
+                    <Input
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      placeholder="Rent"
+                      className="h-9 w-28 text-right"
+                      value={r.rent || ''}
+                      onChange={(e) => setLabourRent(r.labourId, Number(e.target.value))}
+                    />
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="ghost"
+                      className="h-8 w-8 shrink-0 text-muted-foreground hover:text-destructive"
+                      onClick={() => removeLabour(r.labourId)}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
           <div className="space-y-1.5">
             <Label>Products</Label>
             <div className="relative">
@@ -287,9 +670,95 @@ function ReceiptDialog({ receipt, onClose }: { receipt?: StockReceipt; onClose: 
                       </button>
                     ))
                   )}
+                  <button
+                    type="button"
+                    onMouseDown={(e) => e.preventDefault()}
+                    disabled={!warehouseId}
+                    title={!warehouseId ? t('Select a receiving warehouse first') : undefined}
+                    onClick={() => {
+                      setNewProduct((f) => ({ ...f, name: productSearch.trim() }));
+                      setCreatingProduct(true);
+                      setProductPickerOpen(false);
+                    }}
+                    className="flex w-full items-center gap-2 border-t px-3 py-2 text-left text-sm font-medium text-primary hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <Plus className="h-4 w-4" /> {t('Add new product')}
+                    {productSearch.trim() ? ` "${productSearch.trim()}"` : ''}
+                  </button>
                 </div>
               )}
             </div>
+
+            {creatingProduct && (
+              // A plain div, not a <form> — see the same note on the labour
+              // quick-create block above for why nesting forms here breaks
+              // the receipt dialog.
+              <div className="space-y-2 rounded-md border bg-muted/20 p-3">
+                <div
+                  className="grid gap-2 sm:grid-cols-2"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      if (newProduct.name && newProduct.sku) createProduct.mutate();
+                    }
+                  }}
+                >
+                  <div className="space-y-1">
+                    <Label className="text-xs">{t('Name *')}</Label>
+                    <Input
+                      required
+                      autoFocus
+                      value={newProduct.name}
+                      onChange={(e) => setNewProduct((f) => ({ ...f, name: e.target.value }))}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">{t('SKU *')}</Label>
+                    <Input
+                      required
+                      value={newProduct.sku}
+                      onChange={(e) => setNewProduct((f) => ({ ...f, sku: e.target.value }))}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">{t('Purchase Price')}</Label>
+                    <Input
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      value={newProduct.purchasePrice || ''}
+                      onChange={(e) =>
+                        setNewProduct((f) => ({
+                          ...f,
+                          purchasePrice: Math.max(0, Number(e.target.value)),
+                        }))
+                      }
+                    />
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="flex-1"
+                    onClick={() => setCreatingProduct(false)}
+                  >
+                    {t('Cancel')}
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    className="flex-1"
+                    disabled={createProduct.isPending || !newProduct.name || !newProduct.sku}
+                    onClick={() => createProduct.mutate()}
+                  >
+                    {createProduct.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+                    {t('Add')}
+                  </Button>
+                </div>
+              </div>
+            )}
 
             {items.length > 0 && (
               <div className="rounded-md border">
@@ -371,19 +840,215 @@ function ReceiptDialog({ receipt, onClose }: { receipt?: StockReceipt; onClose: 
   );
 }
 
+/* ── Read-only breakdown of one truck's delivery — every product it brought,
+   how much arrived good versus damaged. ── */
+function ReceiptDetailDialog({
+  receipt,
+  onClose,
+  onViewGatePass,
+  onPrintInvoice,
+  onRecordPayment,
+  canManage,
+}: {
+  receipt: StockReceipt;
+  onClose: () => void;
+  onViewGatePass: (receipt: StockReceipt) => void;
+  onPrintInvoice: (receipt: StockReceipt) => void;
+  onRecordPayment: (receipt: StockReceipt) => void;
+  canManage: boolean;
+}) {
+  const { t } = useLanguage();
+  const totalReceived = receipt.items.reduce((s, it) => s + it.receivedQuantity, 0);
+  const totalDamaged = receipt.items.reduce((s, it) => s + it.damagedQuantity, 0);
+
+  return (
+    <Dialog open onOpenChange={(v) => !v && onClose()}>
+      <DialogContent className="max-w-xl">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Truck className="h-4 w-4" /> {receipt.number}
+          </DialogTitle>
+          <DialogDescription>
+            {new Date(receipt.date).toLocaleDateString()} · {receipt.vendorName}
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 rounded-md border p-3 text-sm">
+          <div>
+            <span className="text-muted-foreground">{t('Store')}: </span>
+            {receipt.storeName ?? '—'}
+          </div>
+          <div>
+            <span className="text-muted-foreground">{t('Warehouse')}: </span>
+            {receipt.warehouseName}
+          </div>
+          <div>
+            <span className="text-muted-foreground">{t('Vehicle #')}: </span>
+            {receipt.truck.vehicleNumber}
+          </div>
+          <div>
+            <span className="text-muted-foreground">{t('Driver')}: </span>
+            {receipt.truck.driverName || '—'}
+            {receipt.truck.driverPhone ? ` (${receipt.truck.driverPhone})` : ''}
+          </div>
+          <div>
+            <span className="text-muted-foreground">{t('Truck Fare')}: </span>
+            {receipt.truckFare > 0 ? (
+              <>
+                {formatCurrency(receipt.truckFare)}{' '}
+                <span className="text-xs text-muted-foreground">
+                  ({receipt.truckFarePaidBy === 'US' ? t('paid by us') : t('covered by supplier')})
+                </span>
+              </>
+            ) : (
+              '—'
+            )}
+          </div>
+        </div>
+
+        <div className="rounded-md border">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b bg-muted/50 text-left text-xs uppercase text-muted-foreground">
+                <th className="px-3 py-2 font-medium">{t('Product')}</th>
+                <th className="px-3 py-2 text-right font-medium">{t('Qty Received')}</th>
+                <th className="px-3 py-2 text-right font-medium">{t('Qty Damaged')}</th>
+                <th className="px-3 py-2 text-right font-medium">{t('Purchase Price')}</th>
+                <th className="px-3 py-2 text-right font-medium">{t('Line Total')}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {receipt.items.map((it) => (
+                <tr key={it.productId} className="border-b last:border-0">
+                  <td className="px-3 py-2">{it.name}</td>
+                  <td className="px-3 py-2 text-right tabular-nums">{it.receivedQuantity}</td>
+                  <td className="px-3 py-2 text-right tabular-nums">
+                    {it.damagedQuantity > 0 ? (
+                      <span className="text-destructive">{it.damagedQuantity}</span>
+                    ) : (
+                      it.damagedQuantity
+                    )}
+                  </td>
+                  <td className="px-3 py-2 text-right tabular-nums">
+                    {it.pricingStatus === 'PRICED' ? (
+                      formatCurrency(it.purchasePrice ?? 0)
+                    ) : (
+                      <span className="text-muted-foreground">{t('Awaiting price')}</span>
+                    )}
+                  </td>
+                  <td className="px-3 py-2 text-right tabular-nums">
+                    {it.pricingStatus === 'PRICED' ? formatCurrency(it.lineTotal ?? 0) : '—'}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr className="border-t bg-muted/30 font-medium">
+                <td className="px-3 py-2">{t('Total')}</td>
+                <td className="px-3 py-2 text-right tabular-nums">{totalReceived}</td>
+                <td className="px-3 py-2 text-right tabular-nums">{totalDamaged}</td>
+                <td className="px-3 py-2" />
+                <td className="px-3 py-2 text-right tabular-nums">
+                  {formatCurrency(receipt.pricedTotal)}
+                </td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+
+        {receipt.labour.length > 0 && (
+          <div className="rounded-md border">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b bg-muted/50 text-left text-xs uppercase text-muted-foreground">
+                  <th className="px-3 py-2 font-medium">{t('Labour')}</th>
+                  <th className="px-3 py-2 font-medium">{t('Phone')}</th>
+                  <th className="px-3 py-2 text-right font-medium">{t('Rent')}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {receipt.labour.map((l) => (
+                  <tr key={l.labourId} className="border-b last:border-0">
+                    <td className="px-3 py-2">{l.name}</td>
+                    <td className="px-3 py-2 text-muted-foreground">{l.phoneNumber || '—'}</td>
+                    <td className="px-3 py-2 text-right tabular-nums">{formatCurrency(l.rent)}</td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr className="border-t bg-muted/30 font-medium">
+                  <td className="px-3 py-2" colSpan={2}>
+                    {t('Total')}
+                  </td>
+                  <td className="px-3 py-2 text-right tabular-nums">
+                    {formatCurrency(receipt.labourRent)}
+                  </td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        )}
+
+        <div className="grid grid-cols-3 gap-x-4 rounded-md border p-3 text-sm">
+          <div>
+            <p className="text-muted-foreground">{t('Priced Total')}</p>
+            <p className="font-medium">{formatCurrency(receipt.pricedTotal)}</p>
+          </div>
+          <div>
+            <p className="text-muted-foreground">{t('Paid')}</p>
+            <p className="font-medium">{formatCurrency(receipt.paidAmount)}</p>
+          </div>
+          <div>
+            <p className="text-muted-foreground">{t('Balance Due')}</p>
+            <p className="font-medium text-primary">{formatCurrency(receipt.balanceDue)}</p>
+          </div>
+        </div>
+
+        {receipt.note && (
+          <p className="text-sm text-muted-foreground">
+            <span className="font-medium text-foreground">{t('Note')}: </span>
+            {receipt.note}
+          </p>
+        )}
+
+        <div className="flex flex-wrap justify-end gap-2">
+          <Button type="button" variant="outline" onClick={() => onPrintInvoice(receipt)}>
+            <Printer className="h-4 w-4" /> {t('Print Invoice')}
+          </Button>
+          {canManage && receipt.balanceDue > 0 && (
+            <Button type="button" variant="outline" onClick={() => onRecordPayment(receipt)}>
+              <Wallet className="h-4 w-4" /> {t('Record Payment')}
+            </Button>
+          )}
+          {receipt.gatePassId && (
+            <Button type="button" variant="outline" onClick={() => onViewGatePass(receipt)}>
+              <QrCode className="h-4 w-4" /> {t('View Gate Pass')}
+            </Button>
+          )}
+          <Button type="button" variant="outline" onClick={onClose}>
+            {t('Close')}
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export function StockReceiptsPage() {
   const qc = useQueryClient();
   const { t } = useLanguage();
   const authUser = useAuthStore((s) => s.user);
   const canManage = grantsPermission(authUser?.permissions, 'inventory:manage');
 
-  const [tab, setTab] = useState<'in' | 'damaged'>('in');
   const [search, setSearch] = useState('');
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [page, setPage] = useState(1);
   const [creating, setCreating] = useState(false);
   const [editingReceipt, setEditingReceipt] = useState<StockReceipt | null>(null);
+  const [viewingReceipt, setViewingReceipt] = useState<StockReceipt | null>(null);
+  const [viewingGatePass, setViewingGatePass] = useState<StockReceipt | null>(null);
+  const [payingReceipt, setPayingReceipt] = useState<StockReceipt | null>(null);
   const storefront = useStorefrontFilter();
 
   const q = search.trim().toLowerCase();
@@ -415,14 +1080,6 @@ export function StockReceiptsPage() {
   const total = data?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
-  const stockInRows = receipts.flatMap((r) =>
-    r.items.filter((it) => it.receivedQuantity > 0).map((it) => ({ receipt: r, item: it })),
-  );
-  const damagedRows = receipts.flatMap((r) =>
-    r.items.filter((it) => it.damagedQuantity > 0).map((it) => ({ receipt: r, item: it })),
-  );
-  const rows = tab === 'in' ? stockInRows : damagedRows;
-
   const del = useMutation({
     mutationFn: async (id: string) => (await api.delete(`/stock-receipts/${id}`)).data,
     onSuccess: () => {
@@ -444,33 +1101,49 @@ export function StockReceiptsPage() {
     }
   };
 
+  const handlePrintInvoice = async (r: StockReceipt) => {
+    // Open synchronously so the browser ties the popup to this click rather
+    // than treating it as an unrequested popup.
+    const win = window.open('', '_blank', 'width=850,height=1000');
+    win?.document.write(
+      '<p style="font-family:sans-serif;padding:24px;color:#666">Preparing invoice…</p>',
+    );
+    try {
+      await openStockReceiptInvoicePopup(
+        {
+          receiptNumber: r.number,
+          date: r.date,
+          storeName: r.storeName,
+          vendorName: r.vendorName,
+          items: r.items.map((it) => ({
+            name: it.name,
+            quantity: it.receivedQuantity,
+            purchasePrice: it.purchasePrice,
+            lineTotal: it.lineTotal,
+            pricingStatus: it.pricingStatus,
+          })),
+          pricedTotal: r.pricedTotal,
+          paidAmount: r.paidAmount,
+          balanceDue: r.balanceDue,
+          truckFare: r.truckFare,
+          truckFarePaidBy: r.truckFarePaidBy,
+          truck: r.truck,
+          labour: r.labour.map((l) => ({ name: l.name, phone: l.phoneNumber, rent: l.rent })),
+          labourRentTotal: r.labourRent,
+        },
+        win,
+      );
+    } catch {
+      toast.error('Enable popups to view the printable invoice');
+    }
+  };
+
   return (
     <div className="space-y-4">
-      <div className="flex gap-1 border-b">
-        {(
-          [
-            { key: 'in', label: 'Stock In' },
-            { key: 'damaged', label: 'Damaged Stock' },
-          ] as const
-        ).map((t) => (
-          <button
-            key={t.key}
-            type="button"
-            onClick={() => setTab(t.key)}
-            className={cn(
-              '-mb-px border-b-2 px-3 py-2 text-sm font-medium',
-              tab === t.key
-                ? 'border-primary text-foreground'
-                : 'border-transparent text-muted-foreground hover:text-foreground',
-            )}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
-
       <div className="flex flex-wrap items-end justify-between gap-4">
-        <p className="text-sm text-muted-foreground">{rows.length} line item(s)</p>
+        <p className="text-sm text-muted-foreground">
+          {total} truck {total === 1 ? 'delivery' : 'deliveries'}
+        </p>
         <div className="flex flex-wrap items-end gap-3">
           <div className="space-y-1.5">
             <Label>From</Label>
@@ -520,76 +1193,106 @@ export function StockReceiptsPage() {
               <th className="px-4 py-3 font-medium">{t('Store')}</th>
               <th className="px-4 py-3 font-medium">{t('Warehouse')}</th>
               <th className="px-4 py-3 font-medium">{t('Truck')}</th>
-              <th className="px-4 py-3 font-medium">{t('Product')}</th>
-              <th className="px-4 py-3 text-right font-medium">
-                {tab === 'in' ? t('Qty Received') : t('Qty Damaged')}
-              </th>
-              {canManage && <th className="px-4 py-3 text-right font-medium">{t('Actions')}</th>}
+              <th className="px-4 py-3 text-right font-medium">{t('Items')}</th>
+              <th className="px-4 py-3 text-right font-medium">{t('Qty Received')}</th>
+              <th className="px-4 py-3 text-right font-medium">{t('Qty Damaged')}</th>
+              <th className="px-4 py-3 text-right font-medium">{t('Actions')}</th>
             </tr>
           </thead>
           <tbody>
             {isLoading && (
               <tr>
-                <td
-                  colSpan={canManage ? 9 : 8}
-                  className="px-4 py-10 text-center text-muted-foreground"
-                >
+                <td colSpan={10} className="px-4 py-10 text-center text-muted-foreground">
                   Loading…
                 </td>
               </tr>
             )}
             {!isLoading &&
-              rows.map(({ receipt, item }) => (
-                <tr
-                  key={`${receipt.id}-${item.productId}`}
-                  className="border-b last:border-0 hover:bg-muted/30"
-                >
-                  <td className="px-4 py-3 font-medium">{receipt.number}</td>
-                  <td className="px-4 py-3 text-muted-foreground">
-                    {new Date(receipt.date).toLocaleDateString()}
-                  </td>
-                  <td className="px-4 py-3 text-muted-foreground">{receipt.vendorName}</td>
-                  <td className="px-4 py-3 text-muted-foreground">{receipt.storeName ?? '—'}</td>
-                  <td className="px-4 py-3 text-muted-foreground">{receipt.warehouseName}</td>
-                  <td className="px-4 py-3 text-muted-foreground">{receipt.truck.vehicleNumber}</td>
-                  <td className="px-4 py-3">{item.name}</td>
-                  <td className="px-4 py-3 text-right tabular-nums font-medium">
-                    {tab === 'in' ? item.receivedQuantity : item.damagedQuantity}
-                  </td>
-                  {canManage && (
-                    <td className="px-4 py-3">
-                      <div className="flex justify-end gap-1">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8"
-                          title={t('Edit')}
-                          onClick={() => setEditingReceipt(receipt)}
-                        >
-                          <Pencil className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8"
-                          title={t('Delete')}
-                          disabled={del.isPending}
-                          onClick={() => removeReceipt(receipt)}
-                        >
-                          <Trash2 className="h-4 w-4 text-destructive" />
-                        </Button>
-                      </div>
+              receipts.map((receipt) => {
+                const totalReceived = receipt.items.reduce((s, it) => s + it.receivedQuantity, 0);
+                const totalDamaged = receipt.items.reduce((s, it) => s + it.damagedQuantity, 0);
+                return (
+                  <tr
+                    key={receipt.id}
+                    className="cursor-pointer border-b last:border-0 hover:bg-muted/30"
+                    onClick={() => setViewingReceipt(receipt)}
+                  >
+                    <td className="px-4 py-3 font-medium">{receipt.number}</td>
+                    <td className="px-4 py-3 text-muted-foreground">
+                      {new Date(receipt.date).toLocaleDateString()}
                     </td>
-                  )}
-                </tr>
-              ))}
-            {!isLoading && rows.length === 0 && (
+                    <td className="px-4 py-3 text-muted-foreground">{receipt.vendorName}</td>
+                    <td className="px-4 py-3 text-muted-foreground">{receipt.storeName ?? '—'}</td>
+                    <td className="px-4 py-3 text-muted-foreground">{receipt.warehouseName}</td>
+                    <td className="px-4 py-3 text-muted-foreground">
+                      {receipt.truck.vehicleNumber}
+                    </td>
+                    <td className="px-4 py-3 text-right tabular-nums text-muted-foreground">
+                      {receipt.items.length}
+                    </td>
+                    <td className="px-4 py-3 text-right tabular-nums font-medium">
+                      {totalReceived}
+                    </td>
+                    <td className="px-4 py-3 text-right tabular-nums">
+                      {totalDamaged > 0 ? (
+                        <span className="font-medium text-destructive">{totalDamaged}</span>
+                      ) : (
+                        <span className="text-muted-foreground">0</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-right" onClick={(e) => e.stopPropagation()}>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8"
+                            title={t('Actions')}
+                          >
+                            <MoreHorizontal className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem onSelect={() => setViewingReceipt(receipt)}>
+                            <Eye className="h-4 w-4" /> {t('View Details')}
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onSelect={() => handlePrintInvoice(receipt)}>
+                            <Printer className="h-4 w-4" /> {t('Print Invoice')}
+                          </DropdownMenuItem>
+                          {receipt.gatePassId && (
+                            <DropdownMenuItem onSelect={() => setViewingGatePass(receipt)}>
+                              <QrCode className="h-4 w-4" /> {t('View Gate Pass')}
+                            </DropdownMenuItem>
+                          )}
+                          {canManage && receipt.balanceDue > 0 && (
+                            <DropdownMenuItem onSelect={() => setPayingReceipt(receipt)}>
+                              <Wallet className="h-4 w-4" /> {t('Record Payment')}
+                            </DropdownMenuItem>
+                          )}
+                          {canManage && (
+                            <>
+                              <DropdownMenuItem onSelect={() => setEditingReceipt(receipt)}>
+                                <Pencil className="h-4 w-4" /> {t('Edit')}
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                disabled={del.isPending}
+                                onSelect={() => removeReceipt(receipt)}
+                                className="text-destructive"
+                              >
+                                <Trash2 className="h-4 w-4" /> {t('Delete')}
+                              </DropdownMenuItem>
+                            </>
+                          )}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </td>
+                  </tr>
+                );
+              })}
+            {!isLoading && receipts.length === 0 && (
               <tr>
-                <td
-                  colSpan={canManage ? 9 : 8}
-                  className="px-4 py-10 text-center text-muted-foreground"
-                >
-                  {tab === 'in' ? 'No stock received yet.' : 'No damaged stock recorded yet.'}
+                <td colSpan={10} className="px-4 py-10 text-center text-muted-foreground">
+                  No stock receipts recorded yet.
                 </td>
               </tr>
             )}
@@ -611,6 +1314,38 @@ export function StockReceiptsPage() {
       {editingReceipt && (
         <ReceiptDialog receipt={editingReceipt} onClose={() => setEditingReceipt(null)} />
       )}
+      {viewingReceipt && (
+        <ReceiptDetailDialog
+          receipt={viewingReceipt}
+          onClose={() => setViewingReceipt(null)}
+          onViewGatePass={setViewingGatePass}
+          onPrintInvoice={handlePrintInvoice}
+          onRecordPayment={setPayingReceipt}
+          canManage={canManage}
+        />
+      )}
+
+      <GatePassDialog
+        gatePassId={viewingGatePass?.gatePassId}
+        gatePassQrUrl={viewingGatePass?.gatePassQrUrl}
+        title={viewingGatePass?.number}
+        open={viewingGatePass !== null}
+        onOpenChange={(o) => !o && setViewingGatePass(null)}
+      />
+
+      <RecordVendorPaymentDialog
+        receipt={
+          payingReceipt
+            ? {
+                id: payingReceipt.id,
+                receiptNumber: payingReceipt.number,
+                balanceDue: payingReceipt.balanceDue,
+              }
+            : null
+        }
+        open={payingReceipt !== null}
+        onOpenChange={(o) => !o && setPayingReceipt(null)}
+      />
     </div>
   );
 }

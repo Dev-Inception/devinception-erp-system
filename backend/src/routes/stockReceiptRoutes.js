@@ -9,6 +9,7 @@ const {
   updateReceiptValidator,
   idParamValidator,
   listReceiptsValidator,
+  recordPaymentValidator,
 } = require('../validators/stockReceiptValidator');
 
 const router = express.Router();
@@ -41,6 +42,13 @@ router.delete(
   idParamValidator,
   validate,
   stockReceiptController.deleteReceipt,
+);
+router.post(
+  '/:id/payments',
+  requirePermission(PERMISSIONS.INVENTORY_MANAGE),
+  recordPaymentValidator,
+  validate,
+  stockReceiptController.recordPayment,
 );
 
 module.exports = router;

@@ -8,6 +8,7 @@ const {
   createBankAccountValidator,
   updateBankAccountValidator,
   payVendorValidator,
+  payLabourValidator,
   receiveCustomerValidator,
   cashEntryValidator,
   expenseValidator,
@@ -59,6 +60,7 @@ router.post('/expenses', MANAGE, expenseValidator, validate, financeController.r
 
 /* Payments */
 router.post('/payments/vendor', MANAGE, payVendorValidator, validate, financeController.payVendor);
+router.post('/payments/labour', MANAGE, payLabourValidator, validate, financeController.payLabour);
 router.post(
   '/payments/customer',
   MANAGE,
@@ -70,6 +72,7 @@ router.post(
 /* Ledgers (party statements) */
 router.get('/ledgers/customers', READ, financeController.customerLedgers);
 router.get('/ledgers/vendors', READ, financeController.vendorLedgers);
+router.get('/ledgers/labour', READ, financeController.labourLedgers);
 router.get(
   '/ledgers/:kind/:id',
   READ,

@@ -1,4 +1,5 @@
 const Vendor = require('../models/vendorModel');
+const Labour = require('../models/labourModel');
 const Customer = require('../models/customerModel');
 const BankAccount = require('../models/bankAccountModel');
 const Store = require('../models/storeModel');
@@ -76,6 +77,37 @@ async function payVendor(
     createdBy: actor ? actor._id : null,
     lines: [
       journalService.line(ACCOUNT.AP, { debit: amt, ref: vendorDoc._id }),
+      journalService.line(settle.account, { credit: amt, ref: settle.ref }),
+    ],
+  });
+}
+
+// Pay a labourer: Dr AP_LABOUR (labourer) / Cr Cash|Bank.
+async function payLabour(
+  actor,
+  { labour, store, amount, method = PAYMENT_METHOD.CASH, bankAccount, date, note },
+) {
+  const labourDoc = await Labour.findById(labour);
+  if (!labourDoc) throw ApiError.notFound('Labourer not found');
+  const storeDoc = await requireStore(actor, store);
+
+  const amt = toPaisa(amount);
+  if (amt <= 0) throw ApiError.badRequest('Amount must be positive');
+
+  const settle = await settlementAccount(method, bankAccount);
+  await assertSufficientFunds(settle.account, settle.ref, amt);
+  const when = date ? new Date(date) : new Date();
+  const number = await counterService.nextDocNumber('PAY', when.getFullYear(), 4);
+
+  return journalService.post({
+    date: when,
+    description: note || `Payment to ${labourDoc.name}`,
+    refType: REF.PAYMENT,
+    refNo: number,
+    store: storeDoc._id,
+    createdBy: actor ? actor._id : null,
+    lines: [
+      journalService.line(ACCOUNT.AP_LABOUR, { debit: amt, ref: labourDoc._id }),
       journalService.line(settle.account, { credit: amt, ref: settle.ref }),
     ],
   });
@@ -184,6 +216,7 @@ async function recordExpense(
 
 module.exports = {
   payVendor,
+  payLabour,
   receiveFromCustomer,
   cashEntry,
   recordExpense,

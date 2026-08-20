@@ -34,6 +34,11 @@ const setActiveValidator = [
   body('isActive').isBoolean().withMessage('isActive must be a boolean'),
 ];
 
+const setPasswordValidator = [
+  idParam,
+  body('password').isLength({ min: 8 }).withMessage('Password must be at least 8 characters'),
+];
+
 const idParamValidator = [idParam];
 
 module.exports = {
@@ -41,5 +46,6 @@ module.exports = {
   updateRoleValidator,
   updateUserValidator,
   setActiveValidator,
+  setPasswordValidator,
   idParamValidator,
 };

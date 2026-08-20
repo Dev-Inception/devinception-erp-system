@@ -19,13 +19,14 @@ interface GatePassItem {
   quantity: number;
   loadedQuantity?: number;
   loadConfirmed?: boolean;
+  returnedQuantity?: number;
   scannedby?: string;
 }
 
 interface GatePassDetail {
   id: string;
   number: string;
-  sourceType?: 'SALE' | 'PURCHASE';
+  sourceType?: 'SALE' | 'PURCHASE' | 'RETURN';
   saleNumber: string;
   saleDate: string;
   items: GatePassItem[];
@@ -121,6 +122,13 @@ export function GatePassScanPage() {
   const canProcess = Boolean(signatureData) && allConfirmed && !processPass.isPending;
   const apiError = (error as any)?.response?.data?.message;
   const processError = (processPass.error as any)?.response?.data?.message;
+  const directionLabel = data?.sourceType === 'SALE' ? 'Goods Out' : 'Goods In';
+  const docLabel =
+    data?.sourceType === 'PURCHASE'
+      ? 'Purchase #'
+      : data?.sourceType === 'RETURN'
+        ? 'Return #'
+        : 'Sale #';
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-muted/30 p-4">
@@ -130,7 +138,7 @@ export function GatePassScanPage() {
           <h1 className="text-lg font-semibold">Gate Pass</h1>
           {data && (
             <p className="text-xs uppercase tracking-wide text-muted-foreground">
-              {data.sourceType === 'PURCHASE' ? 'Goods In' : 'Goods Out'}
+              {directionLabel}
             </p>
           )}
         </div>
@@ -147,10 +155,7 @@ export function GatePassScanPage() {
           <>
             <div className="space-y-1 text-sm">
               <Row label="Gate Pass #" value={data.number} />
-              <Row
-                label={data.sourceType === 'PURCHASE' ? 'Purchase #' : 'Sale #'}
-                value={data.saleNumber}
-              />
+              <Row label={docLabel} value={data.saleNumber} />
               <Row label="Date" value={new Date(data.saleDate).toLocaleString()} />
             </div>
 
@@ -173,6 +178,11 @@ export function GatePassScanPage() {
                         {item.sku && (
                           <div className="text-xs text-muted-foreground">{item.sku}</div>
                         )}
+                        {item.returnedQuantity ? (
+                          <div className="text-xs text-destructive">
+                            {item.returnedQuantity} returned
+                          </div>
+                        ) : null}
                       </td>
                       <td className="px-3 py-2 text-right tabular-nums">{item.quantity}</td>
                       {data.status === 'PROCESSED' && (

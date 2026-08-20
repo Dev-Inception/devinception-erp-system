@@ -5,6 +5,7 @@ const { ACCOUNT, REF } = require('../utils/finance');
 const journalService = require('./journalService');
 const stockService = require('./stockService');
 const counterService = require('./counterService');
+const gatePassService = require('./gatePassService');
 const { requirePositiveQuantity, normalizeQuantity } = require('../utils/quantity');
 const { parsePagination, escapeRegex } = require('../utils/query');
 
@@ -165,6 +166,14 @@ async function createReturn(actor, saleId, { items, note }) {
         journalService.line(ACCOUNT.COGS, { credit: returnCost }),
       ],
     });
+  }
+
+  // A gate pass per warehouse the return actually restocked — "goods coming
+  // back in", documenting exactly how much of what was returned.
+  const { warehouseGatePasses } = await gatePassService.createGatePassesForReturn(saleReturn, sale);
+  if (warehouseGatePasses.length > 0) {
+    saleReturn.warehouseGatePasses = warehouseGatePasses;
+    await saleReturn.save();
   }
 
   return saleReturn;

@@ -149,8 +149,10 @@ export function LoginPage() {
       // Land on the first module this user can actually see (a cashier, for
       // example, can't open the dashboard, so send them to their first module).
       navigate(landingPath(user?.role, user?.permissions), { replace: true });
-    } catch {
-      setError('Invalid email or password');
+    } catch (e: any) {
+      // Surface the backend's actual reason (e.g. a deactivated account)
+      // instead of always showing the generic invalid-credentials message.
+      setError(e?.response?.data?.message || 'Invalid email or password');
     } finally {
       setLoading(false);
     }

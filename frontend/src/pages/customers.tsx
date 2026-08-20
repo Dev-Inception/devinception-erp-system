@@ -20,7 +20,7 @@ import { formatCurrency } from '@/lib/utils';
 import { useAuthStore } from '@/store/auth';
 import { grantsPermission } from '@/lib/modules';
 import { Pagination } from '@/components/ui/pagination';
-import { useStorefrontFilter } from '@/store/storefront';
+import { useStorefrontFilter, useStorefrontStore } from '@/store/storefront';
 import { useLanguage } from '@/components/language-provider';
 
 interface Customer {
@@ -44,6 +44,11 @@ function CustomerDialog({ customer, trigger }: { customer?: Customer; trigger: R
   const editing = !!customer;
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(emptyForm);
+  // New customers are pinned to whatever store is currently selected in the
+  // header — a store-restricted user's is fixed to their own store already;
+  // a super admin must explicitly pick one (not "All Stores") before adding.
+  const currentStoreId = useStorefrontStore((s) => s.currentStoreId);
+  const hasSpecificStore = !!currentStoreId && currentStoreId !== 'ALL';
 
   // Reset the form to the customer's values (or blank) each time it opens.
   useEffect(() => {
@@ -66,7 +71,7 @@ function CustomerDialog({ customer, trigger }: { customer?: Customer; trigger: R
     mutationFn: async () =>
       editing
         ? (await api.patch(`/customers/${customer!.id}`, form)).data
-        : (await api.post('/customers', form)).data,
+        : (await api.post('/customers', { ...form, storeId: currentStoreId })).data,
     onSuccess: () => {
       toast.success(editing ? 'Customer updated' : 'Customer created');
       qc.invalidateQueries({ queryKey: ['customers'] });
@@ -132,13 +137,20 @@ function CustomerDialog({ customer, trigger }: { customer?: Customer; trigger: R
               onChange={(e) => setForm({ ...form, address: e.target.value })}
             />
           </div>
+          {!editing && !hasSpecificStore && (
+            <p className="text-sm text-destructive">
+              {t(
+                'Select a specific store from the header before adding a customer — "All Stores" can\'t be recorded on a customer.',
+              )}
+            </p>
+          )}
           <div className="flex justify-end gap-2 pt-2">
             <DialogClose asChild>
               <Button type="button" variant="outline">
                 {t('Cancel')}
               </Button>
             </DialogClose>
-            <Button type="submit" disabled={save.isPending}>
+            <Button type="submit" disabled={save.isPending || (!editing && !hasSpecificStore)}>
               {save.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
               {t('Save')}
             </Button>

@@ -106,7 +106,10 @@ const createProduct = asyncHandler(async (req, res) => {
 });
 
 const updateProduct = asyncHandler(async (req, res) => {
-  const product = await productService.updateProduct(req.params.id, pricesToPaisa(req.body));
+  const product = await productService.updateProduct(
+    req.params.id,
+    pricesToPaisa({ ...req.body, warehouse: warehouseFromRequest(req) }),
+  );
   return sendSuccess(res, 200, 'Product updated', { product: serialize(product) });
 });
 

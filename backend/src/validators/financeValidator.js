@@ -41,6 +41,19 @@ const payVendorValidator = [
   body('note').optional({ values: 'falsy' }).trim().isLength({ max: 200 }),
 ];
 
+const payLabourValidator = [
+  body('labour').isMongoId().withMessage('A valid labourer is required'),
+  body('store').isMongoId().withMessage('A store is required'),
+  body('amount').isFloat({ gt: 0 }).withMessage('Amount must be positive'),
+  body('method')
+    .optional({ values: 'falsy' })
+    .isIn(PAYMENT_METHODS)
+    .withMessage('Invalid payment method'),
+  body('bankAccount').optional({ values: 'falsy' }).isMongoId().withMessage('Invalid bank account'),
+  body('date').optional({ values: 'falsy' }).isISO8601().withMessage('Invalid date'),
+  body('note').optional({ values: 'falsy' }).trim().isLength({ max: 200 }),
+];
+
 const receiveCustomerValidator = [
   body('customer').isMongoId().withMessage('A valid customer is required'),
   body('store').isMongoId().withMessage('A store is required'),
@@ -77,7 +90,9 @@ const expenseValidator = [
 
 /* Ledger statement params */
 const statementParamValidator = [
-  param('kind').isIn(['customer', 'vendor']).withMessage("kind must be 'customer' or 'vendor'"),
+  param('kind')
+    .isIn(['customer', 'vendor', 'labour'])
+    .withMessage("kind must be 'customer', 'vendor', or 'labour'"),
   param('id').isMongoId().withMessage('Invalid party id'),
 ];
 
@@ -87,6 +102,7 @@ module.exports = {
   createBankAccountValidator,
   updateBankAccountValidator,
   payVendorValidator,
+  payLabourValidator,
   receiveCustomerValidator,
   cashEntryValidator,
   expenseValidator,

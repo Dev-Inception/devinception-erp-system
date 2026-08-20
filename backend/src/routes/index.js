@@ -11,12 +11,15 @@ const catalogRoutes = require('./catalogRoutes');
 const stockReceiptRoutes = require('./stockReceiptRoutes');
 const saleRoutes = require('./saleRoutes');
 const saleDraftRoutes = require('./saleDraftRoutes');
+const estimateRoutes = require('./estimateRoutes');
+const expenseRoutes = require('./expenseRoutes');
 const financeRoutes = require('./financeRoutes');
 const dashboardRoutes = require('./dashboardRoutes');
 const reportRoutes = require('./reportRoutes');
 const settingsRoutes = require('./settingsRoutes');
 const uploadRoutes = require('./uploadRoutes');
 const labourRoutes = require('./labourRoutes');
+const pendingEntityRoutes = require('./pendingEntityRoutes');
 const gatePassRoutes = require('./gatePassRoutes');
 const gatePassPublicRoutes = require('./gatePassPublicRoutes');
 
@@ -36,12 +39,15 @@ router.use('/catalog', catalogRoutes);
 router.use('/stock-receipts', stockReceiptRoutes);
 router.use('/sales', saleRoutes);
 router.use('/sale-drafts', saleDraftRoutes);
+router.use('/estimates', estimateRoutes);
+router.use('/expenses', expenseRoutes);
 router.use('/finance', financeRoutes);
 router.use('/dashboard', dashboardRoutes);
 router.use('/reports', reportRoutes);
 router.use('/settings', settingsRoutes);
 router.use('/uploads', uploadRoutes);
 router.use('/labour', labourRoutes);
+router.use('/pending-entities', pendingEntityRoutes);
 // Must be registered before the protected `/gate-passes` mount below —
 // otherwise its `protect` middleware would intercept these paths first.
 router.use('/gate-passes/public', gatePassPublicRoutes);

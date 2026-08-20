@@ -76,6 +76,10 @@ async function saleSnapshot(sale, kind = 'CUSTOMER', warehouseId = null) {
 }
 
 function needsSnapshotRefresh(gatePass) {
+  // A return is an append-only correction, never edited after the fact — its
+  // gate pass is built complete at creation time and never needs refreshing
+  // (unlike a SALE pass, which can be re-snapshotted if the sale is edited).
+  if (gatePass.sourceType === 'RETURN') return false;
   if (['PROCESSED', 'USED'].includes(gatePass.status)) return false;
   return (
     !gatePass.saleDate ||
@@ -171,6 +175,152 @@ async function createGatePassesForSale(sale) {
   return { warehouseGatePasses, vendorGatePass };
 }
 
+// Snapshot for a RETURN gate pass — items restocked into one warehouse by
+// this return (WAREHOUSE-sourced lines only; VENDOR-sourced lines never
+// touched warehouse stock, so returning one restocks nothing).
+function returnSnapshot(saleReturn, sale, warehouseId) {
+  const relevantItems = (saleReturn.items || []).filter(
+    (item) => item.source === 'WAREHOUSE' && String(refId(item.warehouse)) === String(warehouseId),
+  );
+  return {
+    sourceType: 'RETURN',
+    kind: 'CUSTOMER',
+    sale: sale._id,
+    saleReturn: saleReturn._id,
+    documentNumber: saleReturn.number,
+    partyName: saleReturn.customerName || '',
+    store: refId(sale.store) || null,
+    warehouse: warehouseId,
+    saleDate: saleReturn.date,
+    items: relevantItems.map((item) => ({
+      product: refId(item.product),
+      name: item.name,
+      sku: '',
+      barcode: '',
+      quantity: item.quantity,
+      loadedQuantity: null,
+      loadConfirmed: false,
+    })),
+    createdBy: refId(saleReturn.createdBy) || null,
+  };
+}
+
+// Creates one RETURN gate pass for the given warehouse's slice of a return.
+// Unlike createForSale, this is always a brand-new document — returns are
+// append-only and never re-edited, so there's no existing-pass-to-refresh case.
+async function createForReturn(saleReturn, sale, warehouseId) {
+  const snapshot = returnSnapshot(saleReturn, sale, warehouseId);
+  const when = saleReturn.date ? new Date(saleReturn.date) : new Date();
+  const number = await counterService.nextDocNumber('GATE', when.getFullYear(), 6);
+  try {
+    return await GatePass.create({
+      number,
+      token: crypto.randomBytes(32).toString('hex'),
+      ...snapshot,
+    });
+  } catch (error) {
+    if (error && error.code === 11000) {
+      const existing = await GatePass.findOne({
+        sourceType: 'RETURN',
+        saleReturn: saleReturn._id,
+        warehouse: warehouseId,
+      });
+      if (existing) return existing;
+    }
+    throw error;
+  }
+}
+
+// One RETURN gate pass per distinct warehouse the return actually restocks
+// — a return can span more than one warehouse if the original sale's lines
+// did. A return with no WAREHOUSE-sourced lines (all VENDOR-sourced) gets none.
+async function createGatePassesForReturn(saleReturn, sale) {
+  const warehouseIds = Array.from(
+    new Set(
+      (saleReturn.items || [])
+        .filter((item) => item.source === 'WAREHOUSE' && item.warehouse)
+        .map((item) => String(refId(item.warehouse))),
+    ),
+  );
+  const warehouseGatePasses = [];
+  for (const warehouseId of warehouseIds) {
+    const gatePass = await createForReturn(saleReturn, sale, warehouseId);
+    warehouseGatePasses.push({ warehouse: warehouseId, gatePass: gatePass._id });
+  }
+  return { warehouseGatePasses };
+}
+
+// Snapshot for a PURCHASE gate pass — how much of each product actually
+// arrived in sellable condition (the received quantity that's added to
+// stock). Damaged units aren't included: they never enter stock, so there's
+// nothing for the gate to confirm loading of.
+function receiptSnapshot(stockReceipt) {
+  const relevantItems = (stockReceipt.items || []).filter((item) => item.receivedQuantity > 0);
+  return {
+    sourceType: 'PURCHASE',
+    kind: 'CUSTOMER',
+    stockReceipt: stockReceipt._id,
+    documentNumber: stockReceipt.number,
+    partyName: stockReceipt.vendorName || '',
+    store: refId(stockReceipt.store) || null,
+    warehouse: refId(stockReceipt.warehouse),
+    saleDate: stockReceipt.date,
+    items: relevantItems.map((item) => ({
+      product: refId(item.product),
+      name: item.name,
+      sku: '',
+      barcode: '',
+      quantity: item.receivedQuantity,
+      loadedQuantity: null,
+      loadConfirmed: false,
+    })),
+    createdBy: refId(stockReceipt.createdBy) || null,
+  };
+}
+
+// Creates (or refreshes) the one PURCHASE gate pass for a stock receipt —
+// receipts are edited in place (unlike a return), so this re-snapshots an
+// existing pass the same way createForSale does for a revised sale, instead
+// of always minting a new document.
+async function createForReceipt(stockReceipt) {
+  const snapshot = receiptSnapshot(stockReceipt);
+  // Nothing arrived in sellable condition — no gate pass needed (or wanted,
+  // if a prior revision now has none).
+  if (snapshot.items.length === 0) {
+    await GatePass.deleteOne({ sourceType: 'PURCHASE', stockReceipt: stockReceipt._id });
+    return null;
+  }
+
+  let gatePass = await GatePass.findOne({
+    sourceType: 'PURCHASE',
+    stockReceipt: stockReceipt._id,
+  });
+  if (gatePass) {
+    if (['PROCESSED', 'USED'].includes(gatePass.status)) return gatePass;
+    return GatePass.findByIdAndUpdate(
+      gatePass._id,
+      { $set: snapshot },
+      { returnDocument: 'after', runValidators: true },
+    );
+  }
+
+  const when = stockReceipt.date ? new Date(stockReceipt.date) : new Date();
+  const number = await counterService.nextDocNumber('GATE', when.getFullYear(), 6);
+  try {
+    return await GatePass.create({
+      number,
+      token: crypto.randomBytes(32).toString('hex'),
+      ...snapshot,
+    });
+  } catch (error) {
+    if (error && error.code === 11000) {
+      gatePass = await GatePass.findOne({ sourceType: 'PURCHASE', stockReceipt: stockReceipt._id });
+      if (gatePass) return gatePass;
+    }
+    throw error;
+  }
+}
+
 // Upgrade legacy status names without changing the meaning of old passes.
 async function refreshLegacySaleGatePasses() {
   await Promise.all([
@@ -216,12 +366,42 @@ async function refreshSourceIfNeeded(gatePass) {
 // response so the scan page can just display it instead of asking again.
 async function withSaleExtras(gatePass) {
   if (!gatePass || !gatePass.sale) return gatePass;
-  const sale = await Sale.findById(gatePass.sale).select('transport labour');
   const base = gatePass.toJSON ? gatePass.toJSON() : { ...gatePass };
+  // Only a SALE pass (goods going out) needs this — a RETURN pass already
+  // *is* the return, and its `sale` is only kept for context/lookups.
+  if (base.sourceType !== 'SALE') return base;
+
+  // .lean() — without it, `transport` is a Mongoose subdocument whose own
+  // enumerable properties (internal $__ state, _doc, ...) leak straight into
+  // the JSON response once `withoutEmptyValues` spreads it.
+  const sale = await Sale.findById(gatePass.sale).select('transport labour').lean();
   if (sale) {
     base.saleTransport = sale.transport;
     base.saleLabour = sale.labour;
   }
+
+  // Cross-reference returns against this sale so the original "goods going
+  // out" pass also shows how much of each item has since come back — keeps
+  // the two documents visibly connected instead of the return being
+  // invisible from here.
+  const SaleReturn = require('../models/saleReturnModel');
+  const returns = await SaleReturn.find({ sale: gatePass.sale }).select('items').lean();
+  const returnedByProduct = new Map();
+  for (const r of returns) {
+    for (const item of r.items) {
+      if (item.source !== 'WAREHOUSE' || String(refId(item.warehouse)) !== String(base.warehouse))
+        continue;
+      const key = String(refId(item.product));
+      returnedByProduct.set(key, (returnedByProduct.get(key) || 0) + item.quantity);
+    }
+  }
+  if (returnedByProduct.size > 0) {
+    base.items = (base.items || []).map((item) => {
+      const returned = returnedByProduct.get(String(refId(item.product)));
+      return returned ? { ...item, returnedQuantity: returned } : item;
+    });
+  }
+
   return base;
 }
 
@@ -402,10 +582,53 @@ async function updateProcessedGatePass(actor, id, payload) {
     .populate('processedBy', 'name');
 }
 
+// Super-admin cleanup — removes the pass and unlinks it from whatever it
+// documents (a sale's warehouse/vendor pass, or a return's), so a stale
+// "View Gate Pass" button never points at a 404 afterward.
+async function deleteGatePass(id) {
+  const gatePass = await GatePass.findById(id);
+  if (!gatePass) throw ApiError.notFound('Gate pass not found');
+
+  if (gatePass.saleReturn) {
+    const SaleReturn = require('../models/saleReturnModel');
+    await SaleReturn.updateOne(
+      { _id: gatePass.saleReturn },
+      { $pull: { warehouseGatePasses: { gatePass: gatePass._id } } },
+    );
+  } else if (gatePass.stockReceipt) {
+    const StockReceipt = require('../models/stockReceiptModel');
+    await StockReceipt.updateOne(
+      { _id: gatePass.stockReceipt, gatePass: gatePass._id },
+      { $set: { gatePass: null } },
+    );
+  } else if (gatePass.sale) {
+    if (gatePass.kind === 'VENDOR') {
+      await Sale.updateOne(
+        { _id: gatePass.sale, vendorGatePass: gatePass._id },
+        { $set: { vendorGatePass: null } },
+      );
+    } else {
+      await Sale.updateOne(
+        { _id: gatePass.sale },
+        { $pull: { warehouseGatePasses: { gatePass: gatePass._id } } },
+      );
+    }
+    // Legacy singular pointer — the first warehouse pass a sale ever got.
+    await Sale.updateOne(
+      { _id: gatePass.sale, gatePass: gatePass._id },
+      { $set: { gatePass: null } },
+    );
+  }
+
+  await gatePass.deleteOne();
+}
+
 module.exports = {
   QR_PREFIX,
   createForSale,
   createGatePassesForSale,
+  createGatePassesForReturn,
+  createForReceipt,
   getGatePassById,
   getGatePassByToken,
   getGatePassBySale,
@@ -413,4 +636,5 @@ module.exports = {
   generateQrPng,
   processGatePass,
   updateProcessedGatePass,
+  deleteGatePass,
 };

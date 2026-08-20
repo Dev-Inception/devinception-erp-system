@@ -54,6 +54,8 @@ const updateProductValidator = [
     .isLength({ max: 160 }),
   body('sku').optional().trim().notEmpty().withMessage('SKU cannot be empty').isLength({ max: 60 }),
   body('isActive').optional().isBoolean(),
+  body('warehouse').optional({ values: 'falsy' }).isMongoId().withMessage('Invalid warehouse'),
+  body('warehouseId').optional({ values: 'falsy' }).isMongoId().withMessage('Invalid warehouse'),
   ...optionalFields,
 ];
 

@@ -28,14 +28,24 @@ interface DocData {
   transportFare?: number;
   labourRentTotal?: number;
   total: number;
+  // Already deducted from `total` (see api.ts mapSale) — surfaced here too
+  // so the deduction is visible, not just baked silently into the total.
+  returnedTotal?: number;
   paidAmount?: number;
   balanceDue?: number;
   // Customer's running receivable, snapshotted at this sale's moment — null/
   // undefined for walk-in sales, which carry no account balance.
   previousBalance?: number | null;
   totalRemaining?: number | null;
-  labour?: { name: string; phone?: string }[];
+  labour?: { name: string; phone?: string; rent?: number }[];
   transport?: { driverName?: string; driverPhone?: string; vehicleNumber?: string };
+  // Returns recorded against this sale, if any — shown so a reprinted
+  // invoice reflects what's actually still owed, not just the original sale.
+  returns?: {
+    number: string;
+    date: string;
+    items: { name: string; quantity: number; amount: number }[];
+  }[];
   notes?: string;
 }
 
@@ -96,6 +106,37 @@ function rows(items: LineItem[]) {
     )
     .join('');
 }
+
+function labourRows(labour: { name: string; phone?: string; rent?: number }[]) {
+  return labour
+    .map(
+      (l, idx) =>
+        `<tr><td class="c">${idx + 1}</td><td>${l.name}</td><td>${l.phone || '—'}</td><td class="r">${formatCurrency(l.rent ?? 0)}</td></tr>`,
+    )
+    .join('');
+}
+
+function returnRows(
+  returns: {
+    number: string;
+    date: string;
+    items: { name: string; quantity: number; amount: number }[];
+  }[],
+) {
+  return returns
+    .flatMap((r) =>
+      r.items.map(
+        (it) =>
+          `<tr><td>${r.number}</td><td>${it.name}</td><td class="r">${it.quantity}</td><td class="r">${formatCurrency(it.amount)}</td></tr>`,
+      ),
+    )
+    .join('');
+}
+
+// Heading styled like the "sr" column labels above the items table, so the
+// labour/transport blocks below read as an extension of the same grid.
+const sectionHeading = (title: string) =>
+  `<div style="font-size:11px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:0.4px;margin:16px 0 4px;">${title}</div>`;
 
 const ONES = [
   '',
@@ -184,9 +225,7 @@ export function renderTemplate(type: TemplateType, d: DocData): string {
   }
 
   // A4 invoice
-  const hasAccount = d.previousBalance != null && d.totalRemaining != null;
   const totalItems = d.items.reduce((sum, i) => sum + (Number(i.qty) || 0), 0);
-  const netAmount = hasAccount ? (d.previousBalance as number) + d.total : d.total;
   const logoInitial = (d.company.name || '?').trim().charAt(0).toUpperCase();
 
   return `<!doctype html><html><head>${a4Styles}</head><body>
@@ -220,15 +259,30 @@ export function renderTemplate(type: TemplateType, d: DocData): string {
         <tbody>${rows(d.items)}</tbody>
       </table>
       ${
-        d.labour?.length || d.transport?.driverName
-          ? `<div style="margin-top:16px;font-size:12px;color:#333;">
-        ${d.labour?.length ? `<p style="margin:2px 0;"><strong>Labour:</strong> ${d.labour.map((l) => l.name).join(', ')}</p>` : ''}
-        ${
-          d.transport?.driverName
-            ? `<p style="margin:2px 0;"><strong>Transport:</strong> ${d.transport.driverName}${d.transport.vehicleNumber ? ` (${d.transport.vehicleNumber})` : ''}${d.transport.driverPhone ? ` · ${d.transport.driverPhone}` : ''}</p>`
-            : ''
-        }
-      </div>`
+        d.labour?.length
+          ? `${sectionHeading('Labour')}
+        <table>
+          <thead><tr><th class="c">Sr</th><th>Name</th><th>Phone</th><th class="r">Fare</th></tr></thead>
+          <tbody>${labourRows(d.labour)}</tbody>
+        </table>`
+          : ''
+      }
+      ${
+        d.transport?.driverName
+          ? `${sectionHeading('Transport')}
+        <table>
+          <thead><tr><th>Driver</th><th>Vehicle #</th><th>Phone</th><th class="r">Fare</th></tr></thead>
+          <tbody><tr><td>${d.transport.driverName}</td><td>${d.transport.vehicleNumber || '—'}</td><td>${d.transport.driverPhone || '—'}</td><td class="r">${formatCurrency(d.transportFare ?? 0)}</td></tr></tbody>
+        </table>`
+          : ''
+      }
+      ${
+        d.returns?.length
+          ? `${sectionHeading('Returns')}
+        <table>
+          <thead><tr><th>Return #</th><th>Item</th><th class="r">Qty</th><th class="r">Amount</th></tr></thead>
+          <tbody>${returnRows(d.returns)}</tbody>
+        </table>`
           : ''
       }
       <div class="totals">
@@ -237,17 +291,15 @@ export function renderTemplate(type: TemplateType, d: DocData): string {
         ${d.discount ? `<div class="row muted"><span>Discount</span><span>-${formatCurrency(d.discount)}</span></div>` : ''}
         ${d.tax ? `<div class="row muted"><span>Tax</span><span>${formatCurrency(d.tax)}</span></div>` : ''}
         ${d.transportFare ? `<div class="row muted"><span>Transport Fare</span><span>${formatCurrency(d.transportFare)}</span></div>` : ''}
-        ${d.labourRentTotal ? `<div class="row muted"><span>Labour Rent</span><span>${formatCurrency(d.labourRentTotal)}</span></div>` : ''}
+        ${d.labourRentTotal ? `<div class="row muted"><span>Labour Fare</span><span>${formatCurrency(d.labourRentTotal)}</span></div>` : ''}
+        ${d.returnedTotal ? `<div class="row muted"><span>Returned</span><span>-${formatCurrency(d.returnedTotal)}</span></div>` : ''}
         <div class="divider"></div>
-        <div class="row grand"><span>Gross Total</span><span>${formatCurrency(d.total)}</span></div>
+        <div class="row grand"><span>Total</span><span>${formatCurrency(d.total)}</span></div>
         ${d.paidAmount ? `<div class="row muted"><span>Paid</span><span>${formatCurrency(d.paidAmount)}</span></div>` : ''}
-        ${d.paidAmount && d.balanceDue ? `<div class="row muted"><span>Balance Due (this invoice)</span><span>${formatCurrency(d.balanceDue)}</span></div>` : ''}
         ${
-          hasAccount
+          d.balanceDue
             ? `<div class="account">
-          <div class="row"><span>Previous Balance</span><span>${formatCurrency(d.previousBalance as number)}</span></div>
-          <div class="row"><span>Net Amount</span><span>${formatCurrency(netAmount)}</span></div>
-          <div class="row remaining"><span>Total Remaining</span><span>${formatCurrency(d.totalRemaining as number)}</span></div>
+          <div class="row remaining"><span>Balance Due</span><span>${formatCurrency(d.balanceDue)}</span></div>
         </div>`
             : ''
         }

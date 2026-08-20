@@ -9,6 +9,7 @@ const {
   updateRoleValidator,
   updateUserValidator,
   setActiveValidator,
+  setPasswordValidator,
   idParamValidator,
 } = require('../validators/userValidator');
 
@@ -55,6 +56,13 @@ router.patch(
   setActiveValidator,
   validate,
   userController.setUserActive,
+);
+router.patch(
+  '/:id/password',
+  requirePermission(PERMISSIONS.USERS_SET_PASSWORD),
+  setPasswordValidator,
+  validate,
+  userController.setUserPassword,
 );
 router.delete(
   '/:id',

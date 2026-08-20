@@ -50,6 +50,11 @@ const payVendor = asyncHandler(async (req, res) => {
   return sendSuccess(res, 201, 'Vendor payment recorded', { refNo: entry.refNo });
 });
 
+const payLabour = asyncHandler(async (req, res) => {
+  const entry = await paymentService.payLabour(req.user, req.body);
+  return sendSuccess(res, 201, 'Labour payment recorded', { refNo: entry.refNo });
+});
+
 const receiveFromCustomer = asyncHandler(async (req, res) => {
   const entry = await paymentService.receiveFromCustomer(req.user, req.body);
   return sendSuccess(res, 201, 'Customer receipt recorded', { refNo: entry.refNo });
@@ -81,6 +86,13 @@ const vendorLedgers = asyncHandler(async (_req, res) => {
   const vendors = await ledgerService.vendorLedgers();
   return sendSuccess(res, 200, 'Vendor ledgers fetched', {
     vendors: vendors.map(serializeParty),
+  });
+});
+
+const labourLedgers = asyncHandler(async (_req, res) => {
+  const labour = await ledgerService.labourLedgers();
+  return sendSuccess(res, 200, 'Labour ledgers fetched', {
+    labour: labour.map(serializeParty),
   });
 });
 
@@ -117,11 +129,13 @@ module.exports = {
   updateBankAccount,
   deleteBankAccount,
   payVendor,
+  payLabour,
   receiveFromCustomer,
   cashEntry,
   recordExpense,
   customerLedgers,
   vendorLedgers,
+  labourLedgers,
   partyStatement,
   cashLedger,
   bankLedger,

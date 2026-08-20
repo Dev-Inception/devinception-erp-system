@@ -130,17 +130,16 @@ async function listProducts({
   if (category && mongoose.isValidObjectId(category)) filter.category = category;
 
   // The unfiltered inventory is the complete product catalog. A warehouse/
-  // store filter has a narrower meaning: only products currently in stock at
-  // that location (or one of the store's locations). This also keeps legacy
-  // products with stock rows in more than one warehouse accurate until their
-  // ownership is migrated.
+  // store filter has a narrower meaning: only products *owned by* that
+  // location (or one of the store's locations) — the same single `warehouse`
+  // field the response already serializes as `warehouseId`. Filtering by
+  // StockLevel presence instead would surface a product under a warehouse
+  // other than the one shown in its own response (e.g. a stray manual stock
+  // adjustment posted to the wrong location), which reads as "the same
+  // inventory item is in two warehouses" even though it only has one owner.
   const { warehouseIds } = await resolveWarehouseScope({ warehouse, store, actor });
   if (warehouseIds) {
-    const stockedProductIds = await StockLevel.distinct('product', {
-      ...warehouseMongoFilter(warehouseIds),
-      $expr: { $gt: [{ $round: ['$quantity', QUANTITY_DECIMALS] }, 0] },
-    });
-    filter._id = { $in: stockedProductIds };
+    Object.assign(filter, warehouseMongoFilter(warehouseIds));
   }
 
   const [docs, total] = await Promise.all([
@@ -208,6 +207,14 @@ async function updateProduct(id, data) {
   for (const k of WRITABLE) if (data[k] !== undefined) product[k] = data[k];
   const refs = await catalogService.resolveProductRefs(data);
   for (const [k, v] of Object.entries(refs)) product[k] = v;
+  // Re-homing a product to a different warehouse only changes which location
+  // it's labeled/defaulted to — existing StockLevel rows (wherever they are)
+  // are untouched, same as a legacy product that already had stock in more
+  // than one warehouse.
+  if (data.warehouse) {
+    const warehouse = await require('./warehouseService').getWarehouseById(data.warehouse);
+    product.warehouse = warehouse._id;
+  }
   await product.save();
   return getProductById(id);
 }

@@ -9,6 +9,17 @@ function serialize(saleReturn) {
   if (Array.isArray(r.items)) {
     r.items = r.items.map((it) => view(it, ['unitPrice', 'lineTotal', 'cost']));
   }
+  if (Array.isArray(r.warehouseGatePasses)) {
+    r.warehouseGatePasses = r.warehouseGatePasses.map((entry) => {
+      const gatePassId = String(entry.gatePass?._id ?? entry.gatePass);
+      return {
+        warehouseId: String(entry.warehouse?._id ?? entry.warehouse),
+        gatePassId,
+        gatePassUrl: `/gate-passes/${gatePassId}`,
+        gatePassQrUrl: `/gate-passes/${gatePassId}/qr`,
+      };
+    });
+  }
   return r;
 }
 

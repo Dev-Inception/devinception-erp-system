@@ -21,6 +21,7 @@ const optionalFields = [
 
 const createCustomerValidator = [
   body('name').trim().notEmpty().withMessage('Name is required').isLength({ max: 120 }),
+  body('store').optional({ values: 'falsy' }).isMongoId().withMessage('Invalid store'),
   ...optionalFields,
 ];
 

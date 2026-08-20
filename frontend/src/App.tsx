@@ -17,10 +17,14 @@ import { VendorsPage } from '@/pages/vendors';
 import { LabourPage } from '@/pages/labour';
 import { CustomersPage } from '@/pages/customers';
 import { SalesPage } from '@/pages/sales';
+import { SaleEditPage } from '@/pages/sale-edit';
+import { EstimatesPage } from '@/pages/estimates';
+import { ExpensesPage } from '@/pages/expenses';
 import { StockReceiptsPage } from '@/pages/stock-receipts';
 import { SettingsPage } from '@/pages/settings';
 import { CashPage } from '@/pages/cash';
 import { LedgersPage } from '@/pages/ledgers';
+import { PendingEntitiesPage } from '@/pages/pending-entities';
 import { ReportsPage } from '@/pages/reports';
 import { DayBookPage } from '@/pages/day-book';
 import { WarehousesPage } from '@/pages/warehouses';
@@ -68,13 +72,16 @@ const MODULE_ROUTES: { path: string; element: React.ReactElement }[] = [
   { path: 'warehouses', element: <WarehousesPage /> },
   { path: 'stores', element: <StoresPage /> },
   { path: 'sales', element: <SalesPage /> },
+  { path: 'estimates', element: <EstimatesPage /> },
   { path: 'stock-receipts', element: <StockReceiptsPage /> },
   { path: 'customers', element: <CustomersPage /> },
   { path: 'vendors', element: <VendorsPage /> },
   { path: 'labour', element: <LabourPage /> },
   { path: 'roles', element: <RolePage /> },
   { path: 'ledgers', element: <LedgersPage /> },
+  { path: 'pending-entities', element: <PendingEntitiesPage /> },
   { path: 'reports', element: <ReportsPage /> },
+  { path: 'expenses', element: <ExpensesPage /> },
   { path: 'day-book', element: <DayBookPage /> },
   { path: 'cash', element: <CashPage /> },
   { path: 'settings', element: <SettingsPage /> },
@@ -100,6 +107,14 @@ export default function App() {
                     element={<ModuleGuard moduleKey={r.path}>{r.element}</ModuleGuard>}
                   />
                 ))}
+                <Route
+                  path="sales/:id/edit"
+                  element={
+                    <ModuleGuard moduleKey="sales">
+                      <SaleEditPage />
+                    </ModuleGuard>
+                  }
+                />
               </Route>
             </Routes>
           </BrowserRouter>

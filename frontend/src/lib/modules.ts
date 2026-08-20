@@ -19,6 +19,9 @@ import {
   PackagePlus,
   BookText,
   Store,
+  FileText,
+  Receipt,
+  Hourglass,
 } from 'lucide-react';
 import type { Role } from '@/store/auth';
 
@@ -64,6 +67,14 @@ export const MODULES: ModuleDef[] = [
     defaultRoles: ['CASHIER', 'MANAGER', 'ADMIN'],
   },
   { key: 'sales', to: '/sales', label: 'Sales', section: 'Operations', icon: ScrollText },
+  {
+    key: 'estimates',
+    to: '/estimates',
+    label: 'Estimates',
+    section: 'Operations',
+    icon: FileText,
+    defaultRoles: ['CASHIER', 'MANAGER', 'ADMIN'],
+  },
   {
     key: 'stock-receipts',
     to: '/stock-receipts',
@@ -134,7 +145,23 @@ export const MODULES: ModuleDef[] = [
     icon: BookOpenCheck,
     defaultRoles: ['ACCOUNTANT', 'MANAGER', 'ADMIN'],
   },
+  {
+    key: 'pending-entities',
+    to: '/pending-entities',
+    label: 'Pending Entities',
+    section: 'Finance',
+    icon: Hourglass,
+    defaultRoles: ['ACCOUNTANT', 'MANAGER', 'ADMIN'],
+  },
   { key: 'reports', to: '/reports', label: 'Reports', section: 'Finance', icon: BarChart3 },
+  {
+    key: 'expenses',
+    to: '/expenses',
+    label: 'Expenses',
+    section: 'Finance',
+    icon: Receipt,
+    defaultRoles: ['ACCOUNTANT', 'MANAGER', 'ADMIN'],
+  },
   {
     key: 'day-book',
     to: '/day-book',
@@ -190,6 +217,7 @@ export const MODULE_PERMISSION: Record<string, string> = {
   dashboard: 'reports:read',
   pos: 'sales:create',
   sales: 'sales:read',
+  estimates: 'estimates:read',
   'stock-receipts': 'inventory:read',
   'gate-passes': 'inventory:read',
   products: 'inventory:read',
@@ -203,7 +231,9 @@ export const MODULE_PERMISSION: Record<string, string> = {
   // (not a dedicated labour permission) — see labourRoutes.js.
   labour: 'sales:create',
   ledgers: 'finance:read',
+  'pending-entities': 'finance:read',
   reports: 'reports:read',
+  expenses: 'finance:read',
   cash: 'finance:manage',
   settings: 'settings:manage',
 };

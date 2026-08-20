@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Search,
@@ -15,6 +16,7 @@ import {
   CheckCircle2,
   NotepadTextDashed,
   AlertTriangle,
+  X,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Card } from '@/components/ui/card';
@@ -77,6 +79,7 @@ interface CustomerLite {
   id: string;
   name: string;
   phone?: string;
+  address?: string;
 }
 
 interface LabourLite {
@@ -147,9 +150,22 @@ export function PosPage() {
 
   const [step, setStep] = useState<Step>(1);
 
+  // Converting an estimate (see estimates.tsx "Convert" action) — the query
+  // param carries which one, so its customer/items can pre-fill this sale.
+  // Sent back on checkout so the backend marks the estimate CONVERTED once
+  // the sale actually posts (see saleService.createSale).
+  const [searchParams] = useSearchParams();
+  const estimateId = searchParams.get('estimateId') || undefined;
+  const estimateHydrated = useRef(false);
+  const [pendingEstimateItems, setPendingEstimateItems] = useState<
+    { productId: string; quantity: number; unitPrice: number }[] | null
+  >(null);
+
   // Step 1 — customer (required, no walk-in)
   const [customer, setCustomer] = useState<CustomerLite | null>(null);
   const [customerForm, setCustomerForm] = useState({ name: '', phone: '', address: '' });
+  const [customerSearch, setCustomerSearch] = useState('');
+  const [customerPickerOpen, setCustomerPickerOpen] = useState(false);
 
   // Step 2 — products (list)
   const [search, setSearch] = useState('');
@@ -157,9 +173,53 @@ export function PosPage() {
   const productSearchRef = useRef<HTMLInputElement>(null);
   const [cart, setCart] = useState<CartLine[]>([]);
 
+  // Pull the estimate's customer + items in once, on arrival — a registered
+  // lead goes straight to step 2, an ad-hoc one leaves the name/phone/address
+  // pre-filled on step 1 so the cashier can create the real customer record
+  // a sale requires (an estimate allows a lead with no Customer at all).
+  useEffect(() => {
+    if (!estimateId || estimateHydrated.current) return;
+    estimateHydrated.current = true;
+    (async () => {
+      try {
+        const estimate = await api.get(`/estimates/${estimateId}`);
+        const data = estimate.data;
+        if (data.customerId) {
+          setCustomer({
+            id: data.customerId,
+            name: data.customerName,
+            phone: data.customerPhone,
+            address: data.customerAddress,
+          });
+          setStep(2);
+        } else {
+          setCustomerForm({
+            name: data.customerName || '',
+            phone: data.customerPhone || '',
+            address: data.customerAddress || '',
+          });
+        }
+        setPendingEstimateItems(
+          (data.items ?? []).map((it: any) => ({
+            productId: it.productId,
+            quantity: it.quantity,
+            unitPrice: Number(it.unitPrice),
+          })),
+        );
+        toast.success(`Loaded estimate ${data.number} — review and complete the sale`);
+      } catch {
+        toast.error('Could not load that estimate');
+      }
+    })();
+  }, [estimateId]);
+
   // Step 3 — labour & transport
   const [labourSearch, setLabourSearch] = useState('');
   const [labourPickerOpen, setLabourPickerOpen] = useState(false);
+  // The picker (search + dropdown) only appears once "Add Labour" is
+  // clicked, so the section opens on a clear, prominent action rather than
+  // an always-visible search box.
+  const [addingLabour, setAddingLabour] = useState(false);
   const labourSearchRef = useRef<HTMLInputElement>(null);
   const [selectedLabour, setSelectedLabour] = useState<SelectedLabour[]>([]);
   const [driver, setDriver] = useState({
@@ -193,14 +253,35 @@ export function PosPage() {
   });
 
   const createCustomer = useMutation({
-    mutationFn: async () => (await api.post('/customers', customerForm)).data,
+    mutationFn: async () =>
+      (
+        await api.post('/customers', {
+          ...customerForm,
+          storeId: hasSpecificStore ? currentStoreId : undefined,
+        })
+      ).data,
     onSuccess: (c) => {
       toast.success('Customer added');
       qc.invalidateQueries({ queryKey: ['customers'] });
-      setCustomer({ id: c.id, name: c.name, phone: c.phone });
+      setCustomer({ id: c.id, name: c.name, phone: c.phone, address: c.address });
       setStep(2);
     },
     onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Could not add customer'),
+  });
+
+  const customerSearchTerm = customerSearch.trim();
+  const { data: customerMatches = [] } = useQuery<CustomerLite[]>({
+    queryKey: ['pos-customer-search', customerSearchTerm, hasSpecificStore ? currentStoreId : null],
+    queryFn: async () =>
+      (
+        await api.get('/customers', {
+          params: {
+            search: customerSearchTerm,
+            store: hasSpecificStore ? currentStoreId : undefined,
+          },
+        })
+      ).data,
+    enabled: step === 1 && !customer && customerSearchTerm.length > 0,
   });
 
   const { data: products = [] } = useQuery<Product[]>({
@@ -236,6 +317,44 @@ export function PosPage() {
     }
     return Array.from(map.values());
   })();
+
+  // Once the estimate's items are known (previous effect) and the product
+  // catalog has loaded, turn each one into a real cart line at the same
+  // warehouse-picking logic addRow below uses — but at the estimate's
+  // quantity/price, not defaulted to 1 and the catalog price.
+  useEffect(() => {
+    if (!pendingEstimateItems || products.length === 0) return;
+    const newLines: CartLine[] = [];
+    const missing: string[] = [];
+    for (const item of pendingEstimateItems) {
+      const variants = groupedMatches.find((vs) => vs.some((v) => v.id === item.productId));
+      if (!variants) {
+        missing.push(item.productId);
+        continue;
+      }
+      const key = groupKey(variants[0]);
+      const preferred =
+        variants.find((v) => v.warehouseId === defaultWarehouseId && v.currentStock > 0) ||
+        variants.find((v) => v.currentStock > 0) ||
+        variants[0];
+      newLines.push({
+        key,
+        variants,
+        product: preferred,
+        desiredWarehouseId: preferred.warehouseId,
+        vendorId: null,
+        vendorName: '',
+        price: item.unitPrice,
+        qty: item.quantity,
+      });
+    }
+    if (newLines.length > 0) setCart(newLines);
+    if (missing.length > 0) {
+      toast.error(`${missing.length} item(s) from the estimate could no longer be found`);
+    }
+    setPendingEstimateItems(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingEstimateItems, products]);
 
   const addRow = (variants: Product[]) => {
     const key = groupKey(variants[0]);
@@ -348,6 +467,7 @@ export function PosPage() {
       setLabourCreating(false);
       setLabourForm({ name: '', phoneNumber: '' });
       setLabourSearch('');
+      setAddingLabour(false);
     },
     onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Could not add labour'),
   });
@@ -488,6 +608,7 @@ export function PosPage() {
           storeId: currentStoreId,
           warehouseId: saleWarehouseId,
           customerId: customer!.id,
+          estimateId,
           labour: selectedLabour.map((l) => ({ labour: l.id, rent: l.rent || 0 })),
           discountTotal: discountAmount,
           transportFare: transportFareAmount,
@@ -565,7 +686,9 @@ export function PosPage() {
     title: string;
   } | null>(null);
 
-  const canStep3 = Boolean(driver.name.trim() && driver.vehicleNumber.trim());
+  const canStep3 = Boolean(
+    driver.name.trim() && driver.vehicleNumber.trim() && driver.phone.trim(),
+  );
 
   return (
     <div className="flex flex-col gap-4">
@@ -656,6 +779,11 @@ export function PosPage() {
                         {customer.phone && (
                           <p className="text-sm text-muted-foreground">{customer.phone}</p>
                         )}
+                        {customer.address && (
+                          <p className="truncate text-xs text-muted-foreground">
+                            {customer.address}
+                          </p>
+                        )}
                       </div>
                       <button
                         type="button"
@@ -666,48 +794,102 @@ export function PosPage() {
                       </button>
                     </div>
                   ) : (
-                    <form
-                      className="space-y-4 rounded-xl border bg-muted/20 p-5"
-                      onSubmit={(e) => {
-                        e.preventDefault();
-                        createCustomer.mutate();
-                      }}
-                    >
-                      <div className="space-y-1.5">
-                        <Label>{t('Name *')}</Label>
+                    <div className="space-y-4">
+                      <div className="relative">
+                        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                         <Input
-                          required
-                          autoFocus
-                          value={customerForm.name}
-                          onChange={(e) =>
-                            setCustomerForm({ ...customerForm, name: e.target.value })
-                          }
+                          value={customerSearch}
+                          onChange={(e) => setCustomerSearch(e.target.value)}
+                          onFocus={() => setCustomerPickerOpen(true)}
+                          // delay so a click on a result registers before closing
+                          onBlur={() => setTimeout(() => setCustomerPickerOpen(false), 150)}
+                          placeholder={t('Search by name, phone, or address…')}
+                          className="pl-9"
                         />
+                        {customerPickerOpen && customerSearchTerm && (
+                          <div className="absolute z-10 mt-1 max-h-60 w-full overflow-y-auto rounded-lg border bg-popover shadow-lg">
+                            {customerMatches.length === 0 && (
+                              <p className="p-3 text-center text-sm text-muted-foreground">
+                                {t('No matching customers')}
+                              </p>
+                            )}
+                            {customerMatches.map((c) => (
+                              <button
+                                key={c.id}
+                                type="button"
+                                className="flex w-full flex-col items-start gap-0.5 px-3 py-2 text-left text-sm hover:bg-accent"
+                                onClick={() => {
+                                  setCustomer(c);
+                                  setCustomerSearch('');
+                                  setCustomerPickerOpen(false);
+                                }}
+                              >
+                                <span className="font-medium">{c.name}</span>
+                                <span className="truncate text-xs text-muted-foreground">
+                                  {[c.phone, c.address].filter(Boolean).join(' · ')}
+                                </span>
+                              </button>
+                            ))}
+                          </div>
+                        )}
                       </div>
-                      <div className="space-y-1.5">
-                        <Label>{t('Phone *')}</Label>
-                        <Input
-                          required
-                          value={customerForm.phone}
-                          onChange={(e) =>
-                            setCustomerForm({ ...customerForm, phone: e.target.value })
-                          }
-                        />
+                      <div className="relative">
+                        <div className="absolute inset-0 flex items-center">
+                          <div className="w-full border-t" />
+                        </div>
+                        <div className="relative flex justify-center text-xs">
+                          <span className="bg-background px-2 text-muted-foreground">
+                            {t('or add new')}
+                          </span>
+                        </div>
                       </div>
-                      <div className="space-y-1.5">
-                        <Label>{t('Address')}</Label>
-                        <Input
-                          value={customerForm.address}
-                          onChange={(e) =>
-                            setCustomerForm({ ...customerForm, address: e.target.value })
-                          }
-                        />
-                      </div>
-                      <Button type="submit" className="w-full" disabled={createCustomer.isPending}>
-                        {createCustomer.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
-                        {t('Add & continue')}
-                      </Button>
-                    </form>
+                      <form
+                        className="space-y-4 rounded-xl border bg-muted/20 p-5"
+                        onSubmit={(e) => {
+                          e.preventDefault();
+                          createCustomer.mutate();
+                        }}
+                      >
+                        <div className="space-y-1.5">
+                          <Label>{t('Name *')}</Label>
+                          <Input
+                            required
+                            autoFocus
+                            value={customerForm.name}
+                            onChange={(e) =>
+                              setCustomerForm({ ...customerForm, name: e.target.value })
+                            }
+                          />
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label>{t('Phone *')}</Label>
+                          <Input
+                            required
+                            value={customerForm.phone}
+                            onChange={(e) =>
+                              setCustomerForm({ ...customerForm, phone: e.target.value })
+                            }
+                          />
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label>{t('Address')}</Label>
+                          <Input
+                            value={customerForm.address}
+                            onChange={(e) =>
+                              setCustomerForm({ ...customerForm, address: e.target.value })
+                            }
+                          />
+                        </div>
+                        <Button
+                          type="submit"
+                          className="w-full"
+                          disabled={createCustomer.isPending}
+                        >
+                          {createCustomer.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+                          {t('Add & continue')}
+                        </Button>
+                      </form>
+                    </div>
                   )}
                 </div>
               </div>
@@ -954,101 +1136,100 @@ export function PosPage() {
                   <p className="text-sm text-muted-foreground">
                     {t('Optionally select who is loading the goods.')}
                   </p>
-                  <div className="relative">
-                    <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                    <Input
-                      ref={labourSearchRef}
-                      value={labourSearch}
-                      onChange={(e) => setLabourSearch(e.target.value)}
-                      onFocus={() => setLabourPickerOpen(true)}
-                      // delay so a click on a result registers before closing
-                      onBlur={() => setTimeout(() => setLabourPickerOpen(false), 150)}
-                      placeholder={t('Click to browse, or search labour…')}
-                      className="pl-8"
-                    />
-                    {labourPickerOpen && (
-                      <div className="absolute z-10 mt-1 max-h-56 w-full overflow-y-auto rounded-lg border bg-popover shadow-lg">
-                        {filteredLabour.length === 0 && (
-                          <p className="p-3 text-center text-sm text-muted-foreground">
-                            {t('No labour found')}
-                          </p>
-                        )}
-                        {filteredLabour.map((l) => {
-                          const isSelected = selectedLabour.some((s) => s.id === l.id);
-                          return (
-                            <button
-                              key={l.id}
-                              onMouseDown={(e) => e.preventDefault()}
-                              onClick={() => {
-                                toggleLabour(l);
-                                setLabourSearch('');
-                                setLabourPickerOpen(false);
-                                labourSearchRef.current?.blur();
-                              }}
-                              className="flex w-full items-center justify-between gap-2 border-b px-3 py-2 text-left text-sm last:border-0 hover:bg-accent"
-                            >
-                              <span className="flex items-center gap-2 truncate">
-                                <HardHat className="h-4 w-4 shrink-0 text-muted-foreground" />
-                                <span className="truncate">{l.name}</span>
-                              </span>
-                              <span className="flex items-center gap-2 text-xs text-muted-foreground">
-                                {l.phoneNumber}
-                                {isSelected && <Check className="h-4 w-4 text-primary" />}
-                              </span>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
 
-                  {selectedLabour.length > 0 && (
-                    <div className="space-y-1.5 rounded-lg border p-3">
-                      <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                        {t('Selected labour · rent')}
-                      </p>
-                      {selectedLabour.map((l) => (
-                        <div
-                          key={l.id}
-                          className="flex items-center gap-2 rounded-md border bg-card px-2 py-1.5 text-sm"
-                        >
-                          <HardHat className="h-4 w-4 shrink-0 text-muted-foreground" />
-                          <span className="min-w-0 flex-1 truncate">{l.name}</span>
-                          <Input
-                            type="number"
-                            min={0}
-                            placeholder={t('Rent')}
-                            className="h-8 w-24 text-right"
-                            value={l.rent || ''}
-                            onChange={(e) => setLabourRent(l.id, Number(e.target.value))}
-                          />
-                          <Button
+                  {/* Top action — opens the picker below. Kept as the single
+                      entry point instead of an always-visible search box, so
+                      it's obvious what to click first. */}
+                  {!addingLabour && (
+                    <Button
+                      type="button"
+                      size="lg"
+                      className="w-full text-base"
+                      onClick={() => {
+                        setAddingLabour(true);
+                        setLabourPickerOpen(true);
+                        setTimeout(() => labourSearchRef.current?.focus(), 0);
+                      }}
+                    >
+                      <Plus className="h-5 w-5" /> {t('Add Labour')}
+                    </Button>
+                  )}
+
+                  {addingLabour && !labourCreating && (
+                    <div className="relative">
+                      <Search className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground" />
+                      <Input
+                        ref={labourSearchRef}
+                        value={labourSearch}
+                        onChange={(e) => setLabourSearch(e.target.value)}
+                        onFocus={() => setLabourPickerOpen(true)}
+                        // delay so a click on a result registers before closing
+                        onBlur={() => setTimeout(() => setLabourPickerOpen(false), 150)}
+                        placeholder={t('Search labour by name or phone…')}
+                        className="h-11 pl-10 pr-10 text-base"
+                      />
+                      <button
+                        type="button"
+                        aria-label={t('Cancel')}
+                        onClick={() => {
+                          setLabourSearch('');
+                          setLabourPickerOpen(false);
+                          setAddingLabour(false);
+                        }}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                      {labourPickerOpen && (
+                        <div className="absolute z-10 mt-1 max-h-64 w-full overflow-y-auto rounded-lg border bg-popover shadow-lg">
+                          {filteredLabour.length === 0 && (
+                            <p className="p-3 text-center text-sm text-muted-foreground">
+                              {t('No labour found')}
+                            </p>
+                          )}
+                          {filteredLabour.map((l) => {
+                            const isSelected = selectedLabour.some((s) => s.id === l.id);
+                            return (
+                              <button
+                                key={l.id}
+                                onMouseDown={(e) => e.preventDefault()}
+                                onClick={() => {
+                                  toggleLabour(l);
+                                  setLabourSearch('');
+                                  setLabourPickerOpen(false);
+                                  setAddingLabour(false);
+                                }}
+                                className="flex w-full items-center justify-between gap-2 border-b px-3 py-2.5 text-left text-sm last:border-0 hover:bg-accent"
+                              >
+                                <span className="flex items-center gap-2 truncate">
+                                  <HardHat className="h-4 w-4 shrink-0 text-muted-foreground" />
+                                  <span className="truncate">{l.name}</span>
+                                </span>
+                                <span className="flex items-center gap-2 text-xs text-muted-foreground">
+                                  {l.phoneNumber}
+                                  {isSelected && <Check className="h-4 w-4 text-primary" />}
+                                </span>
+                              </button>
+                            );
+                          })}
+                          <button
                             type="button"
-                            size="icon"
-                            variant="ghost"
-                            className="h-7 w-7 shrink-0 text-destructive"
-                            onClick={() => toggleLabour(l)}
+                            onMouseDown={(e) => e.preventDefault()}
+                            onClick={() => {
+                              setLabourForm({ name: labourSearch.trim(), phoneNumber: '' });
+                              setLabourCreating(true);
+                              setLabourPickerOpen(false);
+                            }}
+                            className="flex w-full items-center gap-2 border-t px-3 py-2.5 text-left text-sm font-medium text-primary hover:bg-accent"
                           >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </Button>
+                            <Plus className="h-4 w-4" /> {t('Add new labourer')}
+                          </button>
                         </div>
-                      ))}
+                      )}
                     </div>
                   )}
 
-                  {!labourCreating ? (
-                    <Button
-                      type="button"
-                      size="sm"
-                      className="w-full"
-                      onClick={() => {
-                        setLabourForm({ name: labourSearch.trim(), phoneNumber: '' });
-                        setLabourCreating(true);
-                      }}
-                    >
-                      <Plus className="h-4 w-4" /> {t('Add Labour')}
-                    </Button>
-                  ) : (
+                  {labourCreating && (
                     <form
                       className="space-y-2 rounded-lg border bg-muted/20 p-3"
                       onSubmit={(e) => {
@@ -1081,7 +1262,10 @@ export function PosPage() {
                           variant="outline"
                           size="sm"
                           className="flex-1"
-                          onClick={() => setLabourCreating(false)}
+                          onClick={() => {
+                            setLabourCreating(false);
+                            setLabourPickerOpen(true);
+                          }}
                         >
                           {t('Cancel')}
                         </Button>
@@ -1096,6 +1280,68 @@ export function PosPage() {
                         </Button>
                       </div>
                     </form>
+                  )}
+
+                  {selectedLabour.length > 0 ? (
+                    <div className="space-y-3 rounded-lg border p-4">
+                      <div className="flex items-center justify-between">
+                        <p className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+                          {t('Assigned')} ({selectedLabour.length})
+                        </p>
+                        {labourRentTotal > 0 && (
+                          <p className="text-sm font-semibold text-muted-foreground">
+                            {t('Total')} {formatCurrency(labourRentTotal)}
+                          </p>
+                        )}
+                      </div>
+                      <div className="space-y-2">
+                        {selectedLabour.map((l) => (
+                          <div
+                            key={l.id}
+                            className="flex items-center gap-3 rounded-md border bg-card px-3 py-3"
+                          >
+                            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+                              <HardHat className="h-5 w-5" />
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <p className="truncate text-base font-medium">{l.name}</p>
+                              {l.phoneNumber && (
+                                <p className="truncate text-xs text-muted-foreground">
+                                  {l.phoneNumber}
+                                </p>
+                              )}
+                            </div>
+                            <div className="flex shrink-0 flex-col items-end gap-0.5">
+                              <Input
+                                id={`labour-fare-${l.id}`}
+                                type="number"
+                                min={0}
+                                placeholder="Fare"
+                                className="h-10 w-28 text-right text-base font-medium"
+                                value={l.rent || ''}
+                                onChange={(e) => setLabourRent(l.id, Number(e.target.value))}
+                              />
+                            </div>
+                            <Button
+                              type="button"
+                              size="icon"
+                              variant="ghost"
+                              className="h-8 w-8 shrink-0 text-muted-foreground hover:text-destructive"
+                              aria-label={`${t('Remove')} ${l.name}`}
+                              onClick={() => toggleLabour(l)}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : (
+                    !addingLabour && (
+                      <p className="rounded-lg border border-dashed p-3 text-center text-xs text-muted-foreground">
+                        {t('No labour selected yet — click "Add Labour" above.')}
+                      </p>
+                    )
                   )}
                 </div>
 
@@ -1119,7 +1365,7 @@ export function PosPage() {
                       />
                     </div>
                     <div className="space-y-1">
-                      <Label>{t('Driver phone')}</Label>
+                      <Label>{t('Driver phone *')}</Label>
                       <Input
                         value={driver.phone}
                         onChange={(e) => setDriver({ ...driver, phone: e.target.value })}
@@ -1245,7 +1491,7 @@ export function PosPage() {
                 )}
                 {labourRentTotal > 0 && (
                   <div className="flex justify-between text-muted-foreground">
-                    <span>{t('Labour Rent')}</span>
+                    <span>{t('Labour Fare')}</span>
                     <span>{formatCurrency(labourRentTotal)}</span>
                   </div>
                 )}
@@ -1334,7 +1580,7 @@ export function PosPage() {
                   )}
                   {Number(completedSale.labourRentTotal ?? 0) > 0 && (
                     <div className="flex justify-between text-muted-foreground">
-                      <span>{t('Labour Rent')}</span>
+                      <span>{t('Labour Fare')}</span>
                       <span>{formatCurrency(Number(completedSale.labourRentTotal))}</span>
                     </div>
                   )}
@@ -1457,7 +1703,11 @@ export function PosPage() {
               <ArrowLeft className="h-4 w-4" /> {t('Back')}
             </Button>
             {step > 1 && step < 5 && (
-              <Button variant="destructive">
+              <Button
+                variant="destructive"
+                disabled={!customer || autosaveDraft.isPending}
+                onClick={parkSale}
+              >
                 <NotepadTextDashed className="h-4 w-4" /> {t('Save as Draft')}
               </Button>
             )}
@@ -1493,7 +1743,11 @@ export function PosPage() {
           {step === 4 && (
             <Button
               disabled={completeSale.isPending || !hasSpecificStore}
-              onClick={() => completeSale.mutate()}
+              onClick={() => {
+                if (window.confirm(t('Are you sure you want to complete this sale?'))) {
+                  completeSale.mutate();
+                }
+              }}
             >
               {completeSale.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
               {t('Complete Sale')}

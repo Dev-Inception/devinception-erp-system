@@ -16,11 +16,11 @@ import { useLanguage } from '@/components/language-provider';
 interface GatePassDetail {
   id: string;
   number: string;
-  sourceType?: 'SALE' | 'PURCHASE';
+  sourceType?: 'SALE' | 'PURCHASE' | 'RETURN';
   direction?: 'IN' | 'OUT';
   saleNumber: string;
   saleDate: string;
-  items: { name: string; quantity: number; loadedQuantity?: number }[];
+  items: { name: string; quantity: number; loadedQuantity?: number; returnedQuantity?: number }[];
   status: 'PENDING' | 'PROCESSED' | 'CANCELLED';
   processedAt?: string;
   processedBy?: { name?: string };
@@ -82,7 +82,10 @@ export function GatePassDialog({
     const win = window.open('', '_blank', 'width=320,height=640');
     if (!win) return;
     const itemRows = data.items
-      .map((it) => `<tr><td>${it.name}</td><td style="text-align:right">${it.quantity}</td></tr>`)
+      .map(
+        (it) =>
+          `<tr><td>${it.name}${it.returnedQuantity ? ` (${it.returnedQuantity} returned)` : ''}</td><td style="text-align:right">${it.quantity}</td></tr>`,
+      )
       .join('');
     win.document.write(`<!doctype html><html><head><title>${data.number}</title>
       <style>
@@ -118,8 +121,13 @@ export function GatePassDialog({
   };
 
   const isPurchase = data?.sourceType === 'PURCHASE';
-  const docLabel = isPurchase ? 'Purchase #' : 'Sale #';
-  const directionLabel = isPurchase ? 'goods coming in' : 'goods going out';
+  const isReturn = data?.sourceType === 'RETURN';
+  const docLabel = isPurchase ? 'Purchase #' : isReturn ? 'Return #' : 'Sale #';
+  const directionLabel = isReturn
+    ? 'goods coming back in'
+    : isPurchase
+      ? 'goods coming in'
+      : 'goods going out';
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -171,7 +179,14 @@ export function GatePassDialog({
             <div className="max-h-40 space-y-1 overflow-y-auto rounded-lg border p-2 text-sm">
               {data.items.map((it, idx) => (
                 <div key={idx} className="flex justify-between">
-                  <span>{it.name}</span>
+                  <span>
+                    {it.name}
+                    {it.returnedQuantity ? (
+                      <span className="ml-1.5 text-xs text-destructive">
+                        ({it.returnedQuantity} returned)
+                      </span>
+                    ) : null}
+                  </span>
                   <span className="tabular-nums">Qty {it.quantity}</span>
                 </div>
               ))}

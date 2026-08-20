@@ -9,6 +9,8 @@ import {
   ChevronDown,
   Pencil,
   Loader2,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { toast } from 'sonner';
@@ -57,19 +59,24 @@ function RoleSelect({
   onChange,
   roles,
   id,
+  disabled,
+  title,
 }: {
   value: string;
   onChange: (role: string) => void;
   roles: { name: string }[];
   id?: string;
+  disabled?: boolean;
+  title?: string;
 }) {
   return (
-    <div className="relative">
+    <div className="relative" title={title}>
       <select
         id={id}
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="flex h-9 w-full appearance-none rounded-md border border-input bg-transparent py-1 pl-3 pr-9 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:border-input"
+        disabled={disabled}
+        className="flex h-9 w-full appearance-none rounded-md border border-input bg-transparent py-1 pl-3 pr-9 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:border-input disabled:cursor-not-allowed disabled:opacity-50"
       >
         {roles.map((r) => (
           <option key={r.name} value={r.name}>
@@ -86,6 +93,7 @@ function CreateUserDialog({ roles }: { roles: { name: string }[] }) {
   const qc = useQueryClient();
   const { t } = useLanguage();
   const [open, setOpen] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
   const [form, setForm] = useState<{
     fullName: string;
     email: string;
@@ -183,14 +191,26 @@ function CreateUserDialog({ roles }: { roles: { name: string }[] }) {
           </div>
           <div className="space-y-1.5">
             <Label>Password *</Label>
-            <Input
-              required
-              type="password"
-              minLength={8}
-              placeholder="At least 8 characters"
-              value={form.password}
-              onChange={(e) => setForm({ ...form, password: e.target.value })}
-            />
+            <div className="relative">
+              <Input
+                required
+                type={showPassword ? 'text' : 'password'}
+                minLength={8}
+                placeholder="At least 8 characters"
+                value={form.password}
+                onChange={(e) => setForm({ ...form, password: e.target.value })}
+                className="pr-10"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword((v) => !v)}
+                aria-label={showPassword ? 'Hide password' : 'Show password'}
+                aria-pressed={showPassword}
+                className="absolute inset-y-0 right-0 flex items-center px-3 text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none"
+              >
+                {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </button>
+            </div>
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="new-user-role">Role</Label>
@@ -245,19 +265,49 @@ function CreateUserDialog({ roles }: { roles: { name: string }[] }) {
   );
 }
 
-/** Edit a user's name and email (role and status are changed from the table). */
-function EditUserDialog({ user, trigger }: { user: ManagedUser; trigger: React.ReactNode }) {
+/**
+ * Edit a user: name, email, active status, and an optional password reset —
+ * all in one place instead of scattered across separate actions. Password is
+ * left blank to keep the current one; filling it force-sets a new one with
+ * no current-password check (this is an admin override, not self-service).
+ */
+function EditUserDialog({
+  user,
+  isSelf,
+  trigger,
+}: {
+  user: ManagedUser;
+  isSelf: boolean;
+  trigger: React.ReactNode;
+}) {
   const qc = useQueryClient();
   const { t } = useLanguage();
   const [open, setOpen] = useState(false);
-  const [form, setForm] = useState({ fullName: user.fullName, email: user.email });
+  const [showPassword, setShowPassword] = useState(false);
+  const [form, setForm] = useState({
+    fullName: user.fullName,
+    email: user.email,
+    active: user.active,
+    password: '',
+  });
 
   useEffect(() => {
-    if (open) setForm({ fullName: user.fullName, email: user.email });
+    if (open) {
+      setForm({ fullName: user.fullName, email: user.email, active: user.active, password: '' });
+      setShowPassword(false);
+    }
   }, [open, user]);
 
   const save = useMutation({
-    mutationFn: async () => (await api.patch(`/users/${user.id}`, form)).data,
+    mutationFn: async () => {
+      await api.patch(`/users/${user.id}`, { fullName: form.fullName, email: form.email });
+      if (form.active !== user.active) {
+        await api.patch(`/users/${user.id}/active`, { active: form.active });
+      }
+      if (form.password) {
+        await api.patch(`/users/${user.id}/password`, { password: form.password });
+      }
+    },
     onSuccess: () => {
       toast.success('User updated');
       qc.invalidateQueries({ queryKey: ['users'] });
@@ -276,7 +326,8 @@ function EditUserDialog({ user, trigger }: { user: ManagedUser; trigger: React.R
         <DialogHeader>
           <DialogTitle>Edit User</DialogTitle>
           <DialogDescription>
-            Update this user’s name and email. Role and status are changed from the table.
+            Update this user's name, email, and status. Leave the password blank to keep it
+            unchanged.
           </DialogDescription>
         </DialogHeader>
         <form
@@ -302,6 +353,57 @@ function EditUserDialog({ user, trigger }: { user: ManagedUser; trigger: React.R
               value={form.email}
               onChange={(e) => setForm({ ...form, email: e.target.value })}
             />
+          </div>
+          <div className="space-y-1.5">
+            <Label>New Password</Label>
+            <div className="relative">
+              <Input
+                type={showPassword ? 'text' : 'password'}
+                minLength={8}
+                placeholder="Leave blank to keep current password"
+                value={form.password}
+                onChange={(e) => setForm({ ...form, password: e.target.value })}
+                className="pr-10"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword((v) => !v)}
+                aria-label={showPassword ? 'Hide password' : 'Show password'}
+                aria-pressed={showPassword}
+                className="absolute inset-y-0 right-0 flex items-center px-3 text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none"
+              >
+                {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </button>
+            </div>
+          </div>
+          <div className="space-y-1.5">
+            <Label>Status</Label>
+            <div className="flex gap-2">
+              {(
+                [
+                  { value: true, label: 'Active' },
+                  { value: false, label: 'Disabled' },
+                ] as const
+              ).map((opt) => (
+                <button
+                  key={String(opt.value)}
+                  type="button"
+                  disabled={isSelf}
+                  title={isSelf ? 'You cannot change your own active status' : undefined}
+                  onClick={() => setForm({ ...form, active: opt.value })}
+                  className={cn(
+                    'flex-1 rounded-md border px-3 py-1.5 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50',
+                    form.active === opt.value
+                      ? opt.value
+                        ? 'border-emerald-500/50 bg-emerald-500/10 text-emerald-600'
+                        : 'border-destructive/50 bg-destructive/10 text-destructive'
+                      : 'border-input text-muted-foreground hover:bg-muted/50',
+                  )}
+                >
+                  {t(opt.label)}
+                </button>
+              ))}
+            </div>
           </div>
           <div className="flex justify-end gap-2 pt-2">
             <DialogClose asChild>
@@ -337,6 +439,12 @@ function UsersCard() {
     queryKey: ['roles'],
     queryFn: async () => (await api.get('/roles')).data,
   });
+  // Only one super admin is allowed system-wide — once one exists, don't
+  // offer it as a role for new users (the backend rejects it anyway).
+  const hasSuperAdmin = users.some((u) => u.role === 'SUPER_ADMIN');
+  const assignableRoles = hasSuperAdmin
+    ? roles.filter((r) => r.name.toUpperCase() !== 'SUPER_ADMIN')
+    : roles;
 
   const setRole = useMutation({
     mutationFn: async ({ id, role }: { id: string; role: string }) =>
@@ -372,7 +480,7 @@ function UsersCard() {
           <CardTitle>Users</CardTitle>
           <CardDescription>Create users and assign each one a role.</CardDescription>
         </div>
-        <CreateUserDialog roles={roles} />
+        <CreateUserDialog roles={assignableRoles} />
       </CardHeader>
       <CardContent className="px-0 pb-0">
         <table className="w-full text-sm">
@@ -389,6 +497,7 @@ function UsersCard() {
           <tbody>
             {users.map((u) => {
               const isSelf = currentUser?.email === u.email;
+              const isSuperAdmin = u.role === 'SUPER_ADMIN';
               return (
                 <tr key={u.id} className="border-b last:border-0 hover:bg-muted/30">
                   <td className="px-4 py-3">
@@ -431,6 +540,7 @@ function UsersCard() {
                       {canEdit && (
                         <EditUserDialog
                           user={u}
+                          isSelf={isSelf}
                           trigger={
                             <Button
                               variant="ghost"

@@ -1,6 +1,7 @@
 const mongoose = require('mongoose');
 const Customer = require('../models/customerModel');
 const Vendor = require('../models/vendorModel');
+const Labour = require('../models/labourModel');
 const BankAccount = require('../models/bankAccountModel');
 const ApiError = require('../utils/ApiError');
 const { ACCOUNT } = require('../utils/finance');
@@ -43,10 +44,20 @@ async function vendorLedgers() {
   return vendors.map((v) => ({ ...v, balance: balances.get(String(v._id)) || 0 }));
 }
 
-// Statement for one customer (AR) or vendor (AP), optionally scoped to one
-// store's transactions with them (their overall balance shown alongside stays
-// business-wide — see customerLedgers/vendorLedgers — only this drill-down
-// statement narrows).
+// List of labourers with their payable balance (rent charged on sales that
+// hasn't been paid out yet).
+async function labourLedgers() {
+  const [labourers, balances] = await Promise.all([
+    Labour.find().sort({ name: 1 }).lean(),
+    journalService.balancesByRef(ACCOUNT.AP_LABOUR),
+  ]);
+  return labourers.map((l) => ({ ...l, balance: balances.get(String(l._id)) || 0 }));
+}
+
+// Statement for one customer (AR), vendor (AP), or labourer (AP_LABOUR),
+// optionally scoped to one store's transactions with them (their overall
+// balance shown alongside stays business-wide — see customerLedgers/
+// vendorLedgers/labourLedgers — only this drill-down statement narrows).
 async function partyStatement(kind, id, { store, ...range } = {}) {
   let party;
   let account;
@@ -56,8 +67,11 @@ async function partyStatement(kind, id, { store, ...range } = {}) {
   } else if (kind === 'vendor') {
     party = await Vendor.findById(id);
     account = ACCOUNT.AP;
+  } else if (kind === 'labour') {
+    party = await Labour.findById(id);
+    account = ACCOUNT.AP_LABOUR;
   } else {
-    throw ApiError.badRequest("Ledger kind must be 'customer' or 'vendor'");
+    throw ApiError.badRequest("Ledger kind must be 'customer', 'vendor', or 'labour'");
   }
   if (!party) throw ApiError.notFound(`${kind} not found`);
 
@@ -91,6 +105,7 @@ async function bankLedger(id, { store, ...range } = {}) {
 module.exports = {
   customerLedgers,
   vendorLedgers,
+  labourLedgers,
   partyStatement,
   cashLedger,
   bankLedger,
