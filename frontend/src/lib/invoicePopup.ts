@@ -126,15 +126,15 @@ export async function openSaleInvoicePopup(sale: SaleForInvoice, target?: Window
   }
 }
 
-/** A GRN-style vendor invoice for a stock receipt — same INVOICE_A4 template
- * as sales, with the vendor as the "party" and received quantities as the
- * line items. Items not yet priced (see Pending Entities) print with a
- * blank price/amount rather than a misleading zero. */
+/** A GRN-style supplier invoice for a stock receipt — same INVOICE_A4
+ * template as sales, with the supplier as the "party" and received
+ * quantities as the line items. Items not yet priced (see Pending Entities)
+ * print with a blank price/amount rather than a misleading zero. */
 export interface StockReceiptForInvoice {
   receiptNumber: string;
   date: string;
   storeName?: string;
-  vendorName: string;
+  supplierName: string;
   items: {
     name: string;
     quantity: number | string;
@@ -177,7 +177,7 @@ function buildReceiptInvoiceHtml(receipt: StockReceiptForInvoice) {
     company,
     number: receipt.receiptNumber,
     date: new Date(receipt.date).toLocaleString(),
-    partyName: receipt.vendorName,
+    partyName: receipt.supplierName,
     invoiceType: 'Goods Received',
     items: receipt.items.map((i) => ({
       name: i.name,
@@ -204,6 +204,44 @@ export async function openStockReceiptInvoicePopup(
   target?: Window | null,
 ) {
   if (!writeHtmlPopup(buildReceiptInvoiceHtml(receipt), target)) {
+    throw new Error('POPUP_BLOCKED');
+  }
+}
+
+/** A running statement of what a labourer earned rent on — same INVOICE_A4
+ * template as sales/receipts, with the labourer as the "party" and each job
+ * (sale or stock receipt) they worked as a line item. */
+export interface LabourForInvoice {
+  labourName: string;
+  jobs: {
+    sourceLabel: string; // e.g. "Sale #SALE-2026-000059"
+    date: string;
+    rent: number | string;
+  }[];
+}
+
+function buildLabourInvoiceHtml(labour: LabourForInvoice) {
+  const total = labour.jobs.reduce((sum, j) => sum + Number(j.rent), 0);
+  return renderTemplate('INVOICE_A4', {
+    company: COMPANY,
+    number: '',
+    date: new Date().toLocaleString(),
+    partyName: labour.labourName,
+    invoiceType: 'Labour Statement',
+    items: labour.jobs.map((j) => ({
+      name: `${j.sourceLabel} (${new Date(j.date).toLocaleDateString()})`,
+      qty: 1,
+      price: Number(j.rent),
+      amount: Number(j.rent),
+    })),
+    subtotal: total,
+    tax: 0,
+    total,
+  });
+}
+
+export async function openLabourInvoicePopup(labour: LabourForInvoice, target?: Window | null) {
+  if (!writeHtmlPopup(buildLabourInvoiceHtml(labour), target)) {
     throw new Error('POPUP_BLOCKED');
   }
 }

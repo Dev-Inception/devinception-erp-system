@@ -1,11 +1,11 @@
 const mongoose = require('mongoose');
 
 /**
- * A truck delivery of goods from a vendor into a warehouse. Each line records
- * how much of a product actually arrived in sellable condition
+ * A truck delivery of goods from a supplier into a warehouse. Each line
+ * records how much of a product actually arrived in sellable condition
  * (`receivedQuantity`, which is added to stock) versus how much arrived
- * damaged (`damagedQuantity`, recorded for tracking/vendor claims only — it
- * is never added to stock). See stockReceiptService for the stock/ledger
+ * damaged (`damagedQuantity`, recorded for tracking/supplier claims only —
+ * it is never added to stock). See stockReceiptService for the stock/ledger
  * effects.
  */
 const stockReceiptItemSchema = new mongoose.Schema(
@@ -44,8 +44,13 @@ const stockReceiptLabourSchema = new mongoose.Schema(
 const stockReceiptSchema = new mongoose.Schema(
   {
     number: { type: String, required: true, unique: true }, // GRN-2026-000001
-    vendor: { type: mongoose.Schema.Types.ObjectId, ref: 'Vendor', required: true, index: true },
-    vendorName: { type: String, default: '' }, // snapshot
+    supplier: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Supplier',
+      required: true,
+      index: true,
+    },
+    supplierName: { type: String, default: '' }, // snapshot
     // The physical storefront this delivery was received for — set once at
     // creation from whichever store was selected. Distinct from `warehouse`
     // below (where the stock physically landed).
@@ -58,14 +63,22 @@ const stockReceiptSchema = new mongoose.Schema(
     },
     date: { type: Date, default: Date.now, index: true },
     truck: { type: stockReceiptTruckSchema, required: true },
+    // A registered Transporter this delivery is attributed to, if any — the
+    // free-text truck.driverName/driverPhone above still works standalone
+    // for a one-off driver with no roster entry. When set, the fare below
+    // posts against this transporter's own ledger (ACCOUNT.AP_TRANSPORT)
+    // instead of (or in addition to) the plain cash/bank entry.
+    transporter: { type: mongoose.Schema.Types.ObjectId, ref: 'Transporter', default: null },
     // What the truck delivery cost, and who covered it. SUPPLIER means the
-    // vendor already bore this cost — informational only, no journal entry.
+    // supplier already bore this cost — informational only, no journal entry.
     // US means we paid the driver at receiving time — posted immediately as
     // an operating expense (see stockReceiptService), never deferred.
     truckFare: { type: Number, default: 0, min: 0 }, // paisa
     truckFarePaidBy: { type: String, enum: ['SUPPLIER', 'US'], default: 'SUPPLIER' },
-    // Snapshot of how the fare was settled, only set when truckFarePaidBy
-    // is 'US' — needed to reverse the exact same journal entry on edit/delete.
+    // Snapshot of how the fare was settled — only set when truckFarePaidBy is
+    // 'US' and it was actually paid now (a transporter can also be owed the
+    // fare with no method set at all) — needed to reverse the exact same
+    // journal entry on edit/delete.
     truckFareMethod: { type: String, default: null },
     truckFareBankAccount: {
       type: mongoose.Schema.Types.ObjectId,
@@ -76,7 +89,7 @@ const stockReceiptSchema = new mongoose.Schema(
     labour: { type: [stockReceiptLabourSchema], default: [] },
     labourRent: { type: Number, default: 0, min: 0 }, // paisa, sum of labour[].rent
     note: { type: String, trim: true, maxlength: 500, default: '' },
-    // Paid to the vendor against this specific receipt's priced items so
+    // Paid to the supplier against this specific receipt's priced items so
     // far (see stockReceiptService.recordPayment) — paisa. "Amount owed" is
     // never stored here; it's derived from PendingEntity (pricedTotalsByStockReceipt)
     // minus this, the same way Sale.additionalPaidAmount works for AR.

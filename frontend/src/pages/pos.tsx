@@ -72,6 +72,16 @@ interface VendorLite {
   id: string;
   name: string;
 }
+interface TransporterLite {
+  id: string;
+  name: string;
+  phone?: string;
+  vehicleNumber?: string;
+}
+interface BankAccountLite {
+  id: string;
+  name: string;
+}
 const groupKey = (p: Product) => (p.sku || p.name).trim().toLowerCase();
 const lineSource = (l: CartLine): CartSource => (l.vendorId ? 'VENDOR' : 'WAREHOUSE');
 
@@ -228,6 +238,10 @@ export function PosPage() {
     vehicleNumber: '',
   });
   const [transportFare, setTransportFare] = useState<number>(0);
+  const [transporterId, setTransporterId] = useState<string | null>(null);
+  const [payTransportNow, setPayTransportNow] = useState(false);
+  const [transportFareMethod, setTransportFareMethod] = useState('CASH');
+  const [transportFareBankAccountId, setTransportFareBankAccountId] = useState('');
 
   // Step 4 — payment
   const [discountValue, setDiscountValue] = useState<number>(0);
@@ -302,6 +316,19 @@ export function PosPage() {
     queryKey: ['vendors'],
     queryFn: async () => (await api.get('/vendors')).data,
     enabled: step === 2,
+  });
+  const { data: transporters = [] } = useQuery<TransporterLite[]>({
+    queryKey: ['transporters'],
+    queryFn: async () => (await api.get('/transporters')).data,
+    enabled: step === 3,
+  });
+  const needsTransportFareBank =
+    payTransportNow &&
+    (transportFareMethod === 'BANK_TRANSFER' || transportFareMethod === 'ONLINE');
+  const { data: transportBankAccounts = [] } = useQuery<BankAccountLite[]>({
+    queryKey: ['bank-accounts'],
+    queryFn: async () => (await api.get('/bank/accounts')).data,
+    enabled: step === 3 && needsTransportFareBank,
   });
 
   // Search results grouped by product identity (sku/name) — the same
@@ -496,6 +523,10 @@ export function PosPage() {
     setSelectedLabour([]);
     setDriver({ name: '', phone: '', vehicleNumber: '' });
     setTransportFare(0);
+    setTransporterId(null);
+    setPayTransportNow(false);
+    setTransportFareMethod('CASH');
+    setTransportFareBankAccountId('');
     setDiscountValue(0);
     setDiscountType('amount');
     setTaxPct(0);
@@ -617,6 +648,10 @@ export function PosPage() {
             driverPhone: driver.phone,
             vehicleNumber: driver.vehicleNumber,
           },
+          transporterId: transporterId || undefined,
+          transportFareMethod: transporterId && payTransportNow ? transportFareMethod : undefined,
+          transportFareBankAccountId:
+            transporterId && payTransportNow ? transportFareBankAccountId || undefined : undefined,
           items: cart.map((l) => {
             const gross = l.price * l.qty;
             const lineDiscount = subtotal > 0 ? (discountAmount * gross) / subtotal : 0;
@@ -1349,6 +1384,34 @@ export function PosPage() {
                   <div className="flex items-center gap-2 font-semibold">
                     <Truck className="h-4 w-4" /> {t('Transport')}
                   </div>
+                  <div className="space-y-1">
+                    <Label>{t('Transporter (optional)')}</Label>
+                    <select
+                      value={transporterId ?? ''}
+                      onChange={(e) => {
+                        const id = e.target.value || null;
+                        setTransporterId(id);
+                        const t = transporters.find((tr) => tr.id === id);
+                        if (t) {
+                          setDriver({
+                            name: t.name,
+                            phone: t.phone || '',
+                            vehicleNumber: t.vehicleNumber || '',
+                          });
+                        } else {
+                          setPayTransportNow(false);
+                        }
+                      }}
+                      className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
+                    >
+                      <option value="">{t('One-off driver (no roster entry)')}</option>
+                      {transporters.map((tr) => (
+                        <option key={tr.id} value={tr.id}>
+                          {tr.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                   <div className="grid gap-3 sm:grid-cols-2">
                     <div className="space-y-1">
                       <Label>{t('Driver name *')}</Label>
@@ -1382,6 +1445,60 @@ export function PosPage() {
                       />
                     </div>
                   </div>
+                  {transporterId && transportFare > 0 && (
+                    <div className="space-y-3 rounded-md border p-3">
+                      <label className="flex items-center gap-2 text-sm font-medium">
+                        <input
+                          type="checkbox"
+                          checked={payTransportNow}
+                          onChange={(e) => setPayTransportNow(e.target.checked)}
+                        />
+                        {t('Pay driver now')}
+                      </label>
+                      {!payTransportNow && (
+                        <p className="text-xs text-muted-foreground">
+                          {t(
+                            'The fare will be owed to this transporter — pay them later from their profile.',
+                          )}
+                        </p>
+                      )}
+                      {payTransportNow && (
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          <div className="space-y-1">
+                            <Label>{t('Method')}</Label>
+                            <select
+                              value={transportFareMethod}
+                              onChange={(e) => setTransportFareMethod(e.target.value)}
+                              className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
+                            >
+                              <option value="CASH">{t('Cash')}</option>
+                              <option value="BANK_TRANSFER">{t('Bank transfer')}</option>
+                              <option value="ONLINE">{t('Online')}</option>
+                              <option value="CARD">{t('Card')}</option>
+                            </select>
+                          </div>
+                          {needsTransportFareBank && (
+                            <div className="space-y-1">
+                              <Label>{t('Bank account')} *</Label>
+                              <select
+                                required
+                                value={transportFareBankAccountId}
+                                onChange={(e) => setTransportFareBankAccountId(e.target.value)}
+                                className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
+                              >
+                                <option value="">{t('Select account…')}</option>
+                                {transportBankAccounts.map((b) => (
+                                  <option key={b.id} value={b.id}>
+                                    {b.name}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
 

@@ -50,9 +50,19 @@ const payVendor = asyncHandler(async (req, res) => {
   return sendSuccess(res, 201, 'Vendor payment recorded', { refNo: entry.refNo });
 });
 
+const paySupplier = asyncHandler(async (req, res) => {
+  const entry = await paymentService.paySupplier(req.user, req.body);
+  return sendSuccess(res, 201, 'Supplier payment recorded', { refNo: entry.refNo });
+});
+
 const payLabour = asyncHandler(async (req, res) => {
   const entry = await paymentService.payLabour(req.user, req.body);
   return sendSuccess(res, 201, 'Labour payment recorded', { refNo: entry.refNo });
+});
+
+const payTransport = asyncHandler(async (req, res) => {
+  const entry = await paymentService.payTransport(req.user, req.body);
+  return sendSuccess(res, 201, 'Transport payment recorded', { refNo: entry.refNo });
 });
 
 const receiveFromCustomer = asyncHandler(async (req, res) => {
@@ -89,10 +99,24 @@ const vendorLedgers = asyncHandler(async (_req, res) => {
   });
 });
 
+const supplierLedgers = asyncHandler(async (_req, res) => {
+  const suppliers = await ledgerService.supplierLedgers();
+  return sendSuccess(res, 200, 'Supplier ledgers fetched', {
+    suppliers: suppliers.map(serializeParty),
+  });
+});
+
 const labourLedgers = asyncHandler(async (_req, res) => {
   const labour = await ledgerService.labourLedgers();
   return sendSuccess(res, 200, 'Labour ledgers fetched', {
     labour: labour.map(serializeParty),
+  });
+});
+
+const transporterLedgers = asyncHandler(async (_req, res) => {
+  const transporters = await ledgerService.transporterLedgers();
+  return sendSuccess(res, 200, 'Transporter ledgers fetched', {
+    transporters: transporters.map(serializeParty),
   });
 });
 
@@ -129,13 +153,17 @@ module.exports = {
   updateBankAccount,
   deleteBankAccount,
   payVendor,
+  paySupplier,
   payLabour,
+  payTransport,
   receiveFromCustomer,
   cashEntry,
   recordExpense,
   customerLedgers,
   vendorLedgers,
+  supplierLedgers,
   labourLedgers,
+  transporterLedgers,
   partyStatement,
   cashLedger,
   bankLedger,

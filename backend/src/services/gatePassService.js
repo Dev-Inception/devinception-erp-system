@@ -261,7 +261,7 @@ function receiptSnapshot(stockReceipt) {
     kind: 'CUSTOMER',
     stockReceipt: stockReceipt._id,
     documentNumber: stockReceipt.number,
-    partyName: stockReceipt.vendorName || '',
+    partyName: stockReceipt.supplierName || '',
     store: refId(stockReceipt.store) || null,
     warehouse: refId(stockReceipt.warehouse),
     saleDate: stockReceipt.date,

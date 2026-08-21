@@ -14,6 +14,12 @@ import { ProductsPage } from '@/pages/products';
 import { CategoriesPage } from '@/pages/categories';
 import { UnitsPage } from '@/pages/units';
 import { VendorsPage } from '@/pages/vendors';
+import { VendorDetailPage } from '@/pages/vendor-detail';
+import { SuppliersPage } from '@/pages/suppliers';
+import { SupplierDetailPage } from '@/pages/supplier-detail';
+import { LabourDetailPage } from '@/pages/labour-detail';
+import { TransportersPage } from '@/pages/transporters';
+import { TransporterDetailPage } from '@/pages/transporter-detail';
 import { LabourPage } from '@/pages/labour';
 import { CustomersPage } from '@/pages/customers';
 import { SalesPage } from '@/pages/sales';
@@ -76,6 +82,8 @@ const MODULE_ROUTES: { path: string; element: React.ReactElement }[] = [
   { path: 'stock-receipts', element: <StockReceiptsPage /> },
   { path: 'customers', element: <CustomersPage /> },
   { path: 'vendors', element: <VendorsPage /> },
+  { path: 'suppliers', element: <SuppliersPage /> },
+  { path: 'transporters', element: <TransportersPage /> },
   { path: 'labour', element: <LabourPage /> },
   { path: 'roles', element: <RolePage /> },
   { path: 'ledgers', element: <LedgersPage /> },
@@ -112,6 +120,38 @@ export default function App() {
                   element={
                     <ModuleGuard moduleKey="sales">
                       <SaleEditPage />
+                    </ModuleGuard>
+                  }
+                />
+                <Route
+                  path="vendors/:id"
+                  element={
+                    <ModuleGuard moduleKey="vendors">
+                      <VendorDetailPage />
+                    </ModuleGuard>
+                  }
+                />
+                <Route
+                  path="suppliers/:id"
+                  element={
+                    <ModuleGuard moduleKey="suppliers">
+                      <SupplierDetailPage />
+                    </ModuleGuard>
+                  }
+                />
+                <Route
+                  path="labour/:id"
+                  element={
+                    <ModuleGuard moduleKey="labour">
+                      <LabourDetailPage />
+                    </ModuleGuard>
+                  }
+                />
+                <Route
+                  path="transporters/:id"
+                  element={
+                    <ModuleGuard moduleKey="transporters">
+                      <TransporterDetailPage />
                     </ModuleGuard>
                   }
                 />

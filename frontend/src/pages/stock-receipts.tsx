@@ -35,7 +35,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Pagination } from '@/components/ui/pagination';
 import { GatePassDialog } from '@/components/gate-pass-dialog';
-import { RecordVendorPaymentDialog } from '@/components/record-vendor-payment-dialog';
+import { RecordSupplierPaymentDialog } from '@/components/record-supplier-payment-dialog';
 import { api } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
 import { openStockReceiptInvoicePopup } from '@/lib/invoicePopup';
@@ -45,9 +45,16 @@ import { useWarehouses } from '@/components/layout/warehouse-switcher';
 import { useStorefrontFilter, useStorefrontStore } from '@/store/storefront';
 import { useLanguage } from '@/components/language-provider';
 
-interface Vendor {
+interface Supplier {
   id: string;
   name: string;
+}
+
+interface Transporter {
+  id: string;
+  name: string;
+  phone?: string;
+  vehicleNumber?: string;
 }
 
 interface ProductOption {
@@ -83,8 +90,8 @@ interface LabourOption {
 interface StockReceipt {
   id: string;
   number: string;
-  vendorId: string;
-  vendorName: string;
+  supplierId: string;
+  supplierName: string;
   storeId?: string;
   storeName?: string;
   warehouseId: string;
@@ -97,7 +104,7 @@ interface StockReceipt {
   note: string;
   gatePassId?: string;
   gatePassQrUrl?: string;
-  // Vendor-payable info derived from Pending Entities — see
+  // Supplier-payable info derived from Pending Entities — see
   // pendingEntityService.pricedTotalsByStockReceipt on the backend.
   pricedTotal: number;
   paidAmount: number;
@@ -108,12 +115,14 @@ interface StockReceipt {
   truckFarePaidBy: 'SUPPLIER' | 'US';
   truckFareMethod?: string;
   truckFareBankAccountId?: string;
+  transporterId?: string;
+  transporterName?: string;
 }
 
 const PAGE_SIZE = 20;
 const SEARCH_FETCH_LIMIT = 200;
 
-/* ── New/edit truck delivery: vendor, truck details, and per-product received/damaged quantities ── */
+/* ── New/edit truck delivery: supplier, truck details, and per-product received/damaged quantities ── */
 function ReceiptDialog({ receipt, onClose }: { receipt?: StockReceipt; onClose: () => void }) {
   const qc = useQueryClient();
   const { t } = useLanguage();
@@ -127,7 +136,7 @@ function ReceiptDialog({ receipt, onClose }: { receipt?: StockReceipt; onClose: 
   // A delivery is always received for one physical store — required on
   // create; an existing receipt's store never changes on edit.
   const hasSpecificStore = !!currentStoreId && currentStoreId !== 'ALL';
-  const [vendorId, setVendorId] = useState(receipt?.vendorId ?? '');
+  const [supplierId, setSupplierId] = useState(receipt?.supplierId ?? '');
   const [warehouseId, setWarehouseId] = useState(receipt?.warehouseId ?? '');
   const [date, setDate] = useState(
     () => receipt?.date.slice(0, 10) ?? new Date().toISOString().slice(0, 10),
@@ -142,6 +151,13 @@ function ReceiptDialog({ receipt, onClose }: { receipt?: StockReceipt; onClose: 
   const [truckFareMethod, setTruckFareMethod] = useState(receipt?.truckFareMethod ?? 'CASH');
   const [truckFareBankAccountId, setTruckFareBankAccountId] = useState(
     receipt?.truckFareBankAccountId ?? '',
+  );
+  const [transporterId, setTransporterId] = useState(receipt?.transporterId ?? '');
+  // Only meaningful once a transporter is picked — otherwise 'US' still
+  // means "pay now", exactly as before this feature existed. Defaults to
+  // "pay now" unless editing a receipt that was left owed to a transporter.
+  const [payTruckFareNow, setPayTruckFareNow] = useState(
+    !receipt?.transporterId || !!receipt?.truckFareMethod,
   );
   const [note, setNote] = useState(receipt?.note ?? '');
   const [items, setItems] = useState<ReceiptItem[]>(
@@ -173,9 +189,13 @@ function ReceiptDialog({ receipt, onClose }: { receipt?: StockReceipt; onClose: 
     if (!editing && !warehouseId && defaultWarehouseId) setWarehouseId(defaultWarehouseId);
   }, [editing, warehouseId, defaultWarehouseId]);
 
-  const { data: vendors = [] } = useQuery<Vendor[]>({
-    queryKey: ['vendors-select'],
-    queryFn: async () => (await api.get('/vendors')).data,
+  const { data: suppliers = [] } = useQuery<Supplier[]>({
+    queryKey: ['suppliers-select'],
+    queryFn: async () => (await api.get('/suppliers')).data,
+  });
+  const { data: transporters = [] } = useQuery<Transporter[]>({
+    queryKey: ['transporters'],
+    queryFn: async () => (await api.get('/transporters')).data,
   });
   const { data: products = [] } = useQuery<ProductOption[]>({
     queryKey: ['stock-receipt-products', productSearch],
@@ -191,9 +211,9 @@ function ReceiptDialog({ receipt, onClose }: { receipt?: StockReceipt; onClose: 
       (l.name.toLowerCase().includes(labourSearch.toLowerCase()) ||
         l.phoneNumber.includes(labourSearch)),
   );
+  const truckFarePaidNow = truckFarePaidBy === 'US' && (!transporterId || payTruckFareNow);
   const needsTruckFareBank =
-    truckFarePaidBy === 'US' &&
-    (truckFareMethod === 'BANK_TRANSFER' || truckFareMethod === 'ONLINE');
+    truckFarePaidNow && (truckFareMethod === 'BANK_TRANSFER' || truckFareMethod === 'ONLINE');
   const { data: bankAccounts = [] } = useQuery<{ id: string; name: string }[]>({
     queryKey: ['bank-accounts'],
     queryFn: async () => (await api.get('/bank/accounts')).data,
@@ -287,7 +307,7 @@ function ReceiptDialog({ receipt, onClose }: { receipt?: StockReceipt; onClose: 
       }
       const payload = {
         storeId: currentStoreId,
-        vendorId,
+        supplierId,
         warehouseId,
         date,
         truck: {
@@ -302,10 +322,11 @@ function ReceiptDialog({ receipt, onClose }: { receipt?: StockReceipt; onClose: 
         })),
         truckFare: truckFare || 0,
         truckFarePaidBy,
-        truckFareMethod: truckFarePaidBy === 'US' ? truckFareMethod : undefined,
+        truckFareMethod: truckFarePaidNow ? truckFareMethod : undefined,
         truckFareBankAccountId: needsTruckFareBank
           ? truckFareBankAccountId || undefined
           : undefined,
+        transporterId: transporterId || undefined,
         labour: labourRows.map((r) => ({ labourId: r.labourId, rent: r.rent || 0 })),
         note: note || undefined,
       };
@@ -333,7 +354,7 @@ function ReceiptDialog({ receipt, onClose }: { receipt?: StockReceipt; onClose: 
 
   const canSubmit =
     (editing || hasSpecificStore) &&
-    vendorId &&
+    supplierId &&
     warehouseId &&
     vehicleNumber.trim() &&
     items.length > 0 &&
@@ -350,7 +371,7 @@ function ReceiptDialog({ receipt, onClose }: { receipt?: StockReceipt; onClose: 
           <DialogDescription>
             {editing
               ? 'Update this truck delivery — quantities are reconciled against current stock.'
-              : "Record a truck delivery from a vendor — how much of each product arrived good versus damaged. Damaged quantities are logged for tracking only; they don't add to stock."}
+              : "Record a truck delivery from a supplier — how much of each product arrived good versus damaged. Damaged quantities are logged for tracking only; they don't add to stock."}
           </DialogDescription>
         </DialogHeader>
         <form
@@ -369,17 +390,17 @@ function ReceiptDialog({ receipt, onClose }: { receipt?: StockReceipt; onClose: 
           )}
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-1.5">
-              <Label>Vendor *</Label>
+              <Label>Supplier *</Label>
               <select
                 required
-                value={vendorId}
-                onChange={(e) => setVendorId(e.target.value)}
+                value={supplierId}
+                onChange={(e) => setSupplierId(e.target.value)}
                 className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
               >
-                <option value="">Select vendor…</option>
-                {vendors.map((v) => (
-                  <option key={v.id} value={v.id}>
-                    {v.name}
+                <option value="">Select supplier…</option>
+                {suppliers.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}
                   </option>
                 ))}
               </select>
@@ -421,6 +442,32 @@ function ReceiptDialog({ receipt, onClose }: { receipt?: StockReceipt; onClose: 
               <Label>Driver Phone</Label>
               <Input value={driverPhone} onChange={(e) => setDriverPhone(e.target.value)} />
             </div>
+            <div className="space-y-1.5">
+              <Label>Transporter (optional)</Label>
+              <select
+                value={transporterId}
+                onChange={(e) => {
+                  const id = e.target.value;
+                  setTransporterId(id);
+                  const tr = transporters.find((t) => t.id === id);
+                  if (tr) {
+                    setDriverName(tr.name);
+                    setDriverPhone(tr.phone || '');
+                    setVehicleNumber(tr.vehicleNumber || '');
+                  } else {
+                    setPayTruckFareNow(true);
+                  }
+                }}
+                className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
+              >
+                <option value="">One-off driver (no roster entry)</option>
+                {transporters.map((tr) => (
+                  <option key={tr.id} value={tr.id}>
+                    {tr.name}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
 
           <div className="grid gap-3 rounded-md border p-3 sm:grid-cols-2">
@@ -443,10 +490,27 @@ function ReceiptDialog({ receipt, onClose }: { receipt?: StockReceipt; onClose: 
                 className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
               >
                 <option value="SUPPLIER">Supplier (already paid)</option>
-                <option value="US">Us (pay the driver now)</option>
+                <option value="US">Us (pay the driver)</option>
               </select>
             </div>
-            {truckFarePaidBy === 'US' && truckFare > 0 && (
+            {truckFarePaidBy === 'US' && truckFare > 0 && transporterId && (
+              <div className="space-y-1.5 sm:col-span-2">
+                <label className="flex items-center gap-2 text-sm font-medium">
+                  <input
+                    type="checkbox"
+                    checked={payTruckFareNow}
+                    onChange={(e) => setPayTruckFareNow(e.target.checked)}
+                  />
+                  Pay driver now
+                </label>
+                {!payTruckFareNow && (
+                  <p className="text-xs text-muted-foreground">
+                    The fare will be owed to this transporter — pay them later from their profile.
+                  </p>
+                )}
+              </div>
+            )}
+            {truckFarePaidBy === 'US' && truckFare > 0 && truckFarePaidNow && (
               <>
                 <div className="space-y-1.5">
                   <Label>Payment Method</Label>
@@ -869,7 +933,7 @@ function ReceiptDetailDialog({
             <Truck className="h-4 w-4" /> {receipt.number}
           </DialogTitle>
           <DialogDescription>
-            {new Date(receipt.date).toLocaleDateString()} · {receipt.vendorName}
+            {new Date(receipt.date).toLocaleDateString()} · {receipt.supplierName}
           </DialogDescription>
         </DialogHeader>
 
@@ -1114,7 +1178,7 @@ export function StockReceiptsPage() {
           receiptNumber: r.number,
           date: r.date,
           storeName: r.storeName,
-          vendorName: r.vendorName,
+          supplierName: r.supplierName,
           items: r.items.map((it) => ({
             name: it.name,
             quantity: it.receivedQuantity,
@@ -1170,7 +1234,7 @@ export function StockReceiptsPage() {
               <Input
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                placeholder={t('Search by receipt #, vendor or truck…')}
+                placeholder={t('Search by receipt #, supplier or truck…')}
                 className="pl-8"
               />
             </div>
@@ -1189,7 +1253,7 @@ export function StockReceiptsPage() {
             <tr className="border-b bg-muted/50 text-left text-xs uppercase tracking-wide text-muted-foreground">
               <th className="px-4 py-3 font-medium">{t('Receipt #')}</th>
               <th className="px-4 py-3 font-medium">{t('Date')}</th>
-              <th className="px-4 py-3 font-medium">{t('Vendor')}</th>
+              <th className="px-4 py-3 font-medium">{t('Supplier')}</th>
               <th className="px-4 py-3 font-medium">{t('Store')}</th>
               <th className="px-4 py-3 font-medium">{t('Warehouse')}</th>
               <th className="px-4 py-3 font-medium">{t('Truck')}</th>
@@ -1221,7 +1285,7 @@ export function StockReceiptsPage() {
                     <td className="px-4 py-3 text-muted-foreground">
                       {new Date(receipt.date).toLocaleDateString()}
                     </td>
-                    <td className="px-4 py-3 text-muted-foreground">{receipt.vendorName}</td>
+                    <td className="px-4 py-3 text-muted-foreground">{receipt.supplierName}</td>
                     <td className="px-4 py-3 text-muted-foreground">{receipt.storeName ?? '—'}</td>
                     <td className="px-4 py-3 text-muted-foreground">{receipt.warehouseName}</td>
                     <td className="px-4 py-3 text-muted-foreground">
@@ -1333,7 +1397,7 @@ export function StockReceiptsPage() {
         onOpenChange={(o) => !o && setViewingGatePass(null)}
       />
 
-      <RecordVendorPaymentDialog
+      <RecordSupplierPaymentDialog
         receipt={
           payingReceipt
             ? {

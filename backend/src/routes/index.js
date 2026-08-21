@@ -3,6 +3,8 @@ const authRoutes = require('./authRoutes');
 const userRoutes = require('./userRoutes');
 const roleRoutes = require('./roleRoutes');
 const vendorRoutes = require('./vendorRoutes');
+const supplierRoutes = require('./supplierRoutes');
+const transporterRoutes = require('./transporterRoutes');
 const customerRoutes = require('./customerRoutes');
 const warehouseRoutes = require('./warehouseRoutes');
 const storeRoutes = require('./storeRoutes');
@@ -22,6 +24,7 @@ const labourRoutes = require('./labourRoutes');
 const pendingEntityRoutes = require('./pendingEntityRoutes');
 const gatePassRoutes = require('./gatePassRoutes');
 const gatePassPublicRoutes = require('./gatePassPublicRoutes');
+const dayEndRoutes = require('./dayEndRoutes');
 
 const router = express.Router();
 
@@ -31,6 +34,8 @@ router.use('/auth', authRoutes);
 router.use('/users', userRoutes);
 router.use('/roles', roleRoutes);
 router.use('/vendors', vendorRoutes);
+router.use('/suppliers', supplierRoutes);
+router.use('/transporters', transporterRoutes);
 router.use('/customers', customerRoutes);
 router.use('/warehouses', warehouseRoutes);
 router.use('/stores', storeRoutes);
@@ -48,6 +53,7 @@ router.use('/settings', settingsRoutes);
 router.use('/uploads', uploadRoutes);
 router.use('/labour', labourRoutes);
 router.use('/pending-entities', pendingEntityRoutes);
+router.use('/day-end', dayEndRoutes);
 // Must be registered before the protected `/gate-passes` mount below —
 // otherwise its `protect` middleware would intercept these paths first.
 router.use('/gate-passes/public', gatePassPublicRoutes);

@@ -1,13 +1,13 @@
 const mongoose = require('mongoose');
 
 /**
- * An item procured from a vendor whose cost hasn't been priced yet — either a
- * vendor-sourced POS sale line (Sale.items[].source === 'VENDOR') or a stock
- * receipt line (every receipt is against a vendor). Both are things we owe
- * the vendor for but haven't recorded as a payable. It starts PENDING; only a
- * super admin can price it (pendingEntityService.setPurchasePrice), which
- * posts the real accounts-payable journal entry — see that service for the
- * accounting.
+ * An item procured whose cost hasn't been priced yet — either a vendor-
+ * sourced POS sale line (Sale.items[].source === 'VENDOR', party = Vendor)
+ * or a stock receipt line (every receipt is against a Supplier, party =
+ * Supplier). Both are things we owe the party for but haven't recorded as a
+ * payable. It starts PENDING; only a super admin can price it
+ * (pendingEntityService.setPurchasePrice), which posts the real accounts-
+ * payable journal entry — see that service for the accounting.
  */
 const pendingEntitySchema = new mongoose.Schema(
   {
@@ -16,8 +16,12 @@ const pendingEntitySchema = new mongoose.Schema(
     stockReceipt: { type: mongoose.Schema.Types.ObjectId, ref: 'StockReceipt', default: null },
     sourceNo: { type: String, default: '' }, // snapshot of the sale/receipt number
 
-    vendor: { type: mongoose.Schema.Types.ObjectId, ref: 'Vendor', required: true, index: true },
+    // Set for SALE_ITEM rows only.
+    vendor: { type: mongoose.Schema.Types.ObjectId, ref: 'Vendor', default: null, index: true },
     vendorName: { type: String, default: '' }, // snapshot
+    // Set for STOCK_RECEIPT_ITEM rows only.
+    supplier: { type: mongoose.Schema.Types.ObjectId, ref: 'Supplier', default: null, index: true },
+    supplierName: { type: String, default: '' }, // snapshot
 
     product: { type: mongoose.Schema.Types.ObjectId, ref: 'Product', required: true },
     productName: { type: String, default: '' }, // snapshot

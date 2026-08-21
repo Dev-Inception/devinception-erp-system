@@ -1,7 +1,9 @@
 const mongoose = require('mongoose');
 const Customer = require('../models/customerModel');
 const Vendor = require('../models/vendorModel');
+const Supplier = require('../models/supplierModel');
 const Labour = require('../models/labourModel');
+const Transporter = require('../models/transporterModel');
 const BankAccount = require('../models/bankAccountModel');
 const ApiError = require('../utils/ApiError');
 const { ACCOUNT } = require('../utils/finance');
@@ -44,6 +46,15 @@ async function vendorLedgers() {
   return vendors.map((v) => ({ ...v, balance: balances.get(String(v._id)) || 0 }));
 }
 
+// List of suppliers with their payable balance.
+async function supplierLedgers() {
+  const [suppliers, balances] = await Promise.all([
+    Supplier.find().sort({ name: 1 }).lean(),
+    journalService.balancesByRef(ACCOUNT.AP_SUPPLIER),
+  ]);
+  return suppliers.map((s) => ({ ...s, balance: balances.get(String(s._id)) || 0 }));
+}
+
 // List of labourers with their payable balance (rent charged on sales that
 // hasn't been paid out yet).
 async function labourLedgers() {
@@ -52,6 +63,15 @@ async function labourLedgers() {
     journalService.balancesByRef(ACCOUNT.AP_LABOUR),
   ]);
   return labourers.map((l) => ({ ...l, balance: balances.get(String(l._id)) || 0 }));
+}
+
+// List of transporters with their payable balance.
+async function transporterLedgers() {
+  const [transporters, balances] = await Promise.all([
+    Transporter.find().sort({ name: 1 }).lean(),
+    journalService.balancesByRef(ACCOUNT.AP_TRANSPORT),
+  ]);
+  return transporters.map((tr) => ({ ...tr, balance: balances.get(String(tr._id)) || 0 }));
 }
 
 // Statement for one customer (AR), vendor (AP), or labourer (AP_LABOUR),
@@ -67,11 +87,19 @@ async function partyStatement(kind, id, { store, ...range } = {}) {
   } else if (kind === 'vendor') {
     party = await Vendor.findById(id);
     account = ACCOUNT.AP;
+  } else if (kind === 'supplier') {
+    party = await Supplier.findById(id);
+    account = ACCOUNT.AP_SUPPLIER;
   } else if (kind === 'labour') {
     party = await Labour.findById(id);
     account = ACCOUNT.AP_LABOUR;
+  } else if (kind === 'transport') {
+    party = await Transporter.findById(id);
+    account = ACCOUNT.AP_TRANSPORT;
   } else {
-    throw ApiError.badRequest("Ledger kind must be 'customer', 'vendor', or 'labour'");
+    throw ApiError.badRequest(
+      "Ledger kind must be 'customer', 'vendor', 'supplier', 'labour', or 'transport'",
+    );
   }
   if (!party) throw ApiError.notFound(`${kind} not found`);
 
@@ -105,7 +133,9 @@ async function bankLedger(id, { store, ...range } = {}) {
 module.exports = {
   customerLedgers,
   vendorLedgers,
+  supplierLedgers,
   labourLedgers,
+  transporterLedgers,
   partyStatement,
   cashLedger,
   bankLedger,

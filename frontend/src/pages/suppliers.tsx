@@ -25,7 +25,7 @@ import { grantsPermission } from '@/lib/modules';
 import { useStorefrontFilter } from '@/store/storefront';
 import { useLanguage } from '@/components/language-provider';
 
-interface Vendor {
+interface Supplier {
   id: string;
   name: string;
   phone?: string;
@@ -34,47 +34,46 @@ interface Vendor {
   ntn?: string;
   outstanding: number;
 }
-const SEARCH_FETCH_LIMIT = 200;
 const PAGE_SIZE = 20;
 
 const emptyForm = { name: '', phone: '', email: '', address: '', ntn: '' };
 
-/** Create (no `vendor`) or edit (with `vendor`) a vendor. */
-function VendorDialog({ vendor, trigger }: { vendor?: Vendor; trigger: React.ReactNode }) {
+/** Create (no `supplier`) or edit (with `supplier`) a supplier. */
+function SupplierDialog({ supplier, trigger }: { supplier?: Supplier; trigger: React.ReactNode }) {
   const qc = useQueryClient();
   const { t } = useLanguage();
-  const editing = !!vendor;
+  const editing = !!supplier;
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(emptyForm);
 
-  // Reset the form to the vendor's values (or blank) each time the dialog opens.
+  // Reset the form to the supplier's values (or blank) each time the dialog opens.
   useEffect(() => {
     if (open) {
       setForm(
-        vendor
+        supplier
           ? {
-              name: vendor.name,
-              phone: vendor.phone ?? '',
-              email: vendor.email ?? '',
-              address: vendor.address ?? '',
-              ntn: vendor.ntn ?? '',
+              name: supplier.name,
+              phone: supplier.phone ?? '',
+              email: supplier.email ?? '',
+              address: supplier.address ?? '',
+              ntn: supplier.ntn ?? '',
             }
           : emptyForm,
       );
     }
-  }, [open, vendor]);
+  }, [open, supplier]);
 
   const save = useMutation({
     mutationFn: async () =>
       editing
-        ? (await api.patch(`/vendors/${vendor!.id}`, form)).data
-        : (await api.post('/vendors', form)).data,
+        ? (await api.patch(`/suppliers/${supplier!.id}`, form)).data
+        : (await api.post('/suppliers', form)).data,
     onSuccess: () => {
-      toast.success(editing ? 'Vendor updated' : 'Vendor created');
-      qc.invalidateQueries({ queryKey: ['vendors'] });
+      toast.success(editing ? 'Supplier updated' : 'Supplier created');
+      qc.invalidateQueries({ queryKey: ['suppliers'] });
       setOpen(false);
     },
-    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Could not save vendor'),
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Could not save supplier'),
   });
 
   return (
@@ -82,11 +81,11 @@ function VendorDialog({ vendor, trigger }: { vendor?: Vendor; trigger: React.Rea
       <DialogTrigger asChild>{trigger}</DialogTrigger>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>{editing ? 'Edit Vendor' : 'New Vendor'}</DialogTitle>
+          <DialogTitle>{editing ? t('Edit Supplier') : t('New Supplier')}</DialogTitle>
           <DialogDescription>
             {editing
-              ? 'Update this supplier’s details.'
-              : 'Add a supplier you purchase goods from.'}
+              ? t('Update this supplier’s details.')
+              : t('Add a supplier you receive stock from.')}
           </DialogDescription>
         </DialogHeader>
         <form
@@ -97,9 +96,9 @@ function VendorDialog({ vendor, trigger }: { vendor?: Vendor; trigger: React.Rea
           }}
         >
           <div className="space-y-1.5">
-            <Label htmlFor="v-name">Name *</Label>
+            <Label htmlFor="s-name">{t('Name')} *</Label>
             <Input
-              id="v-name"
+              id="s-name"
               required
               value={form.name}
               onChange={(e) => setForm({ ...form, name: e.target.value })}
@@ -107,35 +106,35 @@ function VendorDialog({ vendor, trigger }: { vendor?: Vendor; trigger: React.Rea
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
-              <Label htmlFor="v-phone">Phone</Label>
+              <Label htmlFor="s-phone">{t('Phone')}</Label>
               <Input
-                id="v-phone"
+                id="s-phone"
                 value={form.phone}
                 onChange={(e) => setForm({ ...form, phone: e.target.value })}
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="v-ntn">NTN</Label>
+              <Label htmlFor="s-ntn">{t('NTN')}</Label>
               <Input
-                id="v-ntn"
+                id="s-ntn"
                 value={form.ntn}
                 onChange={(e) => setForm({ ...form, ntn: e.target.value })}
               />
             </div>
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="v-email">Email</Label>
+            <Label htmlFor="s-email">{t('Email')}</Label>
             <Input
-              id="v-email"
+              id="s-email"
               type="email"
               value={form.email}
               onChange={(e) => setForm({ ...form, email: e.target.value })}
             />
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="v-addr">Address</Label>
+            <Label htmlFor="s-addr">{t('Address')}</Label>
             <Input
-              id="v-addr"
+              id="s-addr"
               value={form.address}
               onChange={(e) => setForm({ ...form, address: e.target.value })}
             />
@@ -157,44 +156,40 @@ function VendorDialog({ vendor, trigger }: { vendor?: Vendor; trigger: React.Rea
   );
 }
 
-export function VendorsPage() {
+export function SuppliersPage() {
   const qc = useQueryClient();
   const navigate = useNavigate();
   const { t } = useLanguage();
   const [search, setSearch] = useState('');
   const perms = useAuthStore((s) => s.user?.permissions);
-  const canUpdate = grantsPermission(perms, 'vendors:update');
-  const canDelete = grantsPermission(perms, 'vendors:delete');
+  const canUpdate = grantsPermission(perms, 'suppliers:update');
+  const canDelete = grantsPermission(perms, 'suppliers:delete');
   const showActions = canUpdate || canDelete;
 
-  const [from, setFrom] = useState('');
-  const [to, setTo] = useState('');
   const [page, setPage] = useState(1);
 
   const storefront = useStorefrontFilter();
-  const { data: vendors = [], isLoading } = useQuery<Vendor[]>({
-    queryKey: ['vendors', search, storefront.store],
-    queryFn: async () => (await api.get('/vendors', { params: { search, ...storefront } })).data,
+  const { data: suppliers = [], isLoading } = useQuery<Supplier[]>({
+    queryKey: ['suppliers', search, storefront.store],
+    queryFn: async () => (await api.get('/suppliers', { params: { search, ...storefront } })).data,
   });
 
   const q = search.trim().toLowerCase();
   const isSearching = q.length > 0;
-  const fetchPage = isSearching ? 1 : page;
-  const fetchLimit = isSearching ? SEARCH_FETCH_LIMIT : PAGE_SIZE;
-  const total = vendors?.length ?? 0;
+  const total = suppliers?.length ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
   const del = useMutation({
-    mutationFn: async (id: string) => (await api.delete(`/vendors/${id}`)).data,
+    mutationFn: async (id: string) => (await api.delete(`/suppliers/${id}`)).data,
     onSuccess: () => {
-      toast.success('Vendor deleted');
-      qc.invalidateQueries({ queryKey: ['vendors'] });
+      toast.success('Supplier deleted');
+      qc.invalidateQueries({ queryKey: ['suppliers'] });
     },
-    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Could not delete vendor'),
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Could not delete supplier'),
   });
 
-  const remove = (v: Vendor) => {
-    if (window.confirm(`Delete vendor “${v.name}”? This cannot be undone.`)) del.mutate(v.id);
+  const remove = (s: Supplier) => {
+    if (window.confirm(`Delete supplier “${s.name}”? This cannot be undone.`)) del.mutate(s.id);
   };
 
   const colSpan = showActions ? 6 : 5;
@@ -209,15 +204,15 @@ export function VendorsPage() {
             <Input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder={t('Search vendors…')}
+              placeholder={t('Search suppliers…')}
               className="w-72 pl-8"
             />
           </div>
         </div>
-        <VendorDialog
+        <SupplierDialog
           trigger={
             <Button>
-              <Plus className="h-4 w-4" /> {t('Add Vendor')}
+              <Plus className="h-4 w-4" /> {t('Add Supplier')}
             </Button>
           }
         />
@@ -227,7 +222,7 @@ export function VendorsPage() {
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b bg-muted/50 text-left text-xs uppercase tracking-wide text-muted-foreground">
-              <th className="px-4 py-3 font-medium">{t('Vendor')}</th>
+              <th className="px-4 py-3 font-medium">{t('Supplier')}</th>
               <th className="px-4 py-3 font-medium">{t('Phone')}</th>
               <th className="px-4 py-3 font-medium">{t('Email')}</th>
               <th className="px-4 py-3 font-medium">{t('NTN')}</th>
@@ -244,25 +239,25 @@ export function VendorsPage() {
               </tr>
             )}
             {!isLoading &&
-              vendors.map((v) => (
+              suppliers.map((s) => (
                 <tr
-                  key={v.id}
+                  key={s.id}
                   className="cursor-pointer border-b last:border-0 hover:bg-muted/30"
-                  onClick={() => navigate(`/vendors/${v.id}`)}
+                  onClick={() => navigate(`/suppliers/${s.id}`)}
                 >
-                  <td className="px-4 py-3 font-medium">{v.name}</td>
-                  <td className="px-4 py-3 text-muted-foreground">{v.phone ?? '—'}</td>
-                  <td className="px-4 py-3 text-muted-foreground">{v.email ?? '—'}</td>
-                  <td className="px-4 py-3 text-muted-foreground">{v.ntn ?? '—'}</td>
+                  <td className="px-4 py-3 font-medium">{s.name}</td>
+                  <td className="px-4 py-3 text-muted-foreground">{s.phone ?? '—'}</td>
+                  <td className="px-4 py-3 text-muted-foreground">{s.email ?? '—'}</td>
+                  <td className="px-4 py-3 text-muted-foreground">{s.ntn ?? '—'}</td>
                   <td className="px-4 py-3 text-right font-medium">
-                    {formatCurrency(v.outstanding)}
+                    {formatCurrency(s.outstanding)}
                   </td>
                   {showActions && (
                     <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
                       <div className="flex justify-end gap-1">
                         {canUpdate && (
-                          <VendorDialog
-                            vendor={v}
+                          <SupplierDialog
+                            supplier={s}
                             trigger={
                               <Button
                                 variant="ghost"
@@ -282,7 +277,7 @@ export function VendorsPage() {
                             className="h-8 w-8"
                             title={t('Delete')}
                             disabled={del.isPending}
-                            onClick={() => remove(v)}
+                            onClick={() => remove(s)}
                           >
                             <Trash2 className="h-4 w-4 text-destructive" />
                           </Button>
@@ -292,10 +287,10 @@ export function VendorsPage() {
                   )}
                 </tr>
               ))}
-            {!isLoading && vendors.length === 0 && (
+            {!isLoading && suppliers.length === 0 && (
               <tr>
                 <td colSpan={colSpan} className="px-4 py-10 text-center text-muted-foreground">
-                  No vendors yet.
+                  {t('No suppliers yet.')}
                 </td>
               </tr>
             )}

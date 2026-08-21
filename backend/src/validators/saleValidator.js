@@ -66,6 +66,18 @@ const itemsAndTermsValidator = [
     .isString()
     .trim()
     .isLength({ max: 80 }),
+  // A registered Transporter is optional — when set, the transport fare can
+  // post against their ledger (see saleService); omitting a method just
+  // means the fare is owed to them rather than settled now.
+  body('transporter').optional({ values: 'falsy' }).isMongoId().withMessage('Invalid transporter'),
+  body('transportFareMethod')
+    .optional({ values: 'falsy' })
+    .isIn(RECEIVABLE_METHODS)
+    .withMessage('Invalid transport fare payment method'),
+  body('transportFareBankAccount')
+    .optional({ values: 'falsy' })
+    .isMongoId()
+    .withMessage('Invalid bank account'),
 ];
 
 const createSaleValidator = [

@@ -1,14 +1,25 @@
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { BookText, ChevronLeft, ChevronRight, Download, Printer } from 'lucide-react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
+import { BookText, ChevronLeft, ChevronRight, Download, Lock, Printer, Unlock } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { api } from '@/lib/api';
 import { cn, formatCurrency } from '@/lib/utils';
-import { useStorefrontFilter } from '@/store/storefront';
+import { useStorefrontFilter, useStorefrontStore } from '@/store/storefront';
+import { useAuthStore } from '@/store/auth';
 import { useLanguage } from '@/components/language-provider';
+
+interface DayEndStatus {
+  isOpen: boolean;
+  closedByName?: string;
+  closedAt?: string;
+  reopenedByName?: string;
+  reopenedAt?: string;
+}
+const MANAGER_ROLES = ['MANAGER', 'ADMIN', 'SUPER_ADMIN'];
 
 interface DayBookRow {
   id: string;
@@ -73,9 +84,15 @@ function csvEscape(v: unknown) {
 
 export function DayBookPage() {
   const { t } = useLanguage();
+  const qc = useQueryClient();
   const [date, setDate] = useState(todayStr);
   const today = todayStr();
   const storefront = useStorefrontFilter();
+  const currentStoreId = useStorefrontStore((s) => s.currentStoreId);
+  const hasSpecificStore = !!currentStoreId && currentStoreId !== 'ALL';
+  const role = useAuthStore((s) => s.user?.role);
+  const canClose = !!role && MANAGER_ROLES.includes(role);
+  const canReopen = role === 'SUPER_ADMIN';
 
   const { data, isLoading } = useQuery<DayBookResult>({
     queryKey: ['day-book', date, storefront.store],
@@ -83,6 +100,49 @@ export function DayBookPage() {
       (await api.get('/reports/day-book', { params: { from: date, to: date, ...storefront } }))
         .data,
   });
+
+  const { data: dayEnd } = useQuery<DayEndStatus>({
+    queryKey: ['day-end', currentStoreId, date],
+    queryFn: async () =>
+      (await api.get('/day-end', { params: { store: currentStoreId, date } })).data,
+    enabled: hasSpecificStore,
+  });
+
+  const invalidateDayEnd = () =>
+    qc.invalidateQueries({ queryKey: ['day-end', currentStoreId, date] });
+
+  const closeDay = useMutation({
+    mutationFn: async () =>
+      (await api.post('/day-end/close', { store: currentStoreId, date })).data,
+    onSuccess: () => {
+      toast.success('Day closed');
+      invalidateDayEnd();
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Could not close the day'),
+  });
+
+  const reopenDay = useMutation({
+    mutationFn: async () =>
+      (await api.post('/day-end/reopen', { store: currentStoreId, date })).data,
+    onSuccess: () => {
+      toast.success('Day reopened');
+      invalidateDayEnd();
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Could not reopen the day'),
+  });
+
+  const handleCloseDay = () => {
+    if (
+      window.confirm(
+        `Close ${date} for this store? No one except a super admin will be able to add new sales for this date until it's reopened.`,
+      )
+    ) {
+      closeDay.mutate();
+    }
+  };
+  const handleReopenDay = () => {
+    if (window.confirm(`Reopen ${date} for this store?`)) reopenDay.mutate();
+  };
 
   const rows = data?.rows ?? [];
   const summary = data?.summary;
@@ -176,6 +236,43 @@ export function DayBookPage() {
             <Button type="button" variant="outline" onClick={() => setDate(today)}>
               {t('Today')}
             </Button>
+          )}
+          {hasSpecificStore && dayEnd && (
+            <div className="flex items-center gap-2">
+              <span
+                className={cn(
+                  'flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-medium',
+                  dayEnd.isOpen
+                    ? 'bg-success/10 text-success'
+                    : 'bg-destructive/10 text-destructive',
+                )}
+              >
+                {dayEnd.isOpen ? <Unlock className="h-4 w-4" /> : <Lock className="h-4 w-4" />}
+                {dayEnd.isOpen
+                  ? t('Day is open')
+                  : `${t('Closed by')} ${dayEnd.closedByName ?? ''}`.trim()}
+              </span>
+              {dayEnd.isOpen && canClose && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={handleCloseDay}
+                  disabled={closeDay.isPending}
+                >
+                  <Lock className="h-4 w-4" /> {t('Day End')}
+                </Button>
+              )}
+              {!dayEnd.isOpen && canReopen && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={handleReopenDay}
+                  disabled={reopenDay.isPending}
+                >
+                  <Unlock className="h-4 w-4" /> {t('Reopen Day')}
+                </Button>
+              )}
+            </div>
           )}
           <div className="ml-auto flex gap-2">
             <Button variant="outline" onClick={() => window.print()} disabled={!data}>

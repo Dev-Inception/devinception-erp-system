@@ -6,10 +6,11 @@ const { view } = require('../utils/money');
 const out = (e) => (e ? view(e.toJSON ? e.toJSON() : e, ['purchasePrice', 'lineTotal']) : e);
 
 const listPendingEntities = asyncHandler(async (req, res) => {
-  const { status, vendor, store, sourceType, search, page, limit } = req.query;
+  const { status, vendor, supplier, store, sourceType, search, page, limit } = req.query;
   const result = await pendingEntityService.listPendingEntities({
     status,
     vendor,
+    supplier,
     store,
     sourceType,
     search,

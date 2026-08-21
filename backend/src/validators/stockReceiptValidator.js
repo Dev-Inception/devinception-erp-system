@@ -3,7 +3,7 @@ const { PAYMENT_METHOD } = require('../utils/finance');
 
 const idParam = param('id').isMongoId().withMessage('Invalid stock receipt id');
 
-// A payment to the vendor settles in cash or into a bank/online account —
+// A payment to the supplier settles in cash or into a bank/online account —
 // it can't be CREDIT or MIXED (those only make sense at a POS checkout).
 const PAYOUT_METHODS = [
   PAYMENT_METHOD.CASH,
@@ -16,7 +16,7 @@ const PAYOUT_METHODS = [
 // required on create only (updateReceipt never changes which storefront a
 // delivery was received for).
 const receiptFieldsValidator = [
-  body('vendor').isMongoId().withMessage('A valid vendor is required'),
+  body('supplier').isMongoId().withMessage('A valid supplier is required'),
   body('warehouse').isMongoId().withMessage('A valid warehouse is required'),
   body('date').optional({ values: 'falsy' }).isISO8601().withMessage('Invalid date'),
   body('truck.vehicleNumber')
@@ -50,9 +50,16 @@ const receiptFieldsValidator = [
     .isIn(PAYOUT_METHODS)
     .withMessage('Invalid truck fare payment method'),
   // We need a way to pay when we're covering the fare — required whenever
-  // there's a positive fare and we're the one paying it.
+  // there's a positive fare and we're the one paying it, unless a
+  // transporter is attached (then omitting it just means the fare is owed
+  // to them instead of settled now — see stockReceiptService).
   body('truckFareMethod').custom((value, { req }) => {
-    if (req.body.truckFarePaidBy === 'US' && Number(req.body.truckFare) > 0 && !value) {
+    if (
+      req.body.truckFarePaidBy === 'US' &&
+      Number(req.body.truckFare) > 0 &&
+      !value &&
+      !req.body.transporter
+    ) {
       throw new Error('A payment method is required when we pay the truck fare');
     }
     return true;
@@ -61,6 +68,7 @@ const receiptFieldsValidator = [
     .optional({ values: 'falsy' })
     .isMongoId()
     .withMessage('Invalid bank account'),
+  body('transporter').optional({ values: 'falsy' }).isMongoId().withMessage('Invalid transporter'),
   body('labour').optional({ values: 'falsy' }).isArray().withMessage('Labour must be an array'),
   body('labour.*.labour').isMongoId().withMessage('Each labour entry must be a valid labour id'),
   body('labour.*.rent')
@@ -87,7 +95,9 @@ const recordPaymentValidator = [
 ];
 
 const listReceiptsValidator = [
-  query('vendor').optional({ values: 'falsy' }).isMongoId().withMessage('Invalid vendor'),
+  query('supplier').optional({ values: 'falsy' }).isMongoId().withMessage('Invalid supplier'),
+  query('labour').optional({ values: 'falsy' }).isMongoId().withMessage('Invalid labour'),
+  query('transporter').optional({ values: 'falsy' }).isMongoId().withMessage('Invalid transporter'),
   query('warehouse').optional({ values: 'falsy' }).isMongoId().withMessage('Invalid warehouse'),
   query('store').optional({ values: 'falsy' }).isMongoId().withMessage('Invalid store'),
 ];

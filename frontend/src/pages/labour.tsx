@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Plus, Loader2, Pencil, Trash2, HardHat, Search } from 'lucide-react';
 import { toast } from 'sonner';
@@ -114,6 +115,7 @@ function LabourDialog({
 
 export function LabourPage() {
   const qc = useQueryClient();
+  const navigate = useNavigate();
   const { t } = useLanguage();
   const role = useAuthStore((s) => s.user?.role);
   // Unlike other Partner modules, the backend gates labour create/update/delete
@@ -214,7 +216,11 @@ export function LabourPage() {
             )}
             {!isLoading &&
               pageItems.map((l) => (
-                <tr key={l.id} className="border-b last:border-0 hover:bg-muted/30">
+                <tr
+                  key={l.id}
+                  className="cursor-pointer border-b last:border-0 hover:bg-muted/30"
+                  onClick={() => navigate(`/labour/${l.id}`)}
+                >
                   <td className="px-4 py-3 font-medium">
                     <div className="flex items-center gap-2">
                       <HardHat className="h-4 w-4 text-muted-foreground" />
@@ -223,7 +229,7 @@ export function LabourPage() {
                   </td>
                   <td className="px-4 py-3 text-muted-foreground">{l.phoneNumber}</td>
                   {canManage && (
-                    <td className="px-4 py-3 text-right">
+                    <td className="px-4 py-3 text-right" onClick={(e) => e.stopPropagation()}>
                       <div className="flex justify-end gap-1">
                         <Button
                           size="icon"

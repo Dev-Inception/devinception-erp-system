@@ -3,6 +3,7 @@ const Sale = require('../models/saleModel');
 const Store = require('../models/storeModel');
 const Customer = require('../models/customerModel');
 const Vendor = require('../models/vendorModel');
+const Transporter = require('../models/transporterModel');
 const Product = require('../models/productModel');
 const StockLevel = require('../models/stockLevelModel');
 const BankAccount = require('../models/bankAccountModel');
@@ -23,7 +24,9 @@ const {
 } = require('../utils/storeScope');
 const gatePassService = require('./gatePassService');
 const pendingEntityService = require('./pendingEntityService');
+const paymentService = require('./paymentService');
 const labourService = require('./labourService');
+const dayEndService = require('./dayEndService');
 
 /**
  * POS sale flow. Resolves how the sale is settled (cash / bank / on account),
@@ -196,6 +199,117 @@ async function reverseSaleJournalEntries(sale, actor, when) {
   }
 }
 
+// Looks up an optional Transporter reference — a sale is free to have none
+// at all (the free-text transport.driverName/driverPhone still works
+// standalone), but if an id is given it must resolve to a real transporter.
+async function resolveTransporter(transporterId) {
+  if (!transporterId) return null;
+  const transporter = await Transporter.findById(transporterId);
+  if (!transporter) throw ApiError.notFound('Transporter not found');
+  return transporter;
+}
+
+// Resolves and validates the transport-fare settlement up front, mirroring
+// stockReceiptService's resolveTruckFarePayment. Only relevant when a
+// transporter is attached — with no transporter, the fare stays purely
+// informational/revenue exactly as it's always been (returns null). With a
+// transporter and no method, the fare is simply owed to them (still
+// returns a resolved amount, with `settle: null`).
+async function resolveTransportFarePayment(transportFarePaisa, transporterId, method, bankAccount) {
+  if (!transporterId || transportFarePaisa <= 0) return null;
+  if (!method) return { amount: transportFarePaisa, settle: null };
+  const settle = await paymentService.settlementAccount(method, bankAccount);
+  await paymentService.assertSufficientFunds(settle.account, settle.ref, transportFarePaisa);
+  return { amount: transportFarePaisa, settle };
+}
+
+// Posts the transporter-side expense/payable for a sale's transport fare —
+// Dr Operating Expense / Cr AP_TRANSPORT(ref=transporter) always, plus
+// Dr AP_TRANSPORT(ref)/Cr Cash|Bank when settled immediately. No-op with no
+// transporter attached — see resolveTransportFarePayment.
+async function postTransportFareExpense(sale, resolved, actor) {
+  if (!resolved) return;
+  const base = {
+    date: sale.date,
+    refId: sale._id,
+    refNo: sale.number,
+    warehouse: sale.warehouse,
+    store: sale.store,
+    createdBy: actor ? actor._id : null,
+  };
+  await journalService.post({
+    ...base,
+    refType: REF.EXPENSE,
+    description: `Transport fare charged to transporter for sale ${sale.number}`,
+    lines: [
+      journalService.line(ACCOUNT.OPERATING_EXPENSE, { debit: resolved.amount }),
+      journalService.line(ACCOUNT.AP_TRANSPORT, { credit: resolved.amount, ref: sale.transporter }),
+    ],
+  });
+  if (resolved.settle) {
+    await journalService.post({
+      ...base,
+      refType: REF.PAYMENT,
+      description: `Transport fare paid to transporter for sale ${sale.number}`,
+      lines: [
+        journalService.line(ACCOUNT.AP_TRANSPORT, {
+          debit: resolved.amount,
+          ref: sale.transporter,
+        }),
+        journalService.line(resolved.settle.account, {
+          credit: resolved.amount,
+          ref: resolved.settle.ref,
+        }),
+      ],
+    });
+  }
+}
+
+// Mirror of postTransportFareExpense with debit/credit swapped — undoes a
+// sale's original transport-fare charge (and payment, if any) using the
+// sale's own stored fields, called before an edit posts a fresh one.
+async function reverseTransportFareExpense(sale, actor) {
+  if (!sale.transporter || !sale.transportFare) return;
+  const base = {
+    date: new Date(),
+    refId: sale._id,
+    refNo: sale.number,
+    warehouse: sale.warehouse,
+    store: sale.store,
+    createdBy: actor ? actor._id : null,
+  };
+  await journalService.post({
+    ...base,
+    refType: REF.EXPENSE,
+    description: `Reversal of transport fare charge for sale ${sale.number}`,
+    lines: [
+      journalService.line(ACCOUNT.AP_TRANSPORT, {
+        debit: sale.transportFare,
+        ref: sale.transporter,
+      }),
+      journalService.line(ACCOUNT.OPERATING_EXPENSE, { credit: sale.transportFare }),
+    ],
+  });
+  if (sale.transportFareMethod) {
+    const settle = await paymentService.settlementAccount(
+      sale.transportFareMethod,
+      sale.transportFareBankAccount,
+    );
+    await journalService.post({
+      ...base,
+      refType: REF.PAYMENT,
+      description: `Reversal of transport fare payment for sale ${sale.number}`,
+      lines: [
+        journalService.line(settle.account, { debit: sale.transportFare, ref: settle.ref }),
+        journalService.line(ACCOUNT.AP_TRANSPORT, {
+          credit: sale.transportFare,
+          ref: sale.transporter,
+        }),
+      ],
+    });
+  }
+}
+
 async function createSale(actor, input) {
   const {
     customer,
@@ -208,6 +322,9 @@ async function createSale(actor, input) {
     taxPercent = 0,
     transportFare = 0,
     transport = {},
+    transporter,
+    transportFareMethod,
+    transportFareBankAccount,
     payment = {},
     // Set when this checkout is converting an existing estimate — marked
     // CONVERTED below once the sale has actually posted.
@@ -269,6 +386,16 @@ async function createSale(actor, input) {
   const transportFarePaisa = toPaisa(transportFare || 0);
   const total = itemsTotal + transportFarePaisa + labourRentPaisa;
 
+  const transporterDoc = await resolveTransporter(transporter);
+  // Validated (and funds checked) up front, before any stock is touched —
+  // an insufficient-funds problem should reject the whole sale.
+  const transportFareResolved = await resolveTransportFarePayment(
+    transportFarePaisa,
+    transporterDoc && transporterDoc._id,
+    transportFareMethod,
+    transportFareBankAccount,
+  );
+
   const { cash, online, credit } = resolveSettlement({
     method,
     total,
@@ -299,6 +426,7 @@ async function createSale(actor, input) {
   }
 
   const when = date ? new Date(date) : new Date();
+  await dayEndService.assertDayOpen(actor, storeDoc._id, when);
   const number = await counterService.nextDocNumber('SALE', when.getFullYear(), 6);
 
   // Issue stock and capture COGS per line, each from its own warehouse —
@@ -333,6 +461,13 @@ async function createSale(actor, input) {
       driverPhone: (transport.driverPhone || '').trim(),
       vehicleNumber: (transport.vehicleNumber || '').trim(),
     },
+    transporter: transporterDoc ? transporterDoc._id : null,
+    transportFareMethod:
+      transportFareResolved && transportFareResolved.settle ? transportFareMethod : null,
+    transportFareBankAccount:
+      transportFareResolved && transportFareResolved.settle
+        ? transportFareResolved.settle.ref
+        : null,
     subtotal,
     discount: discountPaisa,
     taxPercent: taxPct,
@@ -412,6 +547,11 @@ async function createSale(actor, input) {
     label: 'sale',
   });
 
+  // Transporter payable: same idea as labour above, but only when a
+  // registered transporter is attached — a sale with only free-text driver
+  // details posts nothing here, exactly as before this feature existed.
+  await postTransportFareExpense(sale, transportFareResolved, actor);
+
   // Vendor-sourced lines have no known cost yet — each becomes a Pending
   // Entity for a super admin to price later (see pendingEntityService). Not
   // fatal: the sale itself is already committed.
@@ -461,6 +601,7 @@ async function createSale(actor, input) {
     }
   }
 
+  if (sale.transporter) await sale.populate('transporter', 'name phone vehicleNumber');
   return sale;
 }
 
@@ -498,6 +639,9 @@ async function updateSale(actor, saleId, input) {
     taxPercent = 0,
     transportFare = 0,
     transport = {},
+    transporter,
+    transportFareMethod,
+    transportFareBankAccount,
   } = input;
 
   if (!Array.isArray(items) || items.length === 0) {
@@ -556,6 +700,16 @@ async function updateSale(actor, saleId, input) {
   const transportFarePaisa = toPaisa(transportFare || 0);
   const total = itemsTotal + transportFarePaisa + labourRentPaisa;
 
+  const transporterDoc = await resolveTransporter(transporter);
+  // Validated (and funds checked) up front — before the reversal below posts
+  // anything — same fail-fast placement as createSale.
+  const transportFareResolved = await resolveTransportFarePayment(
+    transportFarePaisa,
+    transporterDoc && transporterDoc._id,
+    transportFareMethod,
+    transportFareBankAccount,
+  );
+
   // What was already collected at the original checkout doesn't change on an
   // item edit — only what's still owed does. Clamp at zero for the rare case
   // an edit brings the new total below what's already been collected.
@@ -593,6 +747,9 @@ async function updateSale(actor, saleId, input) {
     actor,
     label: 'sale',
   });
+  // Uses the sale's still-original `transporter`/fare fields — they aren't
+  // overwritten until the field-assignment block below.
+  await reverseTransportFareExpense(sale, actor);
 
   sale.items = lineItems;
   sale.labour = saleLabour;
@@ -602,6 +759,11 @@ async function updateSale(actor, saleId, input) {
     vehicleNumber: (transport.vehicleNumber ?? sale.transport?.vehicleNumber ?? '').trim(),
   };
   sale.warehouse = wh._id;
+  sale.transporter = transporterDoc ? transporterDoc._id : null;
+  sale.transportFareMethod =
+    transportFareResolved && transportFareResolved.settle ? transportFareMethod : null;
+  sale.transportFareBankAccount =
+    transportFareResolved && transportFareResolved.settle ? transportFareResolved.settle.ref : null;
   sale.subtotal = subtotal;
   sale.discount = discountPaisa;
   sale.taxPercent = taxPct;
@@ -623,6 +785,7 @@ async function updateSale(actor, saleId, input) {
     actor,
     label: 'sale',
   });
+  await postTransportFareExpense(sale, transportFareResolved, actor);
 
   const revenueLines = [];
   if (sale.cashAmount > 0)
@@ -682,6 +845,7 @@ async function updateSale(actor, saleId, input) {
     console.error(`Gate pass refresh failed for edited sale ${sale.number}:`, error);
   }
 
+  if (sale.transporter) await sale.populate('transporter', 'name phone vehicleNumber');
   return sale;
 }
 
@@ -740,6 +904,9 @@ async function recordPayment(actor, saleId, { amount, method, bankAccount, note 
 
 async function listSales({
   customer,
+  vendor,
+  labour,
+  transporter,
   warehouse,
   store,
   from,
@@ -751,6 +918,9 @@ async function listSales({
   const { page, limit, skip } = parsePagination(query);
   const filter = {};
   if (customer) filter.customer = customer;
+  if (vendor) filter['items.vendor'] = vendor;
+  if (labour) filter['labour.labour'] = labour;
+  if (transporter) filter.transporter = transporter;
   if (paymentMethod) filter.paymentMethod = paymentMethod;
   // Every sale now records its own storefront directly — filter on that
   // rather than the indirect (and looser) warehouse-membership scoping,
@@ -772,6 +942,7 @@ async function listSales({
   const [sales, total] = await Promise.all([
     Sale.find(filter)
       .populate('store', 'name code')
+      .populate('transporter', 'name phone vehicleNumber')
       .sort({ date: -1, createdAt: -1 })
       .skip(skip)
       .limit(limit),

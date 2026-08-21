@@ -81,6 +81,22 @@ const saleSchema = new mongoose.Schema(
     items: { type: [saleItemSchema], required: true },
     labour: { type: [saleLabourSchema], default: [] },
     transport: { type: saleTransportSchema, default: () => ({}) },
+    // A registered Transporter this delivery is attributed to, if any — the
+    // free-text transport.driverName/driverPhone above still works
+    // standalone for a one-off driver with no roster entry. When set, the
+    // fare below can post against this transporter's own ledger
+    // (ACCOUNT.AP_TRANSPORT) — see saleService.
+    transporter: { type: mongoose.Schema.Types.ObjectId, ref: 'Transporter', default: null },
+    // Snapshot of how the transport fare was settled — only set when it was
+    // actually paid now (a transporter can also just be owed the fare, with
+    // no method set) — needed to reverse the exact same journal entry on
+    // edit, same pattern as stockReceiptModel's truckFareMethod.
+    transportFareMethod: { type: String, default: null },
+    transportFareBankAccount: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'BankAccount',
+      default: null,
+    },
 
     subtotal: { type: Number, required: true, min: 0 }, // paisa, before discount
     discount: { type: Number, default: 0, min: 0 }, // paisa

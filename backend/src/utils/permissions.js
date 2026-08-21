@@ -31,6 +31,18 @@ const PERMISSIONS = {
   VENDORS_UPDATE: 'vendors:update',
   VENDORS_DELETE: 'vendors:delete',
 
+  // Supplier management
+  SUPPLIERS_READ: 'suppliers:read',
+  SUPPLIERS_CREATE: 'suppliers:create',
+  SUPPLIERS_UPDATE: 'suppliers:update',
+  SUPPLIERS_DELETE: 'suppliers:delete',
+
+  // Transporter management
+  TRANSPORTERS_READ: 'transporters:read',
+  TRANSPORTERS_CREATE: 'transporters:create',
+  TRANSPORTERS_UPDATE: 'transporters:update',
+  TRANSPORTERS_DELETE: 'transporters:delete',
+
   // Customer management
   CUSTOMERS_READ: 'customers:read',
   CUSTOMERS_CREATE: 'customers:create',

@@ -15,7 +15,9 @@ const ACCOUNT = {
   INVENTORY: 'INVENTORY', // stock at cost (asset)
   AR: 'AR', // accounts receivable (asset), ref = Customer
   AP: 'AP', // accounts payable (liability), ref = Vendor
+  AP_SUPPLIER: 'AP_SUPPLIER', // payable to a supplier (liability), ref = Supplier
   AP_LABOUR: 'AP_LABOUR', // payable to a labourer (liability), ref = Labour
+  AP_TRANSPORT: 'AP_TRANSPORT', // payable to a transporter (liability), ref = Transporter
   SALES: 'SALES', // sales revenue (income)
   COGS: 'COGS', // cost of goods sold (expense)
   OPERATING_EXPENSE: 'OPERATING_EXPENSE', // rent, utilities, payroll, etc.

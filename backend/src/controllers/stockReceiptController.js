@@ -17,7 +17,7 @@ function serialize(receipt) {
 }
 
 /**
- * Overlays each receipt's vendor-payable info, sourced from PendingEntity
+ * Overlays each receipt's supplier-payable info, sourced from PendingEntity
  * (see pendingEntityService): per-line purchase price/status, and the
  * receipt-level priced total / paid / balance due used by the "Print
  * Invoice" and "Record Payment" actions. Money fields are converted to
@@ -83,11 +83,14 @@ const deleteReceipt = asyncHandler(async (req, res) => {
 });
 
 const listReceipts = asyncHandler(async (req, res) => {
-  const { page, limit, vendor, warehouse, store, from, to, search } = req.query;
+  const { page, limit, supplier, labour, transporter, warehouse, store, from, to, search } =
+    req.query;
   const result = await stockReceiptService.listReceipts({
     page,
     limit,
-    vendor,
+    supplier,
+    labour,
+    transporter,
     warehouse,
     store,
     from,

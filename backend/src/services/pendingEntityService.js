@@ -41,8 +41,8 @@ async function recordStockReceiptItems(receipt, receivedLines, actor) {
     sourceType: 'STOCK_RECEIPT_ITEM',
     stockReceipt: receipt._id,
     sourceNo: receipt.number,
-    vendor: receipt.vendor,
-    vendorName: receipt.vendorName,
+    supplier: receipt.supplier,
+    supplierName: receipt.supplierName,
     product: l.product._id || l.product,
     productName: l.product.name || l.name,
     quantity: l.receivedQuantity,
@@ -54,21 +54,31 @@ async function recordStockReceiptItems(receipt, receivedLines, actor) {
   return PendingEntity.insertMany(docs);
 }
 
-async function listPendingEntities({ status, vendor, store, sourceType, search, ...query } = {}) {
+async function listPendingEntities({
+  status,
+  vendor,
+  supplier,
+  store,
+  sourceType,
+  search,
+  ...query
+} = {}) {
   const { page, limit, skip } = parsePagination(query);
   const filter = {};
   if (status) filter.status = status;
   if (vendor) filter.vendor = vendor;
+  if (supplier) filter.supplier = supplier;
   if (store) filter.store = store;
   if (sourceType) filter.sourceType = sourceType;
   if (search) {
     const re = new RegExp(escapeRegex(search), 'i');
-    filter.$or = [{ sourceNo: re }, { vendorName: re }, { productName: re }];
+    filter.$or = [{ sourceNo: re }, { vendorName: re }, { supplierName: re }, { productName: re }];
   }
 
   const [entities, total] = await Promise.all([
     PendingEntity.find(filter)
       .populate('vendor', 'name')
+      .populate('supplier', 'name')
       .populate('product', 'name')
       .populate('store', 'name code')
       .populate('warehouse', 'name')
@@ -113,6 +123,7 @@ async function listByStockReceipts(stockReceiptIds) {
 async function getPendingEntityById(id) {
   const entity = await PendingEntity.findById(id)
     .populate('vendor', 'name')
+    .populate('supplier', 'name')
     .populate('product', 'name')
     .populate('store', 'name code')
     .populate('warehouse', 'name');
@@ -121,11 +132,11 @@ async function getPendingEntityById(id) {
 }
 
 /**
- * Prices a pending entity and posts the vendor's real payable:
+ * Prices a pending entity and posts the real payable:
  *  - SALE_ITEM: Dr COGS / Cr AP(vendor) — the cost the sale never booked,
  *    matched against revenue already recorded at checkout.
- *  - STOCK_RECEIPT_ITEM: Dr EQUITY / Cr AP(vendor) — reattributes the
- *    receipt's existing inventory funding from equity to vendor debt.
+ *  - STOCK_RECEIPT_ITEM: Dr EQUITY / Cr AP_SUPPLIER(supplier) — reattributes
+ *    the receipt's existing inventory funding from equity to supplier debt.
  *    Inventory value itself is untouched.
  */
 async function setPurchasePrice(actor, id, purchasePrice) {
@@ -139,11 +150,14 @@ async function setPurchasePrice(actor, id, purchasePrice) {
   if (price <= 0) throw ApiError.badRequest('Purchase price must be positive');
   const lineTotal = Math.round(price * entity.quantity);
 
-  const debitAccount = entity.sourceType === 'SALE_ITEM' ? ACCOUNT.COGS : ACCOUNT.EQUITY;
-  const description =
-    entity.sourceType === 'SALE_ITEM'
-      ? `Cost for vendor item on sale ${entity.sourceNo}`
-      : `Vendor cost for stock receipt ${entity.sourceNo}`;
+  const isSaleItem = entity.sourceType === 'SALE_ITEM';
+  const debitAccount = isSaleItem ? ACCOUNT.COGS : ACCOUNT.EQUITY;
+  const description = isSaleItem
+    ? `Cost for vendor item on sale ${entity.sourceNo}`
+    : `Supplier cost for stock receipt ${entity.sourceNo}`;
+  const payableLine = isSaleItem
+    ? journalService.line(ACCOUNT.AP, { credit: lineTotal, ref: entity.vendor })
+    : journalService.line(ACCOUNT.AP_SUPPLIER, { credit: lineTotal, ref: entity.supplier });
 
   await journalService.post({
     date: new Date(),
@@ -154,10 +168,7 @@ async function setPurchasePrice(actor, id, purchasePrice) {
     warehouse: entity.warehouse,
     store: entity.store,
     createdBy: actor ? actor._id : null,
-    lines: [
-      journalService.line(debitAccount, { debit: lineTotal }),
-      journalService.line(ACCOUNT.AP, { credit: lineTotal, ref: entity.vendor }),
-    ],
+    lines: [journalService.line(debitAccount, { debit: lineTotal }), payableLine],
   });
 
   entity.status = 'PRICED';

@@ -22,6 +22,8 @@ import {
   FileText,
   Receipt,
   Hourglass,
+  Container,
+  Factory,
 } from 'lucide-react';
 import type { Role } from '@/store/auth';
 
@@ -128,6 +130,14 @@ export const MODULES: ModuleDef[] = [
   },
   { key: 'customers', to: '/customers', label: 'Customers', section: 'Partners', icon: Users },
   { key: 'vendors', to: '/vendors', label: 'Vendors', section: 'Partners', icon: Truck },
+  { key: 'suppliers', to: '/suppliers', label: 'Suppliers', section: 'Partners', icon: Factory },
+  {
+    key: 'transporters',
+    to: '/transporters',
+    label: 'Transporters',
+    section: 'Partners',
+    icon: Container,
+  },
   { key: 'roles', to: '/roles', label: 'Roles', section: 'Partners', icon: Users },
   {
     key: 'labour',
@@ -227,6 +237,8 @@ export const MODULE_PERMISSION: Record<string, string> = {
   stores: 'stores:manage',
   customers: 'customers:read',
   vendors: 'vendors:read',
+  suppliers: 'suppliers:read',
+  transporters: 'transporters:read',
   // Matches the backend's /labour read routes, which require sales:create
   // (not a dedicated labour permission) — see labourRoutes.js.
   labour: 'sales:create',

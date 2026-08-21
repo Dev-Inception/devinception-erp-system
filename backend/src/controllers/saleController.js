@@ -82,11 +82,26 @@ const recordPayment = asyncHandler(async (req, res) => {
 });
 
 const listSales = asyncHandler(async (req, res) => {
-  const { page, limit, customer, warehouse, store, from, to, paymentMethod } = req.query;
+  const {
+    page,
+    limit,
+    customer,
+    vendor,
+    labour,
+    transporter,
+    warehouse,
+    store,
+    from,
+    to,
+    paymentMethod,
+  } = req.query;
   const result = await saleService.listSales({
     page,
     limit,
     customer,
+    vendor,
+    labour,
+    transporter,
     warehouse,
     store,
     from,
