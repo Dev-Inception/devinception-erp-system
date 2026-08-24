@@ -67,14 +67,23 @@ const VOUCHER_STYLES: Record<string, string> = {
   OPENING: 'bg-muted text-muted-foreground',
 };
 
+// Formats a Date using its local calendar fields, not toISOString() (which is
+// always UTC and rolls the date back/forward a day in timezones offset from UTC).
+function formatLocalDate(d: Date) {
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 function todayStr() {
-  return new Date().toISOString().slice(0, 10);
+  return formatLocalDate(new Date());
 }
 
 function shiftDate(date: string, days: number) {
   const d = new Date(`${date}T00:00:00`);
   d.setDate(d.getDate() + days);
-  return d.toISOString().slice(0, 10);
+  return formatLocalDate(d);
 }
 
 function csvEscape(v: unknown) {

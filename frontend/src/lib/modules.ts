@@ -92,7 +92,6 @@ export const MODULES: ModuleDef[] = [
     section: 'Operations',
     icon: ClipboardCheck,
     defaultRoles: ['ADMIN'],
-    adminOnly: true,
   },
   { key: 'products', to: '/products', label: 'Inventory', section: 'Catalog', icon: Package },
   {
@@ -229,7 +228,7 @@ export const MODULE_PERMISSION: Record<string, string> = {
   sales: 'sales:read',
   estimates: 'estimates:read',
   'stock-receipts': 'inventory:read',
-  'gate-passes': 'inventory:read',
+  'gate-passes': 'gate-passes:read',
   products: 'inventory:read',
   categories: 'inventory:manage',
   units: 'inventory:manage',

@@ -53,6 +53,9 @@ const PERMISSIONS = {
   INVENTORY_READ: 'inventory:read',
   INVENTORY_MANAGE: 'inventory:manage',
 
+  // Gate passes (truck dispatch authorization for sold/delivered stock)
+  GATE_PASSES_READ: 'gate-passes:read',
+
   // Store management (storefront groupings of warehouses). Listing stores is
   // open to any authenticated user (see storeRoutes.js) since every user must
   // be able to populate the login picker and header switcher — only

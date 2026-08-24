@@ -17,28 +17,28 @@ router.use(protect);
 
 router.get(
   '/',
-  requirePermission(PERMISSIONS.INVENTORY_READ),
+  requirePermission(PERMISSIONS.GATE_PASSES_READ),
   listGatePassValidator,
   validate,
   gatePassController.listGatePasses,
 );
 router.get(
   '/sale/:saleId',
-  requirePermission(PERMISSIONS.INVENTORY_READ),
+  requirePermission(PERMISSIONS.GATE_PASSES_READ),
   saleParamValidator,
   validate,
   gatePassController.getGatePassBySale,
 );
 router.get(
   '/:gatePassId/qr',
-  requirePermission(PERMISSIONS.INVENTORY_READ),
+  requirePermission(PERMISSIONS.GATE_PASSES_READ),
   gatePassIdParamValidator,
   validate,
   gatePassController.downloadQr,
 );
 router.get(
   '/:gatePassId',
-  requirePermission(PERMISSIONS.INVENTORY_READ),
+  requirePermission(PERMISSIONS.GATE_PASSES_READ),
   gatePassIdParamValidator,
   validate,
   gatePassController.getGatePass,
