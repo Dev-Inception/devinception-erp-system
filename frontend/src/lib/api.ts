@@ -677,7 +677,7 @@ async function realFetchProducts(params: {
       store: params.store || undefined,
       category: params.category || undefined,
       perWarehouse: params.perWarehouse || undefined,
-      limit: 100,
+      limit: 1000,
     },
   });
   return res.data.products as any[];
@@ -865,7 +865,7 @@ function mapCustomer(c: any) {
 }
 async function realCustomers(params: any) {
   const res = await http.get('/customers', {
-    params: { search: params.search || undefined, store: params.store || undefined, limit: 100 },
+    params: { search: params.search || undefined, store: params.store || undefined, limit: 1000 },
   });
   return (res.data.customers as any[]).map(mapCustomer);
 }
@@ -909,7 +909,7 @@ function mapVendor(v: any) {
 }
 async function realVendors(params: any) {
   const res = await http.get('/vendors', {
-    params: { search: params.search || undefined, store: params.store || undefined, limit: 100 },
+    params: { search: params.search || undefined, store: params.store || undefined, limit: 1000 },
   });
   return (res.data.vendors as any[]).map(mapVendor);
 }
@@ -952,7 +952,7 @@ function mapSupplier(s: any) {
 }
 async function realSuppliers(params: any) {
   const res = await http.get('/suppliers', {
-    params: { search: params.search || undefined, store: params.store || undefined, limit: 100 },
+    params: { search: params.search || undefined, store: params.store || undefined, limit: 1000 },
   });
   return (res.data.suppliers as any[]).map(mapSupplier);
 }
@@ -999,7 +999,7 @@ function mapTransporter(tr: any) {
 }
 async function realTransporters(params: any) {
   const res = await http.get('/transporters', {
-    params: { search: params.search || undefined, store: params.store || undefined, limit: 100 },
+    params: { search: params.search || undefined, store: params.store || undefined, limit: 1000 },
   });
   return (res.data.transporters as any[]).map(mapTransporter);
 }

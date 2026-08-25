@@ -304,6 +304,9 @@ export function ProductsPage() {
   });
   const total = products?.length ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const pageItems = isSearching
+    ? products
+    : products.slice((fetchPage - 1) * PAGE_SIZE, fetchPage * PAGE_SIZE);
 
   const del = useMutation({
     mutationFn: async (id: string) => (await api.delete(`/products/${id}`)).data,
@@ -400,7 +403,7 @@ export function ProductsPage() {
                 </tr>
               )}
               {!isLoading &&
-                products.map((p) => (
+                pageItems.map((p) => (
                   <tr key={p.id} className="border-b last:border-0 hover:bg-muted/30">
                     <td
                       className="px-4 py-3 font-medium cursor-pointer"
@@ -464,7 +467,7 @@ export function ProductsPage() {
                     </td>
                   </tr>
                 ))}
-              {!isLoading && products.length === 0 && (
+              {!isLoading && pageItems.length === 0 && (
                 <tr>
                   <td colSpan={8} className="px-4 py-10 text-center text-muted-foreground">
                     No products found.

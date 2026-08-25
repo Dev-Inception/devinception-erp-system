@@ -171,6 +171,9 @@ export function TransportersPage() {
   const isSearching = q.length > 0;
   const total = transporters?.length ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const pageItems = isSearching
+    ? transporters
+    : transporters.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   const del = useMutation({
     mutationFn: async (id: string) => (await api.delete(`/transporters/${id}`)).data,
@@ -232,7 +235,7 @@ export function TransportersPage() {
               </tr>
             )}
             {!isLoading &&
-              transporters.map((tr) => (
+              pageItems.map((tr) => (
                 <tr
                   key={tr.id}
                   className="cursor-pointer border-b last:border-0 hover:bg-muted/30"
@@ -279,7 +282,7 @@ export function TransportersPage() {
                   )}
                 </tr>
               ))}
-            {!isLoading && transporters.length === 0 && (
+            {!isLoading && pageItems.length === 0 && (
               <tr>
                 <td colSpan={colSpan} className="px-4 py-10 text-center text-muted-foreground">
                   No transporters yet.

@@ -186,6 +186,9 @@ export function CustomersPage() {
 
   const total = customers?.length ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const pageItems = isSearching
+    ? customers
+    : customers.slice((fetchPage - 1) * PAGE_SIZE, fetchPage * PAGE_SIZE);
 
   const del = useMutation({
     mutationFn: async (id: string) => (await api.delete(`/customers/${id}`)).data,
@@ -247,7 +250,7 @@ export function CustomersPage() {
               </tr>
             )}
             {!isLoading &&
-              customers.map((c) => (
+              pageItems.map((c) => (
                 <tr key={c.id} className="border-b last:border-0 hover:bg-muted/30">
                   <td className="px-4 py-3 font-medium">{c.name}</td>
                   <td className="px-4 py-3 text-muted-foreground">{c.phone ?? '—'}</td>
@@ -291,7 +294,7 @@ export function CustomersPage() {
                   )}
                 </tr>
               ))}
-            {!isLoading && customers.length === 0 && (
+            {!isLoading && pageItems.length === 0 && (
               <tr>
                 <td colSpan={colSpan} className="px-4 py-10 text-center text-muted-foreground">
                   No customers yet.

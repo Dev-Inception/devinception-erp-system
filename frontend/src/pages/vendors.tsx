@@ -183,6 +183,9 @@ export function VendorsPage() {
   const fetchLimit = isSearching ? SEARCH_FETCH_LIMIT : PAGE_SIZE;
   const total = vendors?.length ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const pageItems = isSearching
+    ? vendors
+    : vendors.slice((fetchPage - 1) * PAGE_SIZE, fetchPage * PAGE_SIZE);
 
   const del = useMutation({
     mutationFn: async (id: string) => (await api.delete(`/vendors/${id}`)).data,
@@ -244,7 +247,7 @@ export function VendorsPage() {
               </tr>
             )}
             {!isLoading &&
-              vendors.map((v) => (
+              pageItems.map((v) => (
                 <tr
                   key={v.id}
                   className="cursor-pointer border-b last:border-0 hover:bg-muted/30"
@@ -292,7 +295,7 @@ export function VendorsPage() {
                   )}
                 </tr>
               ))}
-            {!isLoading && vendors.length === 0 && (
+            {!isLoading && pageItems.length === 0 && (
               <tr>
                 <td colSpan={colSpan} className="px-4 py-10 text-center text-muted-foreground">
                   No vendors yet.
