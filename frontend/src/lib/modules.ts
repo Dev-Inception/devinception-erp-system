@@ -244,7 +244,7 @@ export const MODULE_PERMISSION: Record<string, string> = {
   ledgers: 'finance:read',
   'pending-entities': 'finance:read',
   reports: 'reports:read',
-  expenses: 'finance:read',
+  expenses: 'expenses:manage',
   cash: 'finance:manage',
   settings: 'settings:manage',
 };

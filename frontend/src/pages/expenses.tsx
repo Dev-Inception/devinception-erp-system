@@ -406,7 +406,7 @@ export function ExpensesPage() {
   const qc = useQueryClient();
   const { t } = useLanguage();
   const authUser = useAuthStore((s) => s.user);
-  const canManage = grantsPermission(authUser?.permissions, 'finance:manage');
+  const canManage = grantsPermission(authUser?.permissions, 'expenses:manage');
   const isSuperAdmin = authUser?.role === 'SUPER_ADMIN';
   const storefront = useStorefrontFilter();
 

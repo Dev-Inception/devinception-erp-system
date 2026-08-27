@@ -21,46 +21,46 @@ router.use(protect);
 // "categories"/"totals" as the :id param and never reach these handlers.
 router.get(
   '/categories',
-  requirePermission(PERMISSIONS.FINANCE_READ),
+  requirePermission(PERMISSIONS.EXPENSES_MANAGE),
   expenseController.listCategories,
 );
 router.post(
   '/categories',
-  requirePermission(PERMISSIONS.FINANCE_MANAGE),
+  requirePermission(PERMISSIONS.EXPENSES_MANAGE),
   createCategoryValidator,
   validate,
   expenseController.createCategory,
 );
 router.get(
   '/totals',
-  requirePermission(PERMISSIONS.FINANCE_READ),
+  requirePermission(PERMISSIONS.EXPENSES_MANAGE),
   expenseController.getCategoryTotals,
 );
 
 router.get(
   '/',
-  requirePermission(PERMISSIONS.FINANCE_READ),
+  requirePermission(PERMISSIONS.EXPENSES_MANAGE),
   listExpensesValidator,
   validate,
   expenseController.listExpenses,
 );
 router.get(
   '/:id',
-  requirePermission(PERMISSIONS.FINANCE_READ),
+  requirePermission(PERMISSIONS.EXPENSES_MANAGE),
   idParamValidator,
   validate,
   expenseController.getExpense,
 );
 router.post(
   '/',
-  requirePermission(PERMISSIONS.FINANCE_MANAGE),
+  requirePermission(PERMISSIONS.EXPENSES_MANAGE),
   createExpenseValidator,
   validate,
   expenseController.createExpense,
 );
 router.patch(
   '/:id',
-  requirePermission(PERMISSIONS.FINANCE_MANAGE),
+  requirePermission(PERMISSIONS.EXPENSES_MANAGE),
   updateExpenseValidator,
   validate,
   expenseController.updateExpense,
@@ -83,7 +83,7 @@ router.post(
 );
 router.delete(
   '/:id',
-  requirePermission(PERMISSIONS.FINANCE_MANAGE),
+  requirePermission(PERMISSIONS.EXPENSES_MANAGE),
   idParamValidator,
   validate,
   expenseController.deleteExpense,

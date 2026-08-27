@@ -80,6 +80,11 @@ const PERMISSIONS = {
   FINANCE_READ: 'finance:read',
   FINANCE_MANAGE: 'finance:manage',
 
+  // Expenses — separate from finance:manage so a role can record/approve
+  // day-to-day spend without also being able to manage bank accounts, cash
+  // entries, or vendor/supplier/labour/transport payments.
+  EXPENSES_MANAGE: 'expenses:manage',
+
   // Reports
   REPORTS_READ: 'reports:read',
 
