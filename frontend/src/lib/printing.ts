@@ -47,6 +47,14 @@ interface DocData {
     items: { name: string; quantity: number; amount: number }[];
   }[];
   notes?: string;
+  // A neutral (non-warning) note — currently used for the issuing store's
+  // bank account details, so a customer can settle any balance by transfer.
+  // Kept separate from `notes`, which is styled as a warning.
+  bankNote?: string;
+  // A fixed business note (e.g. a return policy) configured once in Settings
+  // and printed as the very last line of the invoice, styled boldly so it
+  // isn't missed — distinct from `notes`, which is a one-off warning.
+  footerNote?: string;
 }
 
 const thermalStyles = `
@@ -305,7 +313,17 @@ export function renderTemplate(type: TemplateType, d: DocData): string {
         }
       </div>
       <p class="words">Amount: <strong>${amountInWords(d.total)} Only.</strong></p>
+      ${
+        d.bankNote
+          ? `<div style="margin-top:10px;padding:8px 12px;border:1px solid #c7d2fe;background:#eef2ff;border-radius:6px;font-size:13px;font-weight:600;color:#1f2937;">${d.bankNote}</div>`
+          : ''
+      }
       ${d.notes ? `<p style="margin-top:12px;color:#b91c1c;font-size:12px;">${d.notes}</p>` : ''}
+      ${
+        d.footerNote
+          ? `<p style="margin-top:14px;font-size:14px;font-weight:700;color:#111;">${d.footerNote}</p>`
+          : ''
+      }
     </div>
   </body></html>`;
 }

@@ -71,6 +71,7 @@ interface Sale {
   paymentMethod: string;
   status: string;
   customer?: { name: string };
+  storeId?: string;
   storeName?: string;
   items: SaleItem[];
   returnedTotal?: number;
@@ -461,6 +462,7 @@ export function SalesPage() {
             id: payingSale.id,
             saleNumber: payingSale.saleNumber,
             balanceDue: Number(payingSale.balanceDue),
+            storeId: payingSale.storeId,
           }
         }
         open={payingSale !== null}

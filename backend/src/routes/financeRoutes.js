@@ -1,7 +1,7 @@
 const express = require('express');
 const financeController = require('../controllers/financeController');
 const { protect } = require('../middlewares/authMiddleware');
-const { requirePermission } = require('../middlewares/roleMiddleware');
+const { requirePermission, requireAnyPermission } = require('../middlewares/roleMiddleware');
 const { validate } = require('../middlewares/validateMiddleware');
 const { PERMISSIONS } = require('../utils/permissions');
 const {
@@ -23,9 +23,19 @@ router.use(protect);
 
 const READ = requirePermission(PERMISSIONS.FINANCE_READ);
 const MANAGE = requirePermission(PERMISSIONS.FINANCE_MANAGE);
+// Any role that can pick a bank account somewhere (expenses, payments,
+// finance), or that can print an invoice showing the store's bank details
+// (sales), needs to be able to list them — regardless of which one
+// permission actually got them to that screen.
+const READ_BANK_ACCOUNTS = requireAnyPermission(
+  PERMISSIONS.FINANCE_READ,
+  PERMISSIONS.FINANCE_MANAGE,
+  PERMISSIONS.EXPENSES_MANAGE,
+  PERMISSIONS.SALES_READ,
+);
 
 /* Bank accounts */
-router.get('/bank-accounts', READ, financeController.listBankAccounts);
+router.get('/bank-accounts', READ_BANK_ACCOUNTS, financeController.listBankAccounts);
 router.post(
   '/bank-accounts',
   MANAGE,

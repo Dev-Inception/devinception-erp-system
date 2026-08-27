@@ -28,11 +28,17 @@ async function requireStore(actor, store) {
 }
 
 // Resolve the cash/bank account a payment leaves from or arrives into.
-async function settlementAccount(method, bankAccountId) {
+// `store`, when given, must match the chosen account's own store — a legacy
+// account with no store assigned yet is exempt from that check so existing
+// flows keep working until it's reassigned via the Cash & Bank page.
+async function settlementAccount(method, bankAccountId, store) {
   if (BANK_METHODS.has(method)) {
     if (!bankAccountId) throw ApiError.badRequest('A bank account is required for this method');
     const bank = await BankAccount.findById(bankAccountId);
     if (!bank) throw ApiError.notFound('Bank account not found');
+    if (store && bank.store && String(bank.store) !== String(store)) {
+      throw ApiError.badRequest('That bank account does not belong to this store');
+    }
     return { account: ACCOUNT.BANK, ref: bank._id };
   }
   if (method === PAYMENT_METHOD.CASH) return { account: ACCOUNT.CASH, ref: null };
@@ -65,7 +71,7 @@ async function payVendor(
   const amt = toPaisa(amount);
   if (amt <= 0) throw ApiError.badRequest('Amount must be positive');
 
-  const settle = await settlementAccount(method, bankAccount);
+  const settle = await settlementAccount(method, bankAccount, storeDoc._id);
   await assertSufficientFunds(settle.account, settle.ref, amt);
   const when = date ? new Date(date) : new Date();
   const number = await counterService.nextDocNumber('PAY', when.getFullYear(), 4);
@@ -96,7 +102,7 @@ async function paySupplier(
   const amt = toPaisa(amount);
   if (amt <= 0) throw ApiError.badRequest('Amount must be positive');
 
-  const settle = await settlementAccount(method, bankAccount);
+  const settle = await settlementAccount(method, bankAccount, storeDoc._id);
   await assertSufficientFunds(settle.account, settle.ref, amt);
   const when = date ? new Date(date) : new Date();
   const number = await counterService.nextDocNumber('PAY', when.getFullYear(), 4);
@@ -127,7 +133,7 @@ async function payLabour(
   const amt = toPaisa(amount);
   if (amt <= 0) throw ApiError.badRequest('Amount must be positive');
 
-  const settle = await settlementAccount(method, bankAccount);
+  const settle = await settlementAccount(method, bankAccount, storeDoc._id);
   await assertSufficientFunds(settle.account, settle.ref, amt);
   const when = date ? new Date(date) : new Date();
   const number = await counterService.nextDocNumber('PAY', when.getFullYear(), 4);
@@ -158,7 +164,7 @@ async function payTransport(
   const amt = toPaisa(amount);
   if (amt <= 0) throw ApiError.badRequest('Amount must be positive');
 
-  const settle = await settlementAccount(method, bankAccount);
+  const settle = await settlementAccount(method, bankAccount, storeDoc._id);
   await assertSufficientFunds(settle.account, settle.ref, amt);
   const when = date ? new Date(date) : new Date();
   const number = await counterService.nextDocNumber('PAY', when.getFullYear(), 4);
@@ -189,7 +195,7 @@ async function receiveFromCustomer(
   const amt = toPaisa(amount);
   if (amt <= 0) throw ApiError.badRequest('Amount must be positive');
 
-  const settle = await settlementAccount(method, bankAccount);
+  const settle = await settlementAccount(method, bankAccount, storeDoc._id);
   const when = date ? new Date(date) : new Date();
   const number = await counterService.nextDocNumber('RCPT', when.getFullYear(), 4);
 
@@ -258,7 +264,7 @@ async function recordExpense(
   const amt = toPaisa(amount);
   if (amt <= 0) throw ApiError.badRequest('Amount must be positive');
 
-  const settle = await settlementAccount(method, bankAccount);
+  const settle = await settlementAccount(method, bankAccount, storeDoc._id);
   await assertSufficientFunds(settle.account, settle.ref, amt);
   const when = date ? new Date(date) : new Date();
   const number = await counterService.nextDocNumber('EXP', when.getFullYear(), 6);

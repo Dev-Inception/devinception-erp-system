@@ -61,4 +61,27 @@ function requirePermission(...required) {
   });
 }
 
-module.exports = { authorize, requireMinRole, requirePermission };
+/**
+ * Like `requirePermission`, but allows the request if the caller holds ANY
+ * one of the listed permissions (or the wildcard) rather than all of them.
+ * Useful for read endpoints shared by several otherwise-unrelated modules —
+ * e.g. the bank-account picker, which finance, expense, and payment flows
+ * all need to read regardless of which single permission got them there.
+ *
+ *   router.get("/", protect, requireAnyPermission(PERMISSIONS.FINANCE_READ, PERMISSIONS.EXPENSES_MANAGE), handler)
+ */
+function requireAnyPermission(...anyOf) {
+  return asyncHandler(async (req, _res, next) => {
+    if (!req.user) {
+      throw ApiError.unauthorized('Not authenticated');
+    }
+    const perms = await roleService.getPermissions(req.user.role);
+    const ok = perms.has(WILDCARD) || anyOf.some((p) => perms.has(p));
+    if (!ok) {
+      throw ApiError.forbidden('You do not have permission to perform this action');
+    }
+    next();
+  });
+}
+
+module.exports = { authorize, requireMinRole, requirePermission, requireAnyPermission };

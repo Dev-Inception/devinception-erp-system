@@ -59,7 +59,7 @@ async function requireStore(actor, store) {
 // Dr Operating Expense / Cr Cash|Bank — the ledger effect of an expense
 // existing. Shared by create and the repost half of an edit.
 async function postExpenseJournal(expense, actor) {
-  const settle = await settlementAccount(expense.method, expense.bankAccount);
+  const settle = await settlementAccount(expense.method, expense.bankAccount, expense.store);
   await assertSufficientFunds(settle.account, settle.ref, expense.amount);
   const entry = await journalService.post({
     date: expense.date,
@@ -83,7 +83,7 @@ async function postExpenseJournal(expense, actor) {
 // journalEntryModel.js), so "undo" always means posting the opposite entry,
 // never touching the original.
 async function reverseExpenseJournal(expense, actor) {
-  const settle = await settlementAccount(expense.method, expense.bankAccount);
+  const settle = await settlementAccount(expense.method, expense.bankAccount, expense.store);
   await journalService.post({
     date: new Date(),
     description: `Reversal of expense ${expense.number}`,

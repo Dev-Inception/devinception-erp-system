@@ -43,6 +43,7 @@ import { useAuthStore } from '@/store/auth';
 import { grantsPermission } from '@/lib/modules';
 import { useWarehouses } from '@/components/layout/warehouse-switcher';
 import { useStorefrontFilter, useStorefrontStore } from '@/store/storefront';
+import { useBankAccounts } from '@/lib/bankAccounts';
 import { useLanguage } from '@/components/language-provider';
 
 interface Supplier {
@@ -214,11 +215,11 @@ function ReceiptDialog({ receipt, onClose }: { receipt?: StockReceipt; onClose: 
   const truckFarePaidNow = truckFarePaidBy === 'US' && (!transporterId || payTruckFareNow);
   const needsTruckFareBank =
     truckFarePaidNow && (truckFareMethod === 'BANK_TRANSFER' || truckFareMethod === 'ONLINE');
-  const { data: bankAccounts = [] } = useQuery<{ id: string; name: string }[]>({
-    queryKey: ['bank-accounts'],
-    queryFn: async () => (await api.get('/bank/accounts')).data,
-    enabled: needsTruckFareBank,
-  });
+  const { data: bankAccounts = [] } = useBankAccounts(
+    receipt?.storeId ?? (hasSpecificStore ? currentStoreId : undefined),
+    needsTruckFareBank,
+  );
+  const activeBankAccounts = bankAccounts.filter((b) => b.isActive);
 
   const addItem = (p: ProductOption) => {
     setProductSearch('');
@@ -535,7 +536,7 @@ function ReceiptDialog({ receipt, onClose }: { receipt?: StockReceipt; onClose: 
                       className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
                     >
                       <option value="">Select account…</option>
-                      {bankAccounts.map((b) => (
+                      {activeBankAccounts.map((b) => (
                         <option key={b.id} value={b.id}>
                           {b.name}
                         </option>
@@ -1404,6 +1405,7 @@ export function StockReceiptsPage() {
                 id: payingReceipt.id,
                 receiptNumber: payingReceipt.number,
                 balanceDue: payingReceipt.balanceDue,
+                storeId: payingReceipt.storeId,
               }
             : null
         }

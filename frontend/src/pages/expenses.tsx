@@ -20,6 +20,7 @@ import { cn, formatCurrency } from '@/lib/utils';
 import { useAuthStore } from '@/store/auth';
 import { grantsPermission } from '@/lib/modules';
 import { useStorefrontFilter, useStorefrontStore } from '@/store/storefront';
+import { useBankAccounts } from '@/lib/bankAccounts';
 import { useLanguage } from '@/components/language-provider';
 
 type ExpenseMethod = 'CASH' | 'CARD' | 'BANK_TRANSFER' | 'ONLINE';
@@ -45,12 +46,6 @@ interface Expense {
   note: string;
   status: ExpenseStatus;
   rejectionReason: string;
-}
-
-interface BankAccount {
-  id: string;
-  name: string;
-  bankName?: string;
 }
 
 const PAGE_SIZE = 20;
@@ -114,11 +109,13 @@ function ExpenseDialog({
     queryFn: async () => (await api.get('/expenses/categories')).data,
     enabled: open,
   });
-  const { data: banks = [] } = useQuery<BankAccount[]>({
-    queryKey: ['bank-accounts'],
-    queryFn: async () => (await api.get('/bank/accounts')).data,
-    enabled: open,
-  });
+  // A bank-paid expense settles into one of *this expense's* store's
+  // accounts — the currently-edited store when editing, else the header's.
+  const { data: banks = [] } = useBankAccounts(
+    expense?.storeId ?? (hasSpecificStore ? currentStoreId : undefined),
+    open,
+  );
+  const activeBanks = banks.filter((b) => b.isActive);
 
   const [categoryId, setCategoryId] = useState(expense?.categoryId ?? '');
   const [newCategory, setNewCategory] = useState('');
@@ -308,7 +305,7 @@ function ExpenseDialog({
                 <option value="" disabled>
                   {t('Select account…')}
                 </option>
-                {banks.map((b) => (
+                {activeBanks.map((b) => (
                   <option key={b.id} value={b.id}>
                     {b.name}
                     {b.bankName ? ` (${b.bankName})` : ''}

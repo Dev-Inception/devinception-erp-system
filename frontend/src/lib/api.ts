@@ -2016,12 +2016,15 @@ async function realReopenDay(body: any) {
 }
 
 /* ── Bank accounts ── */
-async function realBankAccounts() {
-  const res = await http.get('/finance/bank-accounts');
+async function realBankAccounts(store?: string) {
+  const res = await http.get('/finance/bank-accounts', { params: store ? { store } : undefined });
   return (res.data.accounts as any[]).map((a) => ({
     id: String(a._id ?? a.id),
     name: a.name,
     bankName: a.bankName || undefined,
+    accountNumber: a.accountNumber || undefined,
+    storeId: a.store ? String(a.store) : undefined,
+    isActive: a.isActive ?? true,
     balance: a.balance ?? 0,
   }));
 }
@@ -2029,9 +2032,38 @@ async function realCreateBankAccount(body: any) {
   const res = await http.post('/finance/bank-accounts', {
     name: body.name,
     bankName: body.bankName,
+    accountNumber: body.accountNumber,
+    store: body.storeId,
+    openingBalance: body.openingBalance,
   });
   const a = res.data.account;
-  return { id: String(a._id ?? a.id), name: a.name, bankName: a.bankName || undefined, balance: 0 };
+  return {
+    id: String(a._id ?? a.id),
+    name: a.name,
+    bankName: a.bankName || undefined,
+    accountNumber: a.accountNumber || undefined,
+    storeId: a.store ? String(a.store) : undefined,
+    isActive: a.isActive ?? true,
+    balance: 0,
+  };
+}
+async function realUpdateBankAccount(id: string, body: any) {
+  const res = await http.patch(`/finance/bank-accounts/${id}`, {
+    name: body.name,
+    bankName: body.bankName,
+    accountNumber: body.accountNumber,
+    store: body.storeId,
+    isActive: body.isActive,
+  });
+  const a = res.data.account;
+  return {
+    id: String(a._id ?? a.id),
+    name: a.name,
+    bankName: a.bankName || undefined,
+    accountNumber: a.accountNumber || undefined,
+    storeId: a.store ? String(a.store) : undefined,
+    isActive: a.isActive ?? true,
+  };
 }
 
 /* ── Uploads (multipart receipt; field name `file`) ── */
@@ -2054,6 +2086,7 @@ async function realUpdateSettings(body: any) {
       email: body.email,
       taxNumber: body.taxNumber,
       currency: body.currency,
+      invoiceNote: body.invoiceNote,
     })
   ).data;
 }
@@ -2200,7 +2233,7 @@ async function tryReal(
     if (url === '/sale-drafts') return wrap(await realListSaleDrafts(params.store as string));
     if (url === '/cash') return wrap(await realCashLedger(params.store as string));
     if (url === '/day-end') return wrap(await realDayEndStatus(params));
-    if (url === '/bank/accounts') return wrap(await realBankAccounts());
+    if (url === '/bank/accounts') return wrap(await realBankAccounts(params.store as string));
     if (url === '/users') return wrap(await realUsers());
     if (url === '/roles') return wrap(await realRoles());
     if (seg[0] === 'gate-passes' && seg[2] === 'qr') return wrap(await realGatePassQr(seg[1]));
@@ -2312,6 +2345,8 @@ async function tryReal(
       return wrap(await realUpdateStockReceipt(seg[1], body));
     if (seg[0] === 'pending-entities' && seg[1] && seg[2] === 'price')
       return wrap(await realSetPendingEntityPrice(seg[1], body));
+    if (seg[0] === 'bank' && seg[1] === 'accounts' && seg[2])
+      return wrap(await realUpdateBankAccount(seg[2], body));
   }
   if (method === 'put') {
     if (url === '/settings') return wrap(await realUpdateSettings(body));

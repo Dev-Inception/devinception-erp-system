@@ -15,6 +15,9 @@ const settingsSchema = new mongoose.Schema(
     email: { type: String, trim: true, default: '' },
     taxNumber: { type: String, trim: true, default: '' },
     currency: { type: String, trim: true, default: 'PKR' },
+    // A fixed line (e.g. a return policy) printed at the bottom of every
+    // sale invoice — set once here instead of re-entered per sale.
+    invoiceNote: { type: String, trim: true, maxlength: 1000, default: '' },
   },
   { timestamps: true },
 );

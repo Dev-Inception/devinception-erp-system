@@ -31,6 +31,7 @@ import { useAuthStore } from '@/store/auth';
 import { grantsPermission } from '@/lib/modules';
 import { openSaleInvoicePopup, type SaleForInvoice } from '@/lib/invoicePopup';
 import { GatePassDialog } from '@/components/gate-pass-dialog';
+import { useBankAccounts } from '@/lib/bankAccounts';
 import { useLanguage } from '@/components/language-provider';
 
 interface Product {
@@ -77,10 +78,6 @@ interface TransporterLite {
   name: string;
   phone?: string;
   vehicleNumber?: string;
-}
-interface BankAccountLite {
-  id: string;
-  name: string;
 }
 const groupKey = (p: Product) => (p.sku || p.name).trim().toLowerCase();
 const lineSource = (l: CartLine): CartSource => (l.vendorId ? 'VENDOR' : 'WAREHOUSE');
@@ -248,6 +245,10 @@ export function PosPage() {
   const [discountType, setDiscountType] = useState<'amount' | 'percent'>('amount');
   const [taxPct, setTaxPct] = useState<number>(0);
   const [advanceAmount, setAdvanceAmount] = useState<number>(0);
+  const [advanceMethod, setAdvanceMethod] = useState<'CASH' | 'BANK_TRANSFER' | 'ONLINE' | 'CARD'>(
+    'CASH',
+  );
+  const [advanceBankAccountId, setAdvanceBankAccountId] = useState('');
 
   // Step 5 — result
   const [completedSale, setCompletedSale] = useState<CompletedSale | null>(null);
@@ -325,11 +326,18 @@ export function PosPage() {
   const needsTransportFareBank =
     payTransportNow &&
     (transportFareMethod === 'BANK_TRANSFER' || transportFareMethod === 'ONLINE');
-  const { data: transportBankAccounts = [] } = useQuery<BankAccountLite[]>({
-    queryKey: ['bank-accounts'],
-    queryFn: async () => (await api.get('/bank/accounts')).data,
-    enabled: step === 3 && needsTransportFareBank,
-  });
+  const { data: transportBankAccountsRaw = [] } = useBankAccounts(
+    hasSpecificStore ? currentStoreId : undefined,
+    step === 3 && needsTransportFareBank,
+  );
+  const transportBankAccounts = transportBankAccountsRaw.filter((b) => b.isActive);
+  const needsAdvanceBank =
+    advanceMethod === 'BANK_TRANSFER' || advanceMethod === 'ONLINE' || advanceMethod === 'CARD';
+  const { data: advanceBankAccountsRaw = [] } = useBankAccounts(
+    hasSpecificStore ? currentStoreId : undefined,
+    step === 4 && needsAdvanceBank,
+  );
+  const advanceBankAccounts = advanceBankAccountsRaw.filter((b) => b.isActive);
 
   // Search results grouped by product identity (sku/name) — the same
   // product stocked at several warehouses shows as one suggestion with a
@@ -531,6 +539,8 @@ export function PosPage() {
     setDiscountType('amount');
     setTaxPct(0);
     setAdvanceAmount(0);
+    setAdvanceMethod('CASH');
+    setAdvanceBankAccountId('');
     setCompletedSale(null);
     setDraftId(null);
   };
@@ -677,7 +687,8 @@ export function PosPage() {
       if (advance > 0) {
         await api.post(`/sales/${sale.id}/payments`, {
           amount: advance,
-          method: 'CASH',
+          method: advanceMethod,
+          bankAccount: needsAdvanceBank ? advanceBankAccountId || undefined : undefined,
           note: `Advance for sale ${sale.saleNumber}`,
         });
       }
@@ -1619,8 +1630,8 @@ export function PosPage() {
               </div>
 
               {canTakeAdvance ? (
-                <div className="space-y-1 border-t pt-3">
-                  <Label>{t('Advance payment (cash, optional)')}</Label>
+                <div className="space-y-2 border-t pt-3">
+                  <Label>{t('Advance payment (optional)')}</Label>
                   <Input
                     type="number"
                     min={0}
@@ -1628,6 +1639,46 @@ export function PosPage() {
                     value={advanceAmount || ''}
                     onChange={(e) => setAdvanceAmount(Number(e.target.value))}
                   />
+                  {advance > 0 && (
+                    <>
+                      <div className="grid grid-cols-4 gap-1.5">
+                        {(
+                          [
+                            { value: 'CASH', label: 'Cash' },
+                            { value: 'BANK_TRANSFER', label: 'Bank' },
+                            { value: 'ONLINE', label: 'Online' },
+                            { value: 'CARD', label: 'Card' },
+                          ] as const
+                        ).map((m) => (
+                          <Button
+                            key={m.value}
+                            type="button"
+                            size="sm"
+                            variant={advanceMethod === m.value ? 'default' : 'outline'}
+                            onClick={() => setAdvanceMethod(m.value)}
+                          >
+                            {t(m.label)}
+                          </Button>
+                        ))}
+                      </div>
+                      {needsAdvanceBank && (
+                        <select
+                          required
+                          value={advanceBankAccountId}
+                          onChange={(e) => setAdvanceBankAccountId(e.target.value)}
+                          className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
+                        >
+                          <option value="">{t('Select account…')}</option>
+                          {advanceBankAccounts.map((b) => (
+                            <option key={b.id} value={b.id}>
+                              {b.name}
+                              {b.bankName ? ` (${b.bankName})` : ''}
+                            </option>
+                          ))}
+                        </select>
+                      )}
+                    </>
+                  )}
                   <p className="text-xs text-muted-foreground">
                     {advance <= 0
                       ? t("No advance — the full amount goes on the customer's account.")

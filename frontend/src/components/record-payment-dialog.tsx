@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
   Dialog,
@@ -13,16 +13,13 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { api } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
+import { useBankAccounts } from '@/lib/bankAccounts';
 
 interface SaleForPayment {
   id: string;
   saleNumber: string;
   balanceDue: number;
-}
-
-interface BankAccount {
-  id: string;
-  name: string;
+  storeId?: string;
 }
 
 const METHODS = [
@@ -60,13 +57,9 @@ export function RecordPaymentDialog({
     setNote('');
   }, [sale?.id]);
 
-  const { data: bankAccounts = [] } = useQuery<BankAccount[]>({
-    queryKey: ['bank-accounts'],
-    queryFn: async () => (await api.get('/bank/accounts')).data,
-    enabled: open && (method === 'BANK_TRANSFER' || method === 'ONLINE'),
-  });
-
   const needsBank = method === 'BANK_TRANSFER' || method === 'ONLINE';
+  const { data: bankAccounts = [] } = useBankAccounts(sale?.storeId, open && needsBank);
+  const activeBankAccounts = bankAccounts.filter((b) => b.isActive);
 
   const submit = useMutation({
     mutationFn: async () =>
@@ -157,7 +150,7 @@ export function RecordPaymentDialog({
                   required
                 >
                   <option value="">Select account…</option>
-                  {bankAccounts.map((b) => (
+                  {activeBankAccounts.map((b) => (
                     <option key={b.id} value={b.id}>
                       {b.name}
                     </option>

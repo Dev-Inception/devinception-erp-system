@@ -1,6 +1,15 @@
+import { useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Bell, Moon, Sun, LogOut } from 'lucide-react';
+import { Bell, KeyRound, LogOut, Moon, Sun } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { ChangePasswordDialog } from '@/components/change-password-dialog';
 import { useTheme } from '@/components/theme-provider';
 import { useAuthStore } from '@/store/auth';
 import { StoreSwitcher } from './store-switcher';
@@ -33,6 +42,7 @@ export function Header() {
   const navigate = useNavigate();
   const user = useAuthStore((s) => s.user);
   const logout = useAuthStore((s) => s.logout);
+  const [changingPassword, setChangingPassword] = useState(false);
 
   const title = TITLES[pathname] ?? 'DevInception ERP';
 
@@ -58,27 +68,40 @@ export function Header() {
           <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-destructive" />
         </Button>
 
-        <div className="ml-2 flex items-center gap-3 border-l pl-3">
-          <div className="hidden text-right sm:block">
-            <p className="text-sm font-medium leading-none">{user?.fullName}</p>
-            <p className="text-xs text-muted-foreground">{user?.role}</p>
-          </div>
-          <div className="flex h-9 w-9 items-center justify-center rounded-full bg-primary/10 text-sm font-semibold text-primary">
-            {user?.fullName?.[0] ?? 'U'}
-          </div>
-          <Button
-            variant="ghost"
-            size="icon"
-            aria-label="Log out"
-            onClick={async () => {
-              await logout();
-              navigate('/login');
-            }}
-          >
-            <LogOut className="h-4 w-4" />
-          </Button>
-        </div>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              type="button"
+              className="ml-2 flex items-center gap-3 border-l pl-3 outline-none"
+              aria-label="Account menu"
+            >
+              <div className="hidden text-right sm:block">
+                <p className="text-sm font-medium leading-none">{user?.fullName}</p>
+                <p className="text-xs text-muted-foreground">{user?.role}</p>
+              </div>
+              <div className="flex h-9 w-9 items-center justify-center rounded-full bg-primary/10 text-sm font-semibold text-primary">
+                {user?.fullName?.[0] ?? 'U'}
+              </div>
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem onSelect={() => setChangingPassword(true)}>
+              <KeyRound className="h-4 w-4" /> Change Password
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              onSelect={async () => {
+                await logout();
+                navigate('/login');
+              }}
+            >
+              <LogOut className="h-4 w-4" /> Log out
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
+
+      <ChangePasswordDialog open={changingPassword} onOpenChange={setChangingPassword} />
     </header>
   );
 }

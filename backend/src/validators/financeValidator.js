@@ -8,6 +8,7 @@ const createBankAccountValidator = [
   body('name').trim().notEmpty().withMessage('Name is required').isLength({ max: 120 }),
   body('bankName').optional({ values: 'falsy' }).trim().isLength({ max: 120 }),
   body('accountNumber').optional({ values: 'falsy' }).trim().isLength({ max: 60 }),
+  body('store').isMongoId().withMessage('A store is required'),
   body('openingBalance')
     .optional({ values: 'falsy' })
     .isFloat({ min: 0 })
@@ -24,6 +25,7 @@ const updateBankAccountValidator = [
     .isLength({ max: 120 }),
   body('bankName').optional({ values: 'falsy' }).trim().isLength({ max: 120 }),
   body('accountNumber').optional({ values: 'falsy' }).trim().isLength({ max: 60 }),
+  body('store').optional().isMongoId().withMessage('Invalid store'),
   body('isActive').optional().isBoolean(),
 ];
 

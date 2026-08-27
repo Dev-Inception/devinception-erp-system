@@ -422,6 +422,9 @@ async function createSale(actor, input) {
   if (online > 0 && payment.bankAccount) {
     const bank = await BankAccount.findById(payment.bankAccount);
     if (!bank) throw ApiError.notFound('Bank account not found');
+    if (bank.store && String(bank.store) !== String(storeDoc._id)) {
+      throw ApiError.badRequest('That bank account does not belong to this store');
+    }
     bankRef = bank._id;
   }
 
@@ -880,7 +883,7 @@ async function recordPayment(actor, saleId, { amount, method, bankAccount, note 
   }
 
   const paymentService = require('./paymentService');
-  const settle = await paymentService.settlementAccount(method, bankAccount);
+  const settle = await paymentService.settlementAccount(method, bankAccount, sale.store);
   const when = new Date();
 
   await journalService.post({
@@ -941,7 +944,7 @@ async function listSales({
 
   const [sales, total] = await Promise.all([
     Sale.find(filter)
-      .populate('store', 'name code')
+      .populate('store', 'name code address')
       .populate('transporter', 'name phone vehicleNumber')
       .sort({ date: -1, createdAt: -1 })
       .skip(skip)
@@ -955,7 +958,7 @@ async function listSales({
 async function getSaleById(actor, id) {
   const sale = await Sale.findById(id)
     .populate('customer', 'name phone')
-    .populate('store', 'name code')
+    .populate('store', 'name code address')
     .populate('warehouse', 'name');
   if (!sale) throw ApiError.notFound('Sale not found');
   assertStoreAccess(actor, sale.store?._id ?? sale.store);

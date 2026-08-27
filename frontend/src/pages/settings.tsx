@@ -16,6 +16,7 @@ interface Settings {
   email?: string;
   taxNumber?: string;
   currency: string;
+  invoiceNote?: string;
 }
 
 export function SettingsPage() {
@@ -92,6 +93,20 @@ export function SettingsPage() {
               <Input
                 value={form.address ?? ''}
                 onChange={(e) => field('address', e.target.value)}
+              />
+            </div>
+            <div className="col-span-2 space-y-1.5">
+              <Label>Invoice note</Label>
+              <textarea
+                dir="auto"
+                rows={2}
+                maxLength={1000}
+                className="min-h-16 w-full rounded-md border bg-transparent px-3 py-2 text-sm"
+                value={form.invoiceNote ?? ''}
+                onChange={(e) => field('invoiceNote', e.target.value)}
+                placeholder={t(
+                  'Printed at the bottom of every sale invoice, e.g. a return policy…',
+                )}
               />
             </div>
             <div className="col-span-2 flex justify-end">

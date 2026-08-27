@@ -24,6 +24,7 @@ interface AuthState {
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   refresh: () => Promise<string | null>;
+  changePassword: (currentPassword: string, newPassword: string) => Promise<void>;
   hasRole: (...roles: Role[]) => boolean;
 }
 
@@ -106,6 +107,17 @@ export const useAuthStore = create<AuthState>()(
           set({ user: null, accessToken: null, refreshToken: null });
           return null;
         }
+      },
+
+      // Any logged-in user can change their own password (distinct from the
+      // admin-only force-reset in the Permissions screen, which skips this
+      // check) — the backend verifies `currentPassword` and, on success,
+      // rotates the refresh token cookie, so we swap in the fresh access
+      // token here the same way `refresh()` does.
+      changePassword: async (currentPassword, newPassword) => {
+        const res = await http.patch('/auth/change-password', { currentPassword, newPassword });
+        const { accessToken } = res.data as { accessToken: string };
+        set({ accessToken });
       },
 
       hasRole: (...roles) => {

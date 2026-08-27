@@ -1,4 +1,5 @@
 import { renderTemplate } from './printing';
+import { api } from './api';
 
 /**
  * Opens a printable INVOICE_A4 popup for a sale. Shared by the POS "Charge"
@@ -26,6 +27,7 @@ const PAYMENT_METHOD_LABEL: Record<string, string> = {
 export interface SaleForInvoice {
   saleNumber: string;
   date: string;
+  storeId?: string;
   storeName?: string;
   storeAddress?: string;
   customer?: { name: string; phone?: string };
@@ -55,13 +57,51 @@ export interface SaleForInvoice {
 
 const COMPANY = { name: 'DevInception Retail', address: 'HQ, Lahore', phone: '+92 300 1234567' };
 
-function buildInvoiceHtml(sale: SaleForInvoice) {
+// The issuing store's active bank account(s), formatted as a one-line note
+// so a customer can settle any remaining balance by transfer. Silently
+// omitted (never blocks printing) if the store has none set up yet, or the
+// lookup fails for any reason.
+async function bankNoteFor(storeId: string | undefined): Promise<string | undefined> {
+  if (!storeId) return undefined;
+  try {
+    const accounts: {
+      name: string;
+      bankName?: string;
+      accountNumber?: string;
+      isActive: boolean;
+    }[] = (await api.get('/bank/accounts', { params: { store: storeId } })).data;
+    const lines = accounts
+      .filter((a) => a.isActive)
+      .map((a) => [a.name, a.bankName, a.accountNumber].filter(Boolean).join(' — '));
+    if (!lines.length) return undefined;
+    return `Bank Details: ${lines.join(' | ')}`;
+  } catch {
+    return undefined;
+  }
+}
+
+// The company-wide invoice note (e.g. a return policy) set once in Settings.
+// Omitted, never blocks printing, if unset or the lookup fails.
+async function invoiceFooterNote(): Promise<string | undefined> {
+  try {
+    const note = (await api.get('/settings')).data?.invoiceNote;
+    return note && String(note).trim() ? String(note).trim() : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+async function buildInvoiceHtml(sale: SaleForInvoice) {
   // The invoice header identifies the physical storefront the sale happened
   // at, not a single generic company block — falls back to the generic
   // identity only for legacy sales that predate the store field.
   const company = sale.storeName
     ? { name: sale.storeName, address: sale.storeAddress || COMPANY.address, phone: COMPANY.phone }
     : COMPANY;
+  const [bankNote, footerNote] = await Promise.all([
+    bankNoteFor(sale.storeId),
+    invoiceFooterNote(),
+  ]);
   return renderTemplate('INVOICE_A4', {
     company,
     number: sale.saleNumber,
@@ -103,6 +143,8 @@ function buildInvoiceHtml(sale: SaleForInvoice) {
         amount: Number(it.amount),
       })),
     })),
+    bankNote,
+    footerNote,
   });
 }
 
@@ -121,7 +163,14 @@ function writeHtmlPopup(html: string, target?: Window | null) {
 }
 
 export async function openSaleInvoicePopup(sale: SaleForInvoice, target?: Window | null) {
-  if (!writeHtmlPopup(buildInvoiceHtml(sale), target)) {
+  // Open (or claim) the window synchronously, before the bank-details fetch
+  // below, so it stays a direct result of the click — an async gap here
+  // would make browsers treat the later window.open as a blocked popup.
+  const win =
+    target && !target.closed ? target : window.open('', '_blank', 'width=850,height=1000');
+  if (!win) throw new Error('POPUP_BLOCKED');
+  const html = await buildInvoiceHtml(sale);
+  if (!writeHtmlPopup(html, win)) {
     throw new Error('POPUP_BLOCKED');
   }
 }

@@ -21,8 +21,11 @@ const serializeParty = (p) => view(out(p), ['balance']);
 
 /* ----------------------------- Bank accounts ----------------------------- */
 
-const listBankAccounts = asyncHandler(async (_req, res) => {
-  const accounts = await bankAccountService.listBankAccounts();
+const listBankAccounts = asyncHandler(async (req, res) => {
+  const accounts = await bankAccountService.listBankAccounts({
+    store: req.query.store,
+    actor: req.user,
+  });
   return sendSuccess(res, 200, 'Bank accounts fetched', {
     accounts: accounts.map((a) => view(a, ['balance'])),
   });
@@ -34,7 +37,7 @@ const createBankAccount = asyncHandler(async (req, res) => {
 });
 
 const updateBankAccount = asyncHandler(async (req, res) => {
-  const account = await bankAccountService.updateBankAccount(req.params.id, req.body);
+  const account = await bankAccountService.updateBankAccount(req.user, req.params.id, req.body);
   return sendSuccess(res, 200, 'Bank account updated', { account: out(account) });
 });
 

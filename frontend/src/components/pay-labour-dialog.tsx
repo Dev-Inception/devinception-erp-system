@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { AlertTriangle } from 'lucide-react';
 import {
@@ -16,16 +16,12 @@ import { api } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
 import { useStorefrontStore } from '@/store/storefront';
 import { useLanguage } from '@/components/language-provider';
+import { useBankAccounts } from '@/lib/bankAccounts';
 
 interface LabourForPayment {
   id: string;
   name: string;
   outstanding: number;
-}
-
-interface BankAccount {
-  id: string;
-  name: string;
 }
 
 const METHODS = [
@@ -65,13 +61,12 @@ export function PayLabourDialog({
     setNote('');
   }, [labour?.id]);
 
-  const { data: bankAccounts = [] } = useQuery<BankAccount[]>({
-    queryKey: ['bank-accounts'],
-    queryFn: async () => (await api.get('/bank/accounts')).data,
-    enabled: open && (method === 'BANK_TRANSFER' || method === 'ONLINE'),
-  });
-
   const needsBank = method === 'BANK_TRANSFER' || method === 'ONLINE';
+  const { data: bankAccounts = [] } = useBankAccounts(
+    hasSpecificStore ? currentStoreId : undefined,
+    open && needsBank,
+  );
+  const activeBankAccounts = bankAccounts.filter((b) => b.isActive);
 
   const submit = useMutation({
     mutationFn: async () => {
@@ -180,7 +175,7 @@ export function PayLabourDialog({
                   required
                 >
                   <option value="">{t('Select account…')}</option>
-                  {bankAccounts.map((b) => (
+                  {activeBankAccounts.map((b) => (
                     <option key={b.id} value={b.id}>
                       {b.name}
                     </option>
