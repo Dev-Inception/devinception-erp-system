@@ -1,7 +1,9 @@
 import { useState } from 'react';
 import { NavLink } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { api } from '@/lib/api';
 import { useAuthStore } from '@/store/auth';
 import { MODULES, SECTION_ORDER, canSeeModule } from '@/lib/modules';
 
@@ -25,6 +27,19 @@ export function Sidebar() {
     section,
     items: MODULES.filter((m) => m.section === section && canSeeModule(role, permissions, m)),
   })).filter((g) => g.items.length > 0);
+  const canSeePendingEntities = groups.some((g) =>
+    g.items.some((m) => m.key === 'pending-entities'),
+  );
+  // Unpriced entities need a super admin's action — a red dot flags that
+  // without making anyone open the page just to check.
+  const { data: pendingEntitiesCount = 0 } = useQuery({
+    queryKey: ['pending-entities-count'],
+    queryFn: async () =>
+      (await api.get('/pending-entities', { params: { status: 'PENDING', limit: 1 } })).data
+        .total ?? 0,
+    enabled: canSeePendingEntities,
+    refetchInterval: 60_000,
+  });
 
   return (
     <aside
@@ -82,8 +97,32 @@ export function Sidebar() {
                   )
                 }
               >
-                <item.icon className="h-4 w-4 shrink-0" />
-                {!collapsed && <span className="truncate">{item.label}</span>}
+                <span className="relative shrink-0">
+                  <item.icon className="h-4 w-4" />
+                  {collapsed && item.key === 'pending-entities' && pendingEntitiesCount > 0 && (
+                    <span
+                      className="absolute -right-1 -top-1 flex h-2.5 w-2.5"
+                      title={`${pendingEntitiesCount} pending`}
+                    >
+                      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-destructive opacity-75" />
+                      <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-destructive" />
+                    </span>
+                  )}
+                </span>
+                {!collapsed && (
+                  <span className="flex flex-1 items-center gap-1.5 truncate">
+                    <span className="truncate">{item.label}</span>
+                    {item.key === 'pending-entities' && pendingEntitiesCount > 0 && (
+                      <span
+                        className="relative flex h-2.5 w-2.5 shrink-0"
+                        title={`${pendingEntitiesCount} pending`}
+                      >
+                        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-destructive opacity-75" />
+                        <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-destructive" />
+                      </span>
+                    )}
+                  </span>
+                )}
               </NavLink>
             ))}
           </div>
