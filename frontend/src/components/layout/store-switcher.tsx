@@ -28,13 +28,13 @@ export function StoreSwitcher() {
   if (role !== 'SUPER_ADMIN' || stores.length === 0) return null;
 
   return (
-    <div className="relative">
+    <div className="relative w-28 shrink-0 sm:w-auto">
       <Building2 className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
       <select
         value={currentStoreId ?? 'ALL'}
         onChange={(e) => setCurrentStore(e.target.value)}
         aria-label="Storefront"
-        className="h-9 rounded-md border border-input bg-transparent py-1 pl-8 pr-2 text-sm"
+        className="h-9 w-full rounded-md border border-input bg-transparent py-1 pl-8 pr-2 text-sm sm:w-auto sm:max-w-[220px]"
       >
         <option value="ALL">All Stores</option>
         {stores.map((s) => (

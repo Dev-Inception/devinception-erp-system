@@ -1,9 +1,8 @@
 import { formatCurrency } from './utils';
 
 /**
- * Printing service — generates HTML for each template type and routes it to a
- * printer. In Electron it prints silently via the native bridge; in the browser
- * it falls back to window.print() in a hidden iframe.
+ * Printing service — generates HTML for each template type and prints it via
+ * window.print() in a hidden iframe.
  */
 
 export type TemplateType = 'INVOICE_A4' | 'RECEIPT_THERMAL' | 'OT_THERMAL';
@@ -328,15 +327,9 @@ export function renderTemplate(type: TemplateType, d: DocData): string {
   </body></html>`;
 }
 
-export async function printDocument(type: TemplateType, data: DocData, deviceName?: string) {
+export async function printDocument(type: TemplateType, data: DocData) {
   const html = renderTemplate(type, data);
 
-  // Electron: silent native print
-  if (window.electronAPI) {
-    return window.electronAPI.print({ html, type, deviceName });
-  }
-
-  // Browser fallback: hidden iframe + window.print()
   const iframe = document.createElement('iframe');
   iframe.style.position = 'fixed';
   iframe.style.right = '0';

@@ -247,104 +247,110 @@ export function VendorDetailPage() {
             </div>
           </CardHeader>
           <CardContent className="p-0">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-y bg-muted/50 text-left text-xs uppercase text-muted-foreground">
-                  <th className="px-4 py-2 font-medium">{t('Date')}</th>
-                  <th className="px-4 py-2 font-medium">{t('Description')}</th>
-                  <th className="px-4 py-2 text-right font-medium">{t('Debit')}</th>
-                  <th className="px-4 py-2 text-right font-medium">{t('Credit')}</th>
-                  <th className="px-4 py-2 text-right font-medium">{t('Balance')}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {(ledger?.entries ?? []).map((e, i) => (
-                  <tr key={i} className="border-b last:border-0">
-                    <td className="px-4 py-2 text-muted-foreground">
-                      {new Date(e.date).toLocaleDateString()}
-                    </td>
-                    <td className="px-4 py-2">{e.description ?? '—'}</td>
-                    <td className="px-4 py-2 text-right">
-                      {e.debit ? formatCurrency(e.debit) : ''}
-                    </td>
-                    <td className="px-4 py-2 text-right">
-                      {e.credit ? formatCurrency(e.credit) : ''}
-                    </td>
-                    <td className="px-4 py-2 text-right font-medium">
-                      {formatCurrency(e.balanceAfter)}
-                    </td>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-y bg-muted/50 text-left text-xs uppercase text-muted-foreground">
+                    <th className="px-4 py-2 font-medium">{t('Date')}</th>
+                    <th className="px-4 py-2 font-medium">{t('Description')}</th>
+                    <th className="px-4 py-2 text-right font-medium">{t('Debit')}</th>
+                    <th className="px-4 py-2 text-right font-medium">{t('Credit')}</th>
+                    <th className="px-4 py-2 text-right font-medium">{t('Balance')}</th>
                   </tr>
-                ))}
-                {ledger && ledger.entries.length === 0 && (
-                  <tr>
-                    <td colSpan={5} className="px-4 py-10 text-center text-muted-foreground">
-                      {t('No transactions yet.')}
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {(ledger?.entries ?? []).map((e, i) => (
+                    <tr key={i} className="border-b last:border-0">
+                      <td className="px-4 py-2 text-muted-foreground">
+                        {new Date(e.date).toLocaleDateString()}
+                      </td>
+                      <td className="px-4 py-2">{e.description ?? '—'}</td>
+                      <td className="px-4 py-2 text-right">
+                        {e.debit ? formatCurrency(e.debit) : ''}
+                      </td>
+                      <td className="px-4 py-2 text-right">
+                        {e.credit ? formatCurrency(e.credit) : ''}
+                      </td>
+                      <td className="px-4 py-2 text-right font-medium">
+                        {formatCurrency(e.balanceAfter)}
+                      </td>
+                    </tr>
+                  ))}
+                  {ledger && ledger.entries.length === 0 && (
+                    <tr>
+                      <td colSpan={5} className="px-4 py-10 text-center text-muted-foreground">
+                        {t('No transactions yet.')}
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
           </CardContent>
         </Card>
       )}
 
       {tab === 'purchases' && (
         <Card className="overflow-hidden">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b bg-muted/50 text-left text-xs uppercase tracking-wide text-muted-foreground">
-                <th className="px-4 py-3 font-medium">{t('Source')}</th>
-                <th className="px-4 py-3 font-medium">{t('#')}</th>
-                <th className="px-4 py-3 font-medium">{t('Date')}</th>
-                <th className="px-4 py-3 font-medium">{t('Product')}</th>
-                <th className="px-4 py-3 text-right font-medium">{t('Qty')}</th>
-                <th className="px-4 py-3 font-medium">{t('Status')}</th>
-                <th className="px-4 py-3 text-right font-medium">{t('Price')}</th>
-                <th className="px-4 py-3 text-right font-medium">{t('Total')}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {purchasesLoading && (
-                <tr>
-                  <td colSpan={8} className="px-4 py-10 text-center text-muted-foreground">
-                    {t('Loading…')}
-                  </td>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b bg-muted/50 text-left text-xs uppercase tracking-wide text-muted-foreground">
+                  <th className="px-4 py-3 font-medium">{t('Source')}</th>
+                  <th className="px-4 py-3 font-medium">{t('#')}</th>
+                  <th className="px-4 py-3 font-medium">{t('Date')}</th>
+                  <th className="px-4 py-3 font-medium">{t('Product')}</th>
+                  <th className="px-4 py-3 text-right font-medium">{t('Qty')}</th>
+                  <th className="px-4 py-3 font-medium">{t('Status')}</th>
+                  <th className="px-4 py-3 text-right font-medium">{t('Price')}</th>
+                  <th className="px-4 py-3 text-right font-medium">{t('Total')}</th>
                 </tr>
-              )}
-              {!purchasesLoading &&
-                purchases.map((e) => (
-                  <tr key={e.id} className="border-b last:border-0 hover:bg-muted/30">
-                    <td className="px-4 py-3 text-muted-foreground">
-                      {e.sourceType === 'SALE_ITEM' ? t('Sale (vendor item)') : t('Stock receipt')}
-                    </td>
-                    <td className="px-4 py-3 font-medium">{e.sourceNo}</td>
-                    <td className="px-4 py-3 text-muted-foreground">
-                      {new Date(e.date).toLocaleDateString()}
-                    </td>
-                    <td className="px-4 py-3">{e.productName}</td>
-                    <td className="px-4 py-3 text-right tabular-nums">{e.quantity}</td>
-                    <td className="px-4 py-3">
-                      <span className={e.status === 'PRICED' ? 'text-success' : 'text-blue-500'}>
-                        {e.status === 'PRICED' ? t('Priced') : t('Pending')}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-right tabular-nums">
-                      {e.purchasePrice !== undefined ? formatCurrency(e.purchasePrice) : '—'}
-                    </td>
-                    <td className="px-4 py-3 text-right tabular-nums font-medium">
-                      {e.lineTotal !== undefined ? formatCurrency(e.lineTotal) : '—'}
+              </thead>
+              <tbody>
+                {purchasesLoading && (
+                  <tr>
+                    <td colSpan={8} className="px-4 py-10 text-center text-muted-foreground">
+                      {t('Loading…')}
                     </td>
                   </tr>
-                ))}
-              {!purchasesLoading && purchases.length === 0 && (
-                <tr>
-                  <td colSpan={8} className="px-4 py-10 text-center text-muted-foreground">
-                    {t('Nothing purchased from this vendor yet.')}
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+                )}
+                {!purchasesLoading &&
+                  purchases.map((e) => (
+                    <tr key={e.id} className="border-b last:border-0 hover:bg-muted/30">
+                      <td className="px-4 py-3 text-muted-foreground">
+                        {e.sourceType === 'SALE_ITEM'
+                          ? t('Sale (vendor item)')
+                          : t('Stock receipt')}
+                      </td>
+                      <td className="px-4 py-3 font-medium">{e.sourceNo}</td>
+                      <td className="px-4 py-3 text-muted-foreground">
+                        {new Date(e.date).toLocaleDateString()}
+                      </td>
+                      <td className="px-4 py-3">{e.productName}</td>
+                      <td className="px-4 py-3 text-right tabular-nums">{e.quantity}</td>
+                      <td className="px-4 py-3">
+                        <span className={e.status === 'PRICED' ? 'text-success' : 'text-blue-500'}>
+                          {e.status === 'PRICED' ? t('Priced') : t('Pending')}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-right tabular-nums">
+                        {e.purchasePrice !== undefined ? formatCurrency(e.purchasePrice) : '—'}
+                      </td>
+                      <td className="px-4 py-3 text-right tabular-nums font-medium">
+                        {e.lineTotal !== undefined ? formatCurrency(e.lineTotal) : '—'}
+                      </td>
+                    </tr>
+                  ))}
+                {!purchasesLoading && purchases.length === 0 && (
+                  <tr>
+                    <td colSpan={8} className="px-4 py-10 text-center text-muted-foreground">
+                      {t('Nothing purchased from this vendor yet.')}
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
           <p className="border-t px-4 py-2 text-xs text-muted-foreground">
             {t('Pending items are priced from the')}{' '}
             <Link to="/pending-entities" className="underline">
@@ -357,76 +363,78 @@ export function VendorDetailPage() {
 
       {tab === 'sales' && (
         <Card className="overflow-hidden">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b bg-muted/50 text-left text-xs uppercase tracking-wide text-muted-foreground">
-                <th className="px-4 py-3 font-medium">{t('Sale #')}</th>
-                <th className="px-4 py-3 font-medium">{t('Date')}</th>
-                <th className="px-4 py-3 font-medium">{t('Items')}</th>
-                <th className="px-4 py-3 text-right font-medium">{t('Qty')}</th>
-                <th className="px-4 py-3 text-right font-medium">{t('Actions')}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {salesLoading && (
-                <tr>
-                  <td colSpan={5} className="px-4 py-10 text-center text-muted-foreground">
-                    {t('Loading…')}
-                  </td>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b bg-muted/50 text-left text-xs uppercase tracking-wide text-muted-foreground">
+                  <th className="px-4 py-3 font-medium">{t('Sale #')}</th>
+                  <th className="px-4 py-3 font-medium">{t('Date')}</th>
+                  <th className="px-4 py-3 font-medium">{t('Items')}</th>
+                  <th className="px-4 py-3 text-right font-medium">{t('Qty')}</th>
+                  <th className="px-4 py-3 text-right font-medium">{t('Actions')}</th>
                 </tr>
-              )}
-              {!salesLoading &&
-                vendorSales.map((s) => (
-                  <tr key={s.id} className="border-b last:border-0 hover:bg-muted/30">
-                    <td className="px-4 py-3 font-medium">{s.saleNumber}</td>
-                    <td className="px-4 py-3 text-muted-foreground">
-                      {new Date(s.date).toLocaleDateString()}
+              </thead>
+              <tbody>
+                {salesLoading && (
+                  <tr>
+                    <td colSpan={5} className="px-4 py-10 text-center text-muted-foreground">
+                      {t('Loading…')}
                     </td>
-                    <td className="px-4 py-3">{s.vendorItems.map((it) => it.name).join(', ')}</td>
-                    <td className="px-4 py-3 text-right tabular-nums">
-                      {s.vendorItems.reduce((sum, it) => sum + Number(it.quantity), 0)}
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="flex justify-end gap-1">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8"
-                          title={t('Print Invoice')}
-                          onClick={() => handlePrintSaleInvoice(s)}
-                        >
-                          <Printer className="h-4 w-4" />
-                        </Button>
-                        {s.vendorGatePassId && (
+                  </tr>
+                )}
+                {!salesLoading &&
+                  vendorSales.map((s) => (
+                    <tr key={s.id} className="border-b last:border-0 hover:bg-muted/30">
+                      <td className="px-4 py-3 font-medium">{s.saleNumber}</td>
+                      <td className="px-4 py-3 text-muted-foreground">
+                        {new Date(s.date).toLocaleDateString()}
+                      </td>
+                      <td className="px-4 py-3">{s.vendorItems.map((it) => it.name).join(', ')}</td>
+                      <td className="px-4 py-3 text-right tabular-nums">
+                        {s.vendorItems.reduce((sum, it) => sum + Number(it.quantity), 0)}
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex justify-end gap-1">
                           <Button
                             variant="ghost"
                             size="icon"
                             className="h-8 w-8"
-                            title={t('View Gate Pass')}
-                            onClick={() =>
-                              setViewingGatePass({
-                                gatePassId: s.vendorGatePassId,
-                                gatePassQrUrl: s.vendorGatePassQrUrl,
-                                title: s.saleNumber,
-                              })
-                            }
+                            title={t('Print Invoice')}
+                            onClick={() => handlePrintSaleInvoice(s)}
                           >
-                            <QrCode className="h-4 w-4" />
+                            <Printer className="h-4 w-4" />
                           </Button>
-                        )}
-                      </div>
+                          {s.vendorGatePassId && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8"
+                              title={t('View Gate Pass')}
+                              onClick={() =>
+                                setViewingGatePass({
+                                  gatePassId: s.vendorGatePassId,
+                                  gatePassQrUrl: s.vendorGatePassQrUrl,
+                                  title: s.saleNumber,
+                                })
+                              }
+                            >
+                              <QrCode className="h-4 w-4" />
+                            </Button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                {!salesLoading && vendorSales.length === 0 && (
+                  <tr>
+                    <td colSpan={5} className="px-4 py-10 text-center text-muted-foreground">
+                      {t('No sales sourced from this vendor yet.')}
                     </td>
                   </tr>
-                ))}
-              {!salesLoading && vendorSales.length === 0 && (
-                <tr>
-                  <td colSpan={5} className="px-4 py-10 text-center text-muted-foreground">
-                    {t('No sales sourced from this vendor yet.')}
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+                )}
+              </tbody>
+            </table>
+          </div>
         </Card>
       )}
 

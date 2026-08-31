@@ -257,161 +257,165 @@ export function SalesPage() {
         </div>
 
         <Card className="overflow-hidden">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b bg-muted/50 text-left text-xs uppercase tracking-wide text-muted-foreground">
-                <th className="px-4 py-3 font-medium">{t('Sale #')}</th>
-                <th className="px-4 py-3 font-medium">{t('Date')}</th>
-                <th className="px-4 py-3 font-medium">{t('Customer')}</th>
-                <th className="px-4 py-3 font-medium">{t('Store')}</th>
-                <th className="px-4 py-3 font-medium">{t('Payment')}</th>
-                <th className="px-4 py-3 text-right font-medium">{t('Advance Payment')}</th>
-                <th className="px-4 py-3 text-right font-medium">{t('Remaining Amount')}</th>
-                <th className="px-4 py-3 text-right font-medium">{t('Total Amount')}</th>
-                <th className="px-4 py-3 text-right font-medium">{t('Actions')}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {isLoading && (
-                <tr>
-                  <td colSpan={9} className="px-4 py-10 text-center text-muted-foreground">
-                    Loading…
-                  </td>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[900px] text-sm">
+              <thead>
+                <tr className="border-b bg-muted/50 text-left text-xs uppercase tracking-wide text-muted-foreground">
+                  <th className="px-4 py-3 font-medium">{t('Sale #')}</th>
+                  <th className="px-4 py-3 font-medium">{t('Date')}</th>
+                  <th className="px-4 py-3 font-medium">{t('Customer')}</th>
+                  <th className="px-4 py-3 font-medium">{t('Store')}</th>
+                  <th className="px-4 py-3 font-medium">{t('Payment')}</th>
+                  <th className="px-4 py-3 text-right font-medium">{t('Advance Payment')}</th>
+                  <th className="px-4 py-3 text-right font-medium">{t('Remaining Amount')}</th>
+                  <th className="px-4 py-3 text-right font-medium">{t('Total Amount')}</th>
+                  <th className="px-4 py-3 text-right font-medium">{t('Actions')}</th>
                 </tr>
-              )}
-              {!isLoading &&
-                filteredSales.map((s) => (
-                  <tr key={s.id} className="border-b last:border-0 hover:bg-muted/30">
-                    <td className="px-4 py-3 font-medium">{s.saleNumber}</td>
-                    <td className="px-4 py-3 text-muted-foreground">
-                      {new Date(s.date).toLocaleString()}
+              </thead>
+              <tbody>
+                {isLoading && (
+                  <tr>
+                    <td colSpan={9} className="px-4 py-10 text-center text-muted-foreground">
+                      Loading…
                     </td>
-                    <td className="px-4 py-3 text-muted-foreground">
-                      {s.customer?.name ?? 'Walk-in'}
-                    </td>
-                    <td className="px-4 py-3 text-muted-foreground">{s.storeName ?? '—'}</td>
-                    <td className="px-4 py-3 text-muted-foreground">
-                      {PAYMENT_LABEL[s.paymentMethod] ?? s.paymentMethod}
-                    </td>
-                    <td className="px-4 py-3 text-right tabular-nums text-muted-foreground">
-                      {Number(s.paidAmount) > 0 ? formatCurrency(Number(s.paidAmount)) : '—'}
-                    </td>
-                    <td className="px-4 py-3 text-right tabular-nums">
-                      <span
-                        className={
-                          Number(s.balanceDue) > 0 ? 'font-medium text-destructive' : 'text-success'
-                        }
-                      >
-                        {formatCurrency(Number(s.balanceDue))}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-right font-medium">
-                      {formatCurrency(Number(s.grandTotal))}
-                      {Number(s.returnedTotal) > 0 && (
-                        <div className="mt-0.5 text-xs font-normal text-destructive">
-                          {t('Returned')} {formatCurrency(Number(s.returnedTotal))}
-                        </div>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            className="h-8 w-8"
-                            title={t('Actions')}
-                          >
-                            <MoreHorizontal className="h-4 w-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem onSelect={() => handleViewInvoice(s)}>
-                            <FileText className="h-4 w-4" /> View Invoice
-                          </DropdownMenuItem>
-                          {(s.warehouseGatePasses ?? []).map((g) => {
-                            const wh = warehouses.find((w) => w.id === g.warehouseId);
-                            const multiple = (s.warehouseGatePasses?.length ?? 0) > 1;
-                            const label = multiple
-                              ? `${t('Gate Pass')} — ${wh?.name ?? t('Warehouse')}`
-                              : t('Gate Pass');
-                            return (
+                  </tr>
+                )}
+                {!isLoading &&
+                  filteredSales.map((s) => (
+                    <tr key={s.id} className="border-b last:border-0 hover:bg-muted/30">
+                      <td className="px-4 py-3 font-medium">{s.saleNumber}</td>
+                      <td className="px-4 py-3 text-muted-foreground">
+                        {new Date(s.date).toLocaleString()}
+                      </td>
+                      <td className="px-4 py-3 text-muted-foreground">
+                        {s.customer?.name ?? 'Walk-in'}
+                      </td>
+                      <td className="px-4 py-3 text-muted-foreground">{s.storeName ?? '—'}</td>
+                      <td className="px-4 py-3 text-muted-foreground">
+                        {PAYMENT_LABEL[s.paymentMethod] ?? s.paymentMethod}
+                      </td>
+                      <td className="px-4 py-3 text-right tabular-nums text-muted-foreground">
+                        {Number(s.paidAmount) > 0 ? formatCurrency(Number(s.paidAmount)) : '—'}
+                      </td>
+                      <td className="px-4 py-3 text-right tabular-nums">
+                        <span
+                          className={
+                            Number(s.balanceDue) > 0
+                              ? 'font-medium text-destructive'
+                              : 'text-success'
+                          }
+                        >
+                          {formatCurrency(Number(s.balanceDue))}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-right font-medium">
+                        {formatCurrency(Number(s.grandTotal))}
+                        {Number(s.returnedTotal) > 0 && (
+                          <div className="mt-0.5 text-xs font-normal text-destructive">
+                            {t('Returned')} {formatCurrency(Number(s.returnedTotal))}
+                          </div>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="h-8 w-8"
+                              title={t('Actions')}
+                            >
+                              <MoreHorizontal className="h-4 w-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem onSelect={() => handleViewInvoice(s)}>
+                              <FileText className="h-4 w-4" /> View Invoice
+                            </DropdownMenuItem>
+                            {(s.warehouseGatePasses ?? []).map((g) => {
+                              const wh = warehouses.find((w) => w.id === g.warehouseId);
+                              const multiple = (s.warehouseGatePasses?.length ?? 0) > 1;
+                              const label = multiple
+                                ? `${t('Gate Pass')} — ${wh?.name ?? t('Warehouse')}`
+                                : t('Gate Pass');
+                              return (
+                                <DropdownMenuItem
+                                  key={g.gatePassId}
+                                  onSelect={() =>
+                                    setOpenGatePass({
+                                      id: g.gatePassId,
+                                      qrUrl: g.gatePassQrUrl,
+                                      title: label,
+                                    })
+                                  }
+                                >
+                                  <QrCode className="h-4 w-4" /> {t('View')} {label}
+                                </DropdownMenuItem>
+                              );
+                            })}
+                            {s.vendorGatePassId && (
                               <DropdownMenuItem
-                                key={g.gatePassId}
                                 onSelect={() =>
                                   setOpenGatePass({
-                                    id: g.gatePassId,
-                                    qrUrl: g.gatePassQrUrl,
-                                    title: label,
+                                    id: s.vendorGatePassId!,
+                                    qrUrl: s.vendorGatePassQrUrl,
+                                    title: t('Vendor Gate Pass'),
                                   })
                                 }
                               >
-                                <QrCode className="h-4 w-4" /> {t('View')} {label}
+                                <QrCode className="h-4 w-4" /> {t('View Gate Pass (Vendor)')}
                               </DropdownMenuItem>
-                            );
-                          })}
-                          {s.vendorGatePassId && (
-                            <DropdownMenuItem
-                              onSelect={() =>
-                                setOpenGatePass({
-                                  id: s.vendorGatePassId!,
-                                  qrUrl: s.vendorGatePassQrUrl,
-                                  title: t('Vendor Gate Pass'),
-                                })
-                              }
-                            >
-                              <QrCode className="h-4 w-4" /> {t('View Gate Pass (Vendor)')}
-                            </DropdownMenuItem>
-                          )}
-                          {Number(s.returnedTotal) > 0 && (
-                            <DropdownMenuItem onSelect={() => setViewingReturnsFor(s)}>
-                              <Undo2 className="h-4 w-4" /> {t('View Returns')}
-                            </DropdownMenuItem>
-                          )}
-                          {canManageSales && (
-                            <>
-                              <DropdownMenuItem
-                                disabled={Number(s.returnedTotal) > 0}
-                                title={
-                                  Number(s.returnedTotal) > 0
-                                    ? t('Sales with returns against them can no longer be edited')
-                                    : undefined
-                                }
-                                onSelect={() => navigate(`/sales/${s.id}/edit`)}
-                              >
-                                <Pencil className="h-4 w-4" /> Update Sale
+                            )}
+                            {Number(s.returnedTotal) > 0 && (
+                              <DropdownMenuItem onSelect={() => setViewingReturnsFor(s)}>
+                                <Undo2 className="h-4 w-4" /> {t('View Returns')}
                               </DropdownMenuItem>
-                              <DropdownMenuItem onSelect={() => setReturningSale(s)}>
-                                <RotateCcw className="h-4 w-4" /> Return Product
-                              </DropdownMenuItem>
-                              {Number(s.balanceDue) > 0 && (
-                                <DropdownMenuItem onSelect={() => setPayingSale(s)}>
-                                  <Wallet className="h-4 w-4" /> Record Payment
+                            )}
+                            {canManageSales && (
+                              <>
+                                <DropdownMenuItem
+                                  disabled={Number(s.returnedTotal) > 0}
+                                  title={
+                                    Number(s.returnedTotal) > 0
+                                      ? t('Sales with returns against them can no longer be edited')
+                                      : undefined
+                                  }
+                                  onSelect={() => navigate(`/sales/${s.id}/edit`)}
+                                >
+                                  <Pencil className="h-4 w-4" /> Update Sale
                                 </DropdownMenuItem>
-                              )}
-                            </>
-                          )}
-                        </DropdownMenuContent>
-                      </DropdownMenu>
+                                <DropdownMenuItem onSelect={() => setReturningSale(s)}>
+                                  <RotateCcw className="h-4 w-4" /> Return Product
+                                </DropdownMenuItem>
+                                {Number(s.balanceDue) > 0 && (
+                                  <DropdownMenuItem onSelect={() => setPayingSale(s)}>
+                                    <Wallet className="h-4 w-4" /> Record Payment
+                                  </DropdownMenuItem>
+                                )}
+                              </>
+                            )}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </td>
+                    </tr>
+                  ))}
+                {!isLoading && isSearching && filteredSales.length === 0 && (
+                  <tr>
+                    <td colSpan={9} className="px-4 py-10 text-center text-muted-foreground">
+                      No sales match “{search}”.
                     </td>
                   </tr>
-                ))}
-              {!isLoading && isSearching && filteredSales.length === 0 && (
-                <tr>
-                  <td colSpan={9} className="px-4 py-10 text-center text-muted-foreground">
-                    No sales match “{search}”.
-                  </td>
-                </tr>
-              )}
-              {!isLoading && total === 0 && (
-                <tr>
-                  <td colSpan={9} className="px-4 py-10 text-center text-muted-foreground">
-                    No sales yet — ring one up in the POS.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+                )}
+                {!isLoading && total === 0 && (
+                  <tr>
+                    <td colSpan={9} className="px-4 py-10 text-center text-muted-foreground">
+                      No sales yet — ring one up in the POS.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
           {!isSearching && (
             <Pagination
               page={page}

@@ -9,19 +9,18 @@ import { MODULES, SECTION_ORDER, canSeeModule } from '@/lib/modules';
 
 const STORAGE_KEY = 'devinception-sidebar-collapsed';
 
-export function Sidebar() {
+// Nav items + permission gating, shared by the desktop rail and the mobile
+// drawer so the two don't drift out of sync.
+export function SidebarNav({
+  collapsed,
+  onNavigate,
+}: {
+  collapsed: boolean;
+  onNavigate?: () => void;
+}) {
   // Gate nav by the current user's real backend permissions (from login/me).
   const role = useAuthStore((s) => s.user?.role);
   const permissions = useAuthStore((s) => s.user?.permissions);
-  const [collapsed, setCollapsed] = useState(() => localStorage.getItem(STORAGE_KEY) === '1');
-
-  const toggle = () => {
-    setCollapsed((prev) => {
-      const next = !prev;
-      localStorage.setItem(STORAGE_KEY, next ? '1' : '0');
-      return next;
-    });
-  };
 
   const groups = SECTION_ORDER.map((section) => ({
     section,
@@ -40,6 +39,77 @@ export function Sidebar() {
     enabled: canSeePendingEntities,
     refetchInterval: 60_000,
   });
+
+  return (
+    <nav className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-3 py-4">
+      {groups.map((group) => (
+        <div key={group.section} className="mb-4">
+          {!collapsed && (
+            <p className="px-3 pb-1 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+              {group.section}
+            </p>
+          )}
+          {group.items.map((item) => (
+            <NavLink
+              key={item.to}
+              to={item.to}
+              end={item.to === '/'}
+              title={collapsed ? item.label : undefined}
+              onClick={onNavigate}
+              className={({ isActive }) =>
+                cn(
+                  'flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors',
+                  collapsed && 'justify-center px-0',
+                  isActive
+                    ? 'bg-primary/10 text-primary'
+                    : 'text-muted-foreground hover:bg-accent hover:text-foreground',
+                )
+              }
+            >
+              <span className="relative shrink-0">
+                <item.icon className="h-4 w-4" />
+                {collapsed && item.key === 'pending-entities' && pendingEntitiesCount > 0 && (
+                  <span
+                    className="absolute -right-1 -top-1 flex h-2.5 w-2.5"
+                    title={`${pendingEntitiesCount} pending`}
+                  >
+                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-destructive opacity-75" />
+                    <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-destructive" />
+                  </span>
+                )}
+              </span>
+              {!collapsed && (
+                <span className="flex flex-1 items-center gap-1.5 truncate">
+                  <span className="truncate">{item.label}</span>
+                  {item.key === 'pending-entities' && pendingEntitiesCount > 0 && (
+                    <span
+                      className="relative flex h-2.5 w-2.5 shrink-0"
+                      title={`${pendingEntitiesCount} pending`}
+                    >
+                      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-destructive opacity-75" />
+                      <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-destructive" />
+                    </span>
+                  )}
+                </span>
+              )}
+            </NavLink>
+          ))}
+        </div>
+      ))}
+    </nav>
+  );
+}
+
+export function Sidebar() {
+  const [collapsed, setCollapsed] = useState(() => localStorage.getItem(STORAGE_KEY) === '1');
+
+  const toggle = () => {
+    setCollapsed((prev) => {
+      const next = !prev;
+      localStorage.setItem(STORAGE_KEY, next ? '1' : '0');
+      return next;
+    });
+  };
 
   return (
     <aside
@@ -73,61 +143,7 @@ export function Sidebar() {
         )}
       </button>
 
-      <nav className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-3 py-4">
-        {groups.map((group) => (
-          <div key={group.section} className="mb-4">
-            {!collapsed && (
-              <p className="px-3 pb-1 text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                {group.section}
-              </p>
-            )}
-            {group.items.map((item) => (
-              <NavLink
-                key={item.to}
-                to={item.to}
-                end={item.to === '/'}
-                title={collapsed ? item.label : undefined}
-                className={({ isActive }) =>
-                  cn(
-                    'flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors',
-                    collapsed && 'justify-center px-0',
-                    isActive
-                      ? 'bg-primary/10 text-primary'
-                      : 'text-muted-foreground hover:bg-accent hover:text-foreground',
-                  )
-                }
-              >
-                <span className="relative shrink-0">
-                  <item.icon className="h-4 w-4" />
-                  {collapsed && item.key === 'pending-entities' && pendingEntitiesCount > 0 && (
-                    <span
-                      className="absolute -right-1 -top-1 flex h-2.5 w-2.5"
-                      title={`${pendingEntitiesCount} pending`}
-                    >
-                      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-destructive opacity-75" />
-                      <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-destructive" />
-                    </span>
-                  )}
-                </span>
-                {!collapsed && (
-                  <span className="flex flex-1 items-center gap-1.5 truncate">
-                    <span className="truncate">{item.label}</span>
-                    {item.key === 'pending-entities' && pendingEntitiesCount > 0 && (
-                      <span
-                        className="relative flex h-2.5 w-2.5 shrink-0"
-                        title={`${pendingEntitiesCount} pending`}
-                      >
-                        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-destructive opacity-75" />
-                        <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-destructive" />
-                      </span>
-                    )}
-                  </span>
-                )}
-              </NavLink>
-            ))}
-          </div>
-        ))}
-      </nav>
+      <SidebarNav collapsed={collapsed} />
     </aside>
   );
 }

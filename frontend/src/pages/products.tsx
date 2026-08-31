@@ -325,7 +325,7 @@ export function ProductsPage() {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-end gap-3">
+        <div className="flex flex-wrap items-end gap-3">
           <div className="space-y-1.5">
             <Label className="text-xs">{t('Search')}</Label>
             <div className="relative">
@@ -334,7 +334,7 @@ export function ProductsPage() {
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder={t('Search products…')}
-                className="w-72 pl-8"
+                className="w-full pl-8 sm:w-72"
               />
             </div>
           </div>
@@ -342,7 +342,7 @@ export function ProductsPage() {
             <select
               value={category}
               onChange={(e) => setCategory(e.target.value)}
-              className="h-9 w-48 appearance-none rounded-md border border-input bg-transparent py-1 pl-3 pr-9 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:border-input"
+              className="h-9 w-40 appearance-none rounded-md border border-input bg-transparent py-1 pl-3 pr-9 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:border-input sm:w-48"
             >
               <option value="">{t('Category')}</option>
               {catalog?.categories.map((c) => (
@@ -357,7 +357,7 @@ export function ProductsPage() {
             <select
               value={warehouse}
               onChange={(e) => setWarehouse(e.target.value)}
-              className="h-9 w-48 appearance-none rounded-md border border-input bg-transparent py-1 pl-3 pr-9 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:border-input"
+              className="h-9 w-40 appearance-none rounded-md border border-input bg-transparent py-1 pl-3 pr-9 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:border-input sm:w-48"
             >
               <option value="">{t('All Warehouses')}</option>
               {warehouses.map((w) => (

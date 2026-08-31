@@ -1,7 +1,8 @@
 # DevInception ERP & POS
 
 Enterprise-grade ERP + Point-of-Sale for retail & wholesale businesses.
-Runs as a **web app** and an **Electron desktop app** (Windows/macOS), with a path to mobile.
+Ships as an installable **Progressive Web App** — works offline-first and installs
+to desktop or mobile straight from the browser, no separate app to package or update.
 
 > Inventory · POS · Purchasing · Invoicing · Ledgers · Reporting · Local printing · Email/PDF.
 
@@ -12,8 +13,7 @@ Runs as a **web app** and an **Electron desktop app** (Windows/macOS), with a pa
 ```
 devinception-erp-system/
 ├── backend/      Node.js + Express 5 + MongoDB (Mongoose) REST API — JWT auth + RBAC
-├── frontend/     React 18 + TS + Vite + Tailwind + Radix (shadcn-style) + React Query + Zustand
-├── electron/     Desktop shell (electron-builder + auto-update)
+├── frontend/     React 18 + TS + Vite + Tailwind + Radix (shadcn-style) + React Query + Zustand + PWA
 ├── docs/         Architecture, ER diagram, API, roadmap, integrations
 └── package.json  npm workspaces + root scripts
 ```
@@ -49,10 +49,11 @@ build, and deploy targets).
 > in progress — set `VITE_API_URL` (default `http://localhost:5050/api`) and swap
 > the mock client for a real axios instance to connect them.
 
-### Desktop (`electron/`)
+### PWA
 
-- Electron 31 shell that loads the built frontend, packaged with `electron-builder`
-  and updated via `electron-updater`.
+- Installable via `vite-plugin-pwa` (Workbox) — precached app shell, `NetworkFirst`
+  runtime caching for `/api/*` GET requests, and auto-updating service worker.
+- Manifest + icons live in `frontend/public/` (`manifest` config in `vite.config.ts`).
 
 ---
 
@@ -86,7 +87,6 @@ npm run dev          # API (:5050) + Web (:5173) together
 # or individually:
 npm run dev:api      # backend  (nodemon)
 npm run dev:web      # frontend (vite)
-npm run dev:desktop  # Electron shell (after web is running)
 ```
 
 - API base: `http://localhost:5050/api`
@@ -158,5 +158,3 @@ The frontend reads `VITE_API_URL` (default `http://localhost:5050/api`) from
 - [API Design](docs/API.md)
 - [Printing & Integrations](docs/INTEGRATIONS.md)
 - [Development Roadmap](docs/ROADMAP.md)
-  </content>
-  </invoke>

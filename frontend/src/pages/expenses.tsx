@@ -565,122 +565,124 @@ export function ExpensesPage() {
       </div>
 
       <Card className="overflow-hidden">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b bg-muted/50 text-left text-xs uppercase tracking-wide text-muted-foreground">
-              <th className="px-4 py-3 font-medium">{t('Expense #')}</th>
-              <th className="px-4 py-3 font-medium">{t('Date')}</th>
-              <th className="px-4 py-3 font-medium">{t('Category')}</th>
-              <th className="px-4 py-3 font-medium">{t('Note')}</th>
-              <th className="px-4 py-3 font-medium">{t('Paid via')}</th>
-              <th className="px-4 py-3 font-medium">{t('Status')}</th>
-              <th className="px-4 py-3 text-right font-medium">{t('Amount')}</th>
-              <th className="px-4 py-3 text-right font-medium">{t('Actions')}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {isLoading && (
-              <tr>
-                <td colSpan={8} className="px-4 py-10 text-center text-muted-foreground">
-                  Loading…
-                </td>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b bg-muted/50 text-left text-xs uppercase tracking-wide text-muted-foreground">
+                <th className="px-4 py-3 font-medium">{t('Expense #')}</th>
+                <th className="px-4 py-3 font-medium">{t('Date')}</th>
+                <th className="px-4 py-3 font-medium">{t('Category')}</th>
+                <th className="px-4 py-3 font-medium">{t('Note')}</th>
+                <th className="px-4 py-3 font-medium">{t('Paid via')}</th>
+                <th className="px-4 py-3 font-medium">{t('Status')}</th>
+                <th className="px-4 py-3 text-right font-medium">{t('Amount')}</th>
+                <th className="px-4 py-3 text-right font-medium">{t('Actions')}</th>
               </tr>
-            )}
-            {!isLoading &&
-              expenses.map((e) => (
-                <tr key={e.id} className="border-b last:border-0 hover:bg-muted/30">
-                  <td className="px-4 py-3 font-medium">{e.number}</td>
-                  <td className="px-4 py-3 text-muted-foreground">
-                    {new Date(e.date).toLocaleDateString()}
-                  </td>
-                  <td className="px-4 py-3">
-                    <span className="inline-flex items-center rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium">
-                      {e.categoryName}
-                    </span>
-                  </td>
-                  <td className="max-w-xs truncate px-4 py-3 text-muted-foreground">
-                    {e.note || '—'}
-                  </td>
-                  <td className="px-4 py-3 text-muted-foreground">{t(METHOD_LABEL[e.method])}</td>
-                  <td className="px-4 py-3">
-                    <span
-                      className={cn(
-                        'inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium',
-                        STATUS_STYLE[e.status],
-                      )}
-                      title={e.status === 'REJECTED' ? e.rejectionReason : undefined}
-                    >
-                      {t(STATUS_LABEL[e.status])}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-right font-medium">
-                    {formatCurrency(Number(e.amount))}
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    <div className="flex justify-end gap-1">
-                      {isSuperAdmin && e.status !== 'APPROVED' && (
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          className="h-8 w-8 text-emerald-600 hover:text-emerald-600"
-                          title={t(
-                            e.status === 'REJECTED' ? 'Approve (reverse rejection)' : 'Approve',
-                          )}
-                          disabled={approve.isPending}
-                          onClick={() => approve.mutate(e.id)}
-                        >
-                          <Check className="h-4 w-4" />
-                        </Button>
-                      )}
-                      {isSuperAdmin && e.status !== 'REJECTED' && (
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          className="h-8 w-8 text-destructive hover:text-destructive"
-                          title={t(
-                            e.status === 'APPROVED' ? 'Reject (reverse approval)' : 'Reject',
-                          )}
-                          onClick={() => setRejectingExpense(e)}
-                        >
-                          <X className="h-4 w-4" />
-                        </Button>
-                      )}
-                      {canManage && e.status !== 'REJECTED' && (
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          className="h-8 w-8"
-                          title={t('Edit')}
-                          onClick={() => setEditingExpense(e)}
-                        >
-                          <Pencil className="h-4 w-4" />
-                        </Button>
-                      )}
-                      {canManage && (
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          className="h-8 w-8"
-                          title={t('Delete')}
-                          disabled={del.isPending}
-                          onClick={() => remove(e)}
-                        >
-                          <Trash2 className="h-4 w-4 text-destructive" />
-                        </Button>
-                      )}
-                    </div>
+            </thead>
+            <tbody>
+              {isLoading && (
+                <tr>
+                  <td colSpan={8} className="px-4 py-10 text-center text-muted-foreground">
+                    Loading…
                   </td>
                 </tr>
-              ))}
-            {!isLoading && expenses.length === 0 && (
-              <tr>
-                <td colSpan={8} className="px-4 py-10 text-center text-muted-foreground">
-                  {t('No expenses yet.')}
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+              )}
+              {!isLoading &&
+                expenses.map((e) => (
+                  <tr key={e.id} className="border-b last:border-0 hover:bg-muted/30">
+                    <td className="px-4 py-3 font-medium">{e.number}</td>
+                    <td className="px-4 py-3 text-muted-foreground">
+                      {new Date(e.date).toLocaleDateString()}
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className="inline-flex items-center rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium">
+                        {e.categoryName}
+                      </span>
+                    </td>
+                    <td className="max-w-xs truncate px-4 py-3 text-muted-foreground">
+                      {e.note || '—'}
+                    </td>
+                    <td className="px-4 py-3 text-muted-foreground">{t(METHOD_LABEL[e.method])}</td>
+                    <td className="px-4 py-3">
+                      <span
+                        className={cn(
+                          'inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium',
+                          STATUS_STYLE[e.status],
+                        )}
+                        title={e.status === 'REJECTED' ? e.rejectionReason : undefined}
+                      >
+                        {t(STATUS_LABEL[e.status])}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-right font-medium">
+                      {formatCurrency(Number(e.amount))}
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <div className="flex justify-end gap-1">
+                        {isSuperAdmin && e.status !== 'APPROVED' && (
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-8 w-8 text-emerald-600 hover:text-emerald-600"
+                            title={t(
+                              e.status === 'REJECTED' ? 'Approve (reverse rejection)' : 'Approve',
+                            )}
+                            disabled={approve.isPending}
+                            onClick={() => approve.mutate(e.id)}
+                          >
+                            <Check className="h-4 w-4" />
+                          </Button>
+                        )}
+                        {isSuperAdmin && e.status !== 'REJECTED' && (
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-8 w-8 text-destructive hover:text-destructive"
+                            title={t(
+                              e.status === 'APPROVED' ? 'Reject (reverse approval)' : 'Reject',
+                            )}
+                            onClick={() => setRejectingExpense(e)}
+                          >
+                            <X className="h-4 w-4" />
+                          </Button>
+                        )}
+                        {canManage && e.status !== 'REJECTED' && (
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-8 w-8"
+                            title={t('Edit')}
+                            onClick={() => setEditingExpense(e)}
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                        )}
+                        {canManage && (
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-8 w-8"
+                            title={t('Delete')}
+                            disabled={del.isPending}
+                            onClick={() => remove(e)}
+                          >
+                            <Trash2 className="h-4 w-4 text-destructive" />
+                          </Button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              {!isLoading && expenses.length === 0 && (
+                <tr>
+                  <td colSpan={8} className="px-4 py-10 text-center text-muted-foreground">
+                    {t('No expenses yet.')}
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
         {!isSearching && (
           <Pagination
             page={page}

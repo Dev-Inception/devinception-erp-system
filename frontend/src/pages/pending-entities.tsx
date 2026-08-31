@@ -179,69 +179,71 @@ export function PendingEntitiesPage() {
       </div>
 
       <Card className="overflow-hidden">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b bg-muted/50 text-left text-xs uppercase tracking-wide text-muted-foreground">
-              <th className="px-4 py-3 font-medium">{t('Source')}</th>
-              <th className="px-4 py-3 font-medium">{t('#')}</th>
-              <th className="px-4 py-3 font-medium">{t('Date')}</th>
-              <th className="px-4 py-3 font-medium">{t('Vendor')}</th>
-              <th className="px-4 py-3 font-medium">{t('Product')}</th>
-              <th className="px-4 py-3 text-right font-medium">{t('Qty')}</th>
-              <th className="px-4 py-3 text-right font-medium">{t('Purchase Price')}</th>
-              <th className="px-4 py-3 text-right font-medium">{t('Total')}</th>
-              {canPrice && status === 'PENDING' && (
-                <th className="px-4 py-3 text-right font-medium">{t('Actions')}</th>
-              )}
-            </tr>
-          </thead>
-          <tbody>
-            {isLoading && (
-              <tr>
-                <td colSpan={9} className="px-4 py-10 text-center text-muted-foreground">
-                  {t('Loading…')}
-                </td>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b bg-muted/50 text-left text-xs uppercase tracking-wide text-muted-foreground">
+                <th className="px-4 py-3 font-medium">{t('Source')}</th>
+                <th className="px-4 py-3 font-medium">{t('#')}</th>
+                <th className="px-4 py-3 font-medium">{t('Date')}</th>
+                <th className="px-4 py-3 font-medium">{t('Vendor')}</th>
+                <th className="px-4 py-3 font-medium">{t('Product')}</th>
+                <th className="px-4 py-3 text-right font-medium">{t('Qty')}</th>
+                <th className="px-4 py-3 text-right font-medium">{t('Purchase Price')}</th>
+                <th className="px-4 py-3 text-right font-medium">{t('Total')}</th>
+                {canPrice && status === 'PENDING' && (
+                  <th className="px-4 py-3 text-right font-medium">{t('Actions')}</th>
+                )}
               </tr>
-            )}
-            {!isLoading &&
-              entities.map((e) => (
-                <tr key={e.id} className="border-b last:border-0 hover:bg-muted/30">
-                  <td className="px-4 py-3 text-muted-foreground">
-                    {sourceLabel(t, e.sourceType)}
+            </thead>
+            <tbody>
+              {isLoading && (
+                <tr>
+                  <td colSpan={9} className="px-4 py-10 text-center text-muted-foreground">
+                    {t('Loading…')}
                   </td>
-                  <td className="px-4 py-3 font-medium">{e.sourceNo}</td>
-                  <td className="px-4 py-3 text-muted-foreground">
-                    {new Date(e.date).toLocaleDateString()}
-                  </td>
-                  <td className="px-4 py-3">{e.vendorName}</td>
-                  <td className="px-4 py-3">{e.productName}</td>
-                  <td className="px-4 py-3 text-right tabular-nums">{e.quantity}</td>
-                  <td className="px-4 py-3 text-right tabular-nums">
-                    {e.purchasePrice !== undefined ? formatCurrency(e.purchasePrice) : '—'}
-                  </td>
-                  <td className="px-4 py-3 text-right tabular-nums font-medium">
-                    {e.lineTotal !== undefined ? formatCurrency(e.lineTotal) : '—'}
-                  </td>
-                  {canPrice && status === 'PENDING' && (
-                    <td className="px-4 py-3 text-right">
-                      <Button size="sm" variant="outline" onClick={() => setPricing(e)}>
-                        <Tag className="h-4 w-4" /> {t('Set Price')}
-                      </Button>
-                    </td>
-                  )}
                 </tr>
-              ))}
-            {!isLoading && entities.length === 0 && (
-              <tr>
-                <td colSpan={9} className="px-4 py-10 text-center text-muted-foreground">
-                  {status === 'PENDING'
-                    ? t('Nothing waiting to be priced.')
-                    : t('No priced entities yet.')}
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+              )}
+              {!isLoading &&
+                entities.map((e) => (
+                  <tr key={e.id} className="border-b last:border-0 hover:bg-muted/30">
+                    <td className="px-4 py-3 text-muted-foreground">
+                      {sourceLabel(t, e.sourceType)}
+                    </td>
+                    <td className="px-4 py-3 font-medium">{e.sourceNo}</td>
+                    <td className="px-4 py-3 text-muted-foreground">
+                      {new Date(e.date).toLocaleDateString()}
+                    </td>
+                    <td className="px-4 py-3">{e.vendorName}</td>
+                    <td className="px-4 py-3">{e.productName}</td>
+                    <td className="px-4 py-3 text-right tabular-nums">{e.quantity}</td>
+                    <td className="px-4 py-3 text-right tabular-nums">
+                      {e.purchasePrice !== undefined ? formatCurrency(e.purchasePrice) : '—'}
+                    </td>
+                    <td className="px-4 py-3 text-right tabular-nums font-medium">
+                      {e.lineTotal !== undefined ? formatCurrency(e.lineTotal) : '—'}
+                    </td>
+                    {canPrice && status === 'PENDING' && (
+                      <td className="px-4 py-3 text-right">
+                        <Button size="sm" variant="outline" onClick={() => setPricing(e)}>
+                          <Tag className="h-4 w-4" /> {t('Set Price')}
+                        </Button>
+                      </td>
+                    )}
+                  </tr>
+                ))}
+              {!isLoading && entities.length === 0 && (
+                <tr>
+                  <td colSpan={9} className="px-4 py-10 text-center text-muted-foreground">
+                    {status === 'PENDING'
+                      ? t('Nothing waiting to be priced.')
+                      : t('No priced entities yet.')}
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
         <Pagination
           page={page}
           totalPages={totalPages}

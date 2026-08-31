@@ -198,75 +198,77 @@ export function LabourPage() {
       </div>
 
       <Card className="overflow-hidden">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b bg-muted/50 text-left text-xs uppercase tracking-wide text-muted-foreground">
-              <th className="px-4 py-3 font-medium">{t('Name')}</th>
-              <th className="px-4 py-3 font-medium">{t('Phone Number')}</th>
-              {canManage && <th className="px-4 py-3 text-right font-medium">{t('Actions')}</th>}
-            </tr>
-          </thead>
-          <tbody>
-            {isLoading && (
-              <tr>
-                <td colSpan={3} className="px-4 py-10 text-center text-muted-foreground">
-                  Loading…
-                </td>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b bg-muted/50 text-left text-xs uppercase tracking-wide text-muted-foreground">
+                <th className="px-4 py-3 font-medium">{t('Name')}</th>
+                <th className="px-4 py-3 font-medium">{t('Phone Number')}</th>
+                {canManage && <th className="px-4 py-3 text-right font-medium">{t('Actions')}</th>}
               </tr>
-            )}
-            {!isLoading &&
-              pageItems.map((l) => (
-                <tr
-                  key={l.id}
-                  className="cursor-pointer border-b last:border-0 hover:bg-muted/30"
-                  onClick={() => navigate(`/labour/${l.id}`)}
-                >
-                  <td className="px-4 py-3 font-medium">
-                    <div className="flex items-center gap-2">
-                      <HardHat className="h-4 w-4 text-muted-foreground" />
-                      {l.name}
-                    </div>
+            </thead>
+            <tbody>
+              {isLoading && (
+                <tr>
+                  <td colSpan={3} className="px-4 py-10 text-center text-muted-foreground">
+                    Loading…
                   </td>
-                  <td className="px-4 py-3 text-muted-foreground">{l.phoneNumber}</td>
-                  {canManage && (
-                    <td className="px-4 py-3 text-right" onClick={(e) => e.stopPropagation()}>
-                      <div className="flex justify-end gap-1">
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          className="h-8 w-8"
-                          title={t('Edit')}
-                          onClick={() => {
-                            setEditing(l);
-                            setDialogOpen(true);
-                          }}
-                        >
-                          <Pencil className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          className="h-8 w-8"
-                          title={t('Delete')}
-                          disabled={del.isPending}
-                          onClick={() => remove(l)}
-                        >
-                          <Trash2 className="h-4 w-4 text-destructive" />
-                        </Button>
+                </tr>
+              )}
+              {!isLoading &&
+                pageItems.map((l) => (
+                  <tr
+                    key={l.id}
+                    className="cursor-pointer border-b last:border-0 hover:bg-muted/30"
+                    onClick={() => navigate(`/labour/${l.id}`)}
+                  >
+                    <td className="px-4 py-3 font-medium">
+                      <div className="flex items-center gap-2">
+                        <HardHat className="h-4 w-4 text-muted-foreground" />
+                        {l.name}
                       </div>
                     </td>
-                  )}
+                    <td className="px-4 py-3 text-muted-foreground">{l.phoneNumber}</td>
+                    {canManage && (
+                      <td className="px-4 py-3 text-right" onClick={(e) => e.stopPropagation()}>
+                        <div className="flex justify-end gap-1">
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-8 w-8"
+                            title={t('Edit')}
+                            onClick={() => {
+                              setEditing(l);
+                              setDialogOpen(true);
+                            }}
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-8 w-8"
+                            title={t('Delete')}
+                            disabled={del.isPending}
+                            onClick={() => remove(l)}
+                          >
+                            <Trash2 className="h-4 w-4 text-destructive" />
+                          </Button>
+                        </div>
+                      </td>
+                    )}
+                  </tr>
+                ))}
+              {!isLoading && pageItems.length === 0 && (
+                <tr>
+                  <td colSpan={3} className="px-4 py-10 text-center text-muted-foreground">
+                    {isSearching ? 'No labour match your search.' : 'No labour records yet.'}
+                  </td>
                 </tr>
-              ))}
-            {!isLoading && pageItems.length === 0 && (
-              <tr>
-                <td colSpan={3} className="px-4 py-10 text-center text-muted-foreground">
-                  {isSearching ? 'No labour match your search.' : 'No labour records yet.'}
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+              )}
+            </tbody>
+          </table>
+        </div>
         {!isSearching && (
           <Pagination
             page={page}

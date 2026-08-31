@@ -4,6 +4,7 @@ node_modules/
 # ─── Vite / build output ────────────────────────────────────
 dist/
 dist-ssr/
+dev-dist/
 *.local
 
 # ─── TypeScript incremental build ───────────────────────────

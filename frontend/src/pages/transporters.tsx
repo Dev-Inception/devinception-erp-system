@@ -216,81 +216,85 @@ export function TransportersPage() {
       </div>
 
       <Card className="overflow-hidden">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b bg-muted/50 text-left text-xs uppercase tracking-wide text-muted-foreground">
-              <th className="px-4 py-3 font-medium">{t('Transporter')}</th>
-              <th className="px-4 py-3 font-medium">{t('Phone')}</th>
-              <th className="px-4 py-3 font-medium">{t('Vehicle Number')}</th>
-              <th className="px-4 py-3 text-right font-medium">{t('Outstanding')}</th>
-              {showActions && <th className="px-4 py-3 text-right font-medium">{t('Actions')}</th>}
-            </tr>
-          </thead>
-          <tbody>
-            {isLoading && (
-              <tr>
-                <td colSpan={colSpan} className="px-4 py-10 text-center text-muted-foreground">
-                  Loading…
-                </td>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b bg-muted/50 text-left text-xs uppercase tracking-wide text-muted-foreground">
+                <th className="px-4 py-3 font-medium">{t('Transporter')}</th>
+                <th className="px-4 py-3 font-medium">{t('Phone')}</th>
+                <th className="px-4 py-3 font-medium">{t('Vehicle Number')}</th>
+                <th className="px-4 py-3 text-right font-medium">{t('Outstanding')}</th>
+                {showActions && (
+                  <th className="px-4 py-3 text-right font-medium">{t('Actions')}</th>
+                )}
               </tr>
-            )}
-            {!isLoading &&
-              pageItems.map((tr) => (
-                <tr
-                  key={tr.id}
-                  className="cursor-pointer border-b last:border-0 hover:bg-muted/30"
-                  onClick={() => navigate(`/transporters/${tr.id}`)}
-                >
-                  <td className="px-4 py-3 font-medium">{tr.name}</td>
-                  <td className="px-4 py-3 text-muted-foreground">{tr.phone ?? '—'}</td>
-                  <td className="px-4 py-3 text-muted-foreground">{tr.vehicleNumber ?? '—'}</td>
-                  <td className="px-4 py-3 text-right font-medium">
-                    {formatCurrency(tr.outstanding)}
+            </thead>
+            <tbody>
+              {isLoading && (
+                <tr>
+                  <td colSpan={colSpan} className="px-4 py-10 text-center text-muted-foreground">
+                    Loading…
                   </td>
-                  {showActions && (
-                    <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
-                      <div className="flex justify-end gap-1">
-                        {canUpdate && (
-                          <TransporterDialog
-                            transporter={tr}
-                            trigger={
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-8 w-8"
-                                title={t('Edit')}
-                              >
-                                <Pencil className="h-4 w-4" />
-                              </Button>
-                            }
-                          />
-                        )}
-                        {canDelete && (
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8"
-                            title={t('Delete')}
-                            disabled={del.isPending}
-                            onClick={() => remove(tr)}
-                          >
-                            <Trash2 className="h-4 w-4 text-destructive" />
-                          </Button>
-                        )}
-                      </div>
-                    </td>
-                  )}
                 </tr>
-              ))}
-            {!isLoading && pageItems.length === 0 && (
-              <tr>
-                <td colSpan={colSpan} className="px-4 py-10 text-center text-muted-foreground">
-                  No transporters yet.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+              )}
+              {!isLoading &&
+                pageItems.map((tr) => (
+                  <tr
+                    key={tr.id}
+                    className="cursor-pointer border-b last:border-0 hover:bg-muted/30"
+                    onClick={() => navigate(`/transporters/${tr.id}`)}
+                  >
+                    <td className="px-4 py-3 font-medium">{tr.name}</td>
+                    <td className="px-4 py-3 text-muted-foreground">{tr.phone ?? '—'}</td>
+                    <td className="px-4 py-3 text-muted-foreground">{tr.vehicleNumber ?? '—'}</td>
+                    <td className="px-4 py-3 text-right font-medium">
+                      {formatCurrency(tr.outstanding)}
+                    </td>
+                    {showActions && (
+                      <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                        <div className="flex justify-end gap-1">
+                          {canUpdate && (
+                            <TransporterDialog
+                              transporter={tr}
+                              trigger={
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-8 w-8"
+                                  title={t('Edit')}
+                                >
+                                  <Pencil className="h-4 w-4" />
+                                </Button>
+                              }
+                            />
+                          )}
+                          {canDelete && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8"
+                              title={t('Delete')}
+                              disabled={del.isPending}
+                              onClick={() => remove(tr)}
+                            >
+                              <Trash2 className="h-4 w-4 text-destructive" />
+                            </Button>
+                          )}
+                        </div>
+                      </td>
+                    )}
+                  </tr>
+                ))}
+              {!isLoading && pageItems.length === 0 && (
+                <tr>
+                  <td colSpan={colSpan} className="px-4 py-10 text-center text-muted-foreground">
+                    No transporters yet.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
         {!isSearching && (
           <Pagination
             page={page}

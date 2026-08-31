@@ -227,83 +227,87 @@ export function VendorsPage() {
       </div>
 
       <Card className="overflow-hidden">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b bg-muted/50 text-left text-xs uppercase tracking-wide text-muted-foreground">
-              <th className="px-4 py-3 font-medium">{t('Vendor')}</th>
-              <th className="px-4 py-3 font-medium">{t('Phone')}</th>
-              <th className="px-4 py-3 font-medium">{t('Email')}</th>
-              <th className="px-4 py-3 font-medium">{t('NTN')}</th>
-              <th className="px-4 py-3 text-right font-medium">{t('Outstanding')}</th>
-              {showActions && <th className="px-4 py-3 text-right font-medium">{t('Actions')}</th>}
-            </tr>
-          </thead>
-          <tbody>
-            {isLoading && (
-              <tr>
-                <td colSpan={colSpan} className="px-4 py-10 text-center text-muted-foreground">
-                  Loading…
-                </td>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b bg-muted/50 text-left text-xs uppercase tracking-wide text-muted-foreground">
+                <th className="px-4 py-3 font-medium">{t('Vendor')}</th>
+                <th className="px-4 py-3 font-medium">{t('Phone')}</th>
+                <th className="px-4 py-3 font-medium">{t('Email')}</th>
+                <th className="px-4 py-3 font-medium">{t('NTN')}</th>
+                <th className="px-4 py-3 text-right font-medium">{t('Outstanding')}</th>
+                {showActions && (
+                  <th className="px-4 py-3 text-right font-medium">{t('Actions')}</th>
+                )}
               </tr>
-            )}
-            {!isLoading &&
-              pageItems.map((v) => (
-                <tr
-                  key={v.id}
-                  className="cursor-pointer border-b last:border-0 hover:bg-muted/30"
-                  onClick={() => navigate(`/vendors/${v.id}`)}
-                >
-                  <td className="px-4 py-3 font-medium">{v.name}</td>
-                  <td className="px-4 py-3 text-muted-foreground">{v.phone ?? '—'}</td>
-                  <td className="px-4 py-3 text-muted-foreground">{v.email ?? '—'}</td>
-                  <td className="px-4 py-3 text-muted-foreground">{v.ntn ?? '—'}</td>
-                  <td className="px-4 py-3 text-right font-medium">
-                    {formatCurrency(v.outstanding)}
+            </thead>
+            <tbody>
+              {isLoading && (
+                <tr>
+                  <td colSpan={colSpan} className="px-4 py-10 text-center text-muted-foreground">
+                    Loading…
                   </td>
-                  {showActions && (
-                    <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
-                      <div className="flex justify-end gap-1">
-                        {canUpdate && (
-                          <VendorDialog
-                            vendor={v}
-                            trigger={
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-8 w-8"
-                                title={t('Edit')}
-                              >
-                                <Pencil className="h-4 w-4" />
-                              </Button>
-                            }
-                          />
-                        )}
-                        {canDelete && (
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8"
-                            title={t('Delete')}
-                            disabled={del.isPending}
-                            onClick={() => remove(v)}
-                          >
-                            <Trash2 className="h-4 w-4 text-destructive" />
-                          </Button>
-                        )}
-                      </div>
-                    </td>
-                  )}
                 </tr>
-              ))}
-            {!isLoading && pageItems.length === 0 && (
-              <tr>
-                <td colSpan={colSpan} className="px-4 py-10 text-center text-muted-foreground">
-                  No vendors yet.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+              )}
+              {!isLoading &&
+                pageItems.map((v) => (
+                  <tr
+                    key={v.id}
+                    className="cursor-pointer border-b last:border-0 hover:bg-muted/30"
+                    onClick={() => navigate(`/vendors/${v.id}`)}
+                  >
+                    <td className="px-4 py-3 font-medium">{v.name}</td>
+                    <td className="px-4 py-3 text-muted-foreground">{v.phone ?? '—'}</td>
+                    <td className="px-4 py-3 text-muted-foreground">{v.email ?? '—'}</td>
+                    <td className="px-4 py-3 text-muted-foreground">{v.ntn ?? '—'}</td>
+                    <td className="px-4 py-3 text-right font-medium">
+                      {formatCurrency(v.outstanding)}
+                    </td>
+                    {showActions && (
+                      <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                        <div className="flex justify-end gap-1">
+                          {canUpdate && (
+                            <VendorDialog
+                              vendor={v}
+                              trigger={
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-8 w-8"
+                                  title={t('Edit')}
+                                >
+                                  <Pencil className="h-4 w-4" />
+                                </Button>
+                              }
+                            />
+                          )}
+                          {canDelete && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8"
+                              title={t('Delete')}
+                              disabled={del.isPending}
+                              onClick={() => remove(v)}
+                            >
+                              <Trash2 className="h-4 w-4 text-destructive" />
+                            </Button>
+                          )}
+                        </div>
+                      </td>
+                    )}
+                  </tr>
+                ))}
+              {!isLoading && pageItems.length === 0 && (
+                <tr>
+                  <td colSpan={colSpan} className="px-4 py-10 text-center text-muted-foreground">
+                    No vendors yet.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
         {!isSearching && (
           <Pagination
             page={page}

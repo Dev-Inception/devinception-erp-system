@@ -826,7 +826,7 @@ function ReceiptDialog({ receipt, onClose }: { receipt?: StockReceipt; onClose: 
             )}
 
             {items.length > 0 && (
-              <div className="rounded-md border">
+              <div className="overflow-x-auto rounded-md border">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b bg-muted/50 text-left text-xs uppercase text-muted-foreground">
@@ -971,7 +971,7 @@ function ReceiptDetailDialog({
           </div>
         </div>
 
-        <div className="rounded-md border">
+        <div className="overflow-x-auto rounded-md border">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b bg-muted/50 text-left text-xs uppercase text-muted-foreground">
@@ -1022,7 +1022,7 @@ function ReceiptDetailDialog({
         </div>
 
         {receipt.labour.length > 0 && (
-          <div className="rounded-md border">
+          <div className="overflow-x-auto rounded-md border">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b bg-muted/50 text-left text-xs uppercase text-muted-foreground">
@@ -1249,120 +1249,124 @@ export function StockReceiptsPage() {
       </div>
 
       <Card className="overflow-hidden">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b bg-muted/50 text-left text-xs uppercase tracking-wide text-muted-foreground">
-              <th className="px-4 py-3 font-medium">{t('Receipt #')}</th>
-              <th className="px-4 py-3 font-medium">{t('Date')}</th>
-              <th className="px-4 py-3 font-medium">{t('Supplier')}</th>
-              <th className="px-4 py-3 font-medium">{t('Store')}</th>
-              <th className="px-4 py-3 font-medium">{t('Warehouse')}</th>
-              <th className="px-4 py-3 font-medium">{t('Truck')}</th>
-              <th className="px-4 py-3 text-right font-medium">{t('Items')}</th>
-              <th className="px-4 py-3 text-right font-medium">{t('Qty Received')}</th>
-              <th className="px-4 py-3 text-right font-medium">{t('Qty Damaged')}</th>
-              <th className="px-4 py-3 text-right font-medium">{t('Actions')}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {isLoading && (
-              <tr>
-                <td colSpan={10} className="px-4 py-10 text-center text-muted-foreground">
-                  Loading…
-                </td>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b bg-muted/50 text-left text-xs uppercase tracking-wide text-muted-foreground">
+                <th className="px-4 py-3 font-medium">{t('Receipt #')}</th>
+                <th className="px-4 py-3 font-medium">{t('Date')}</th>
+                <th className="px-4 py-3 font-medium">{t('Supplier')}</th>
+                <th className="px-4 py-3 font-medium">{t('Store')}</th>
+                <th className="px-4 py-3 font-medium">{t('Warehouse')}</th>
+                <th className="px-4 py-3 font-medium">{t('Truck')}</th>
+                <th className="px-4 py-3 text-right font-medium">{t('Items')}</th>
+                <th className="px-4 py-3 text-right font-medium">{t('Qty Received')}</th>
+                <th className="px-4 py-3 text-right font-medium">{t('Qty Damaged')}</th>
+                <th className="px-4 py-3 text-right font-medium">{t('Actions')}</th>
               </tr>
-            )}
-            {!isLoading &&
-              receipts.map((receipt) => {
-                const totalReceived = receipt.items.reduce((s, it) => s + it.receivedQuantity, 0);
-                const totalDamaged = receipt.items.reduce((s, it) => s + it.damagedQuantity, 0);
-                return (
-                  <tr
-                    key={receipt.id}
-                    className="cursor-pointer border-b last:border-0 hover:bg-muted/30"
-                    onClick={() => setViewingReceipt(receipt)}
-                  >
-                    <td className="px-4 py-3 font-medium">{receipt.number}</td>
-                    <td className="px-4 py-3 text-muted-foreground">
-                      {new Date(receipt.date).toLocaleDateString()}
-                    </td>
-                    <td className="px-4 py-3 text-muted-foreground">{receipt.supplierName}</td>
-                    <td className="px-4 py-3 text-muted-foreground">{receipt.storeName ?? '—'}</td>
-                    <td className="px-4 py-3 text-muted-foreground">{receipt.warehouseName}</td>
-                    <td className="px-4 py-3 text-muted-foreground">
-                      {receipt.truck.vehicleNumber}
-                    </td>
-                    <td className="px-4 py-3 text-right tabular-nums text-muted-foreground">
-                      {receipt.items.length}
-                    </td>
-                    <td className="px-4 py-3 text-right tabular-nums font-medium">
-                      {totalReceived}
-                    </td>
-                    <td className="px-4 py-3 text-right tabular-nums">
-                      {totalDamaged > 0 ? (
-                        <span className="font-medium text-destructive">{totalDamaged}</span>
-                      ) : (
-                        <span className="text-muted-foreground">0</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-right" onClick={(e) => e.stopPropagation()}>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8"
-                            title={t('Actions')}
-                          >
-                            <MoreHorizontal className="h-4 w-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem onSelect={() => setViewingReceipt(receipt)}>
-                            <Eye className="h-4 w-4" /> {t('View Details')}
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onSelect={() => handlePrintInvoice(receipt)}>
-                            <Printer className="h-4 w-4" /> {t('Print Invoice')}
-                          </DropdownMenuItem>
-                          {receipt.gatePassId && (
-                            <DropdownMenuItem onSelect={() => setViewingGatePass(receipt)}>
-                              <QrCode className="h-4 w-4" /> {t('View Gate Pass')}
+            </thead>
+            <tbody>
+              {isLoading && (
+                <tr>
+                  <td colSpan={10} className="px-4 py-10 text-center text-muted-foreground">
+                    Loading…
+                  </td>
+                </tr>
+              )}
+              {!isLoading &&
+                receipts.map((receipt) => {
+                  const totalReceived = receipt.items.reduce((s, it) => s + it.receivedQuantity, 0);
+                  const totalDamaged = receipt.items.reduce((s, it) => s + it.damagedQuantity, 0);
+                  return (
+                    <tr
+                      key={receipt.id}
+                      className="cursor-pointer border-b last:border-0 hover:bg-muted/30"
+                      onClick={() => setViewingReceipt(receipt)}
+                    >
+                      <td className="px-4 py-3 font-medium">{receipt.number}</td>
+                      <td className="px-4 py-3 text-muted-foreground">
+                        {new Date(receipt.date).toLocaleDateString()}
+                      </td>
+                      <td className="px-4 py-3 text-muted-foreground">{receipt.supplierName}</td>
+                      <td className="px-4 py-3 text-muted-foreground">
+                        {receipt.storeName ?? '—'}
+                      </td>
+                      <td className="px-4 py-3 text-muted-foreground">{receipt.warehouseName}</td>
+                      <td className="px-4 py-3 text-muted-foreground">
+                        {receipt.truck.vehicleNumber}
+                      </td>
+                      <td className="px-4 py-3 text-right tabular-nums text-muted-foreground">
+                        {receipt.items.length}
+                      </td>
+                      <td className="px-4 py-3 text-right tabular-nums font-medium">
+                        {totalReceived}
+                      </td>
+                      <td className="px-4 py-3 text-right tabular-nums">
+                        {totalDamaged > 0 ? (
+                          <span className="font-medium text-destructive">{totalDamaged}</span>
+                        ) : (
+                          <span className="text-muted-foreground">0</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-right" onClick={(e) => e.stopPropagation()}>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8"
+                              title={t('Actions')}
+                            >
+                              <MoreHorizontal className="h-4 w-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem onSelect={() => setViewingReceipt(receipt)}>
+                              <Eye className="h-4 w-4" /> {t('View Details')}
                             </DropdownMenuItem>
-                          )}
-                          {canManage && receipt.balanceDue > 0 && (
-                            <DropdownMenuItem onSelect={() => setPayingReceipt(receipt)}>
-                              <Wallet className="h-4 w-4" /> {t('Record Payment')}
+                            <DropdownMenuItem onSelect={() => handlePrintInvoice(receipt)}>
+                              <Printer className="h-4 w-4" /> {t('Print Invoice')}
                             </DropdownMenuItem>
-                          )}
-                          {canManage && (
-                            <>
-                              <DropdownMenuItem onSelect={() => setEditingReceipt(receipt)}>
-                                <Pencil className="h-4 w-4" /> {t('Edit')}
+                            {receipt.gatePassId && (
+                              <DropdownMenuItem onSelect={() => setViewingGatePass(receipt)}>
+                                <QrCode className="h-4 w-4" /> {t('View Gate Pass')}
                               </DropdownMenuItem>
-                              <DropdownMenuItem
-                                disabled={del.isPending}
-                                onSelect={() => removeReceipt(receipt)}
-                                className="text-destructive"
-                              >
-                                <Trash2 className="h-4 w-4" /> {t('Delete')}
+                            )}
+                            {canManage && receipt.balanceDue > 0 && (
+                              <DropdownMenuItem onSelect={() => setPayingReceipt(receipt)}>
+                                <Wallet className="h-4 w-4" /> {t('Record Payment')}
                               </DropdownMenuItem>
-                            </>
-                          )}
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </td>
-                  </tr>
-                );
-              })}
-            {!isLoading && receipts.length === 0 && (
-              <tr>
-                <td colSpan={10} className="px-4 py-10 text-center text-muted-foreground">
-                  No stock receipts recorded yet.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+                            )}
+                            {canManage && (
+                              <>
+                                <DropdownMenuItem onSelect={() => setEditingReceipt(receipt)}>
+                                  <Pencil className="h-4 w-4" /> {t('Edit')}
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  disabled={del.isPending}
+                                  onSelect={() => removeReceipt(receipt)}
+                                  className="text-destructive"
+                                >
+                                  <Trash2 className="h-4 w-4" /> {t('Delete')}
+                                </DropdownMenuItem>
+                              </>
+                            )}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </td>
+                    </tr>
+                  );
+                })}
+              {!isLoading && receipts.length === 0 && (
+                <tr>
+                  <td colSpan={10} className="px-4 py-10 text-center text-muted-foreground">
+                    No stock receipts recorded yet.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
         {!isSearching && (
           <Pagination
             page={page}

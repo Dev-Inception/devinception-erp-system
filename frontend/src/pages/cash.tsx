@@ -380,57 +380,59 @@ export function CashPage() {
           <AddCashDialog />
         </CardHeader>
         <CardContent className="p-0">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-y bg-muted/50 text-left text-xs uppercase text-muted-foreground">
-                <th className="px-4 py-2 font-medium">{t('Date')}</th>
-                <th className="px-4 py-2 font-medium">{t('Description')}</th>
-                <th className="px-4 py-2 text-right font-medium">{t('In')}</th>
-                <th className="px-4 py-2 text-right font-medium">{t('Out')}</th>
-                <th className="px-4 py-2 text-right font-medium">{t('Balance')}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {(cash?.rows ?? []).map((r) => (
-                <tr key={r.id} className="border-b last:border-0">
-                  <td className="px-4 py-2 text-muted-foreground">
-                    {new Date(r.date).toLocaleDateString()}
-                  </td>
-                  <td className="px-4 py-2">{r.description ?? '—'}</td>
-                  <td className="px-4 py-2 text-right text-success">
-                    {r.in ? (
-                      <span className="inline-flex items-center gap-1">
-                        <ArrowDownLeft className="h-3 w-3" />
-                        {formatCurrency(r.in)}
-                      </span>
-                    ) : (
-                      ''
-                    )}
-                  </td>
-                  <td className="px-4 py-2 text-right text-destructive">
-                    {r.out ? (
-                      <span className="inline-flex items-center gap-1">
-                        <ArrowUpRight className="h-3 w-3" />
-                        {formatCurrency(r.out)}
-                      </span>
-                    ) : (
-                      ''
-                    )}
-                  </td>
-                  <td className="px-4 py-2 text-right font-medium">
-                    {formatCurrency(r.balanceAfter)}
-                  </td>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-y bg-muted/50 text-left text-xs uppercase text-muted-foreground">
+                  <th className="px-4 py-2 font-medium">{t('Date')}</th>
+                  <th className="px-4 py-2 font-medium">{t('Description')}</th>
+                  <th className="px-4 py-2 text-right font-medium">{t('In')}</th>
+                  <th className="px-4 py-2 text-right font-medium">{t('Out')}</th>
+                  <th className="px-4 py-2 text-right font-medium">{t('Balance')}</th>
                 </tr>
-              ))}
-              {(!cash || cash.rows.length === 0) && (
-                <tr>
-                  <td colSpan={5} className="px-4 py-8 text-center text-muted-foreground">
-                    No cash movements yet.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {(cash?.rows ?? []).map((r) => (
+                  <tr key={r.id} className="border-b last:border-0">
+                    <td className="px-4 py-2 text-muted-foreground">
+                      {new Date(r.date).toLocaleDateString()}
+                    </td>
+                    <td className="px-4 py-2">{r.description ?? '—'}</td>
+                    <td className="px-4 py-2 text-right text-success">
+                      {r.in ? (
+                        <span className="inline-flex items-center gap-1">
+                          <ArrowDownLeft className="h-3 w-3" />
+                          {formatCurrency(r.in)}
+                        </span>
+                      ) : (
+                        ''
+                      )}
+                    </td>
+                    <td className="px-4 py-2 text-right text-destructive">
+                      {r.out ? (
+                        <span className="inline-flex items-center gap-1">
+                          <ArrowUpRight className="h-3 w-3" />
+                          {formatCurrency(r.out)}
+                        </span>
+                      ) : (
+                        ''
+                      )}
+                    </td>
+                    <td className="px-4 py-2 text-right font-medium">
+                      {formatCurrency(r.balanceAfter)}
+                    </td>
+                  </tr>
+                ))}
+                {(!cash || cash.rows.length === 0) && (
+                  <tr>
+                    <td colSpan={5} className="px-4 py-8 text-center text-muted-foreground">
+                      No cash movements yet.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
         </CardContent>
       </Card>
 

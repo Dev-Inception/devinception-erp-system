@@ -220,43 +220,45 @@ export function LabourDetailPage() {
             </div>
           </CardHeader>
           <CardContent className="p-0">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-y bg-muted/50 text-left text-xs uppercase text-muted-foreground">
-                  <th className="px-4 py-2 font-medium">{t('Date')}</th>
-                  <th className="px-4 py-2 font-medium">{t('Description')}</th>
-                  <th className="px-4 py-2 text-right font-medium">{t('Debit')}</th>
-                  <th className="px-4 py-2 text-right font-medium">{t('Credit')}</th>
-                  <th className="px-4 py-2 text-right font-medium">{t('Balance')}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {(ledger?.entries ?? []).map((e, i) => (
-                  <tr key={i} className="border-b last:border-0">
-                    <td className="px-4 py-2 text-muted-foreground">
-                      {new Date(e.date).toLocaleDateString()}
-                    </td>
-                    <td className="px-4 py-2">{e.description ?? '—'}</td>
-                    <td className="px-4 py-2 text-right">
-                      {e.debit ? formatCurrency(e.debit) : ''}
-                    </td>
-                    <td className="px-4 py-2 text-right">
-                      {e.credit ? formatCurrency(e.credit) : ''}
-                    </td>
-                    <td className="px-4 py-2 text-right font-medium">
-                      {formatCurrency(e.balanceAfter)}
-                    </td>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-y bg-muted/50 text-left text-xs uppercase text-muted-foreground">
+                    <th className="px-4 py-2 font-medium">{t('Date')}</th>
+                    <th className="px-4 py-2 font-medium">{t('Description')}</th>
+                    <th className="px-4 py-2 text-right font-medium">{t('Debit')}</th>
+                    <th className="px-4 py-2 text-right font-medium">{t('Credit')}</th>
+                    <th className="px-4 py-2 text-right font-medium">{t('Balance')}</th>
                   </tr>
-                ))}
-                {ledger && ledger.entries.length === 0 && (
-                  <tr>
-                    <td colSpan={5} className="px-4 py-10 text-center text-muted-foreground">
-                      {t('No transactions yet.')}
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {(ledger?.entries ?? []).map((e, i) => (
+                    <tr key={i} className="border-b last:border-0">
+                      <td className="px-4 py-2 text-muted-foreground">
+                        {new Date(e.date).toLocaleDateString()}
+                      </td>
+                      <td className="px-4 py-2">{e.description ?? '—'}</td>
+                      <td className="px-4 py-2 text-right">
+                        {e.debit ? formatCurrency(e.debit) : ''}
+                      </td>
+                      <td className="px-4 py-2 text-right">
+                        {e.credit ? formatCurrency(e.credit) : ''}
+                      </td>
+                      <td className="px-4 py-2 text-right font-medium">
+                        {formatCurrency(e.balanceAfter)}
+                      </td>
+                    </tr>
+                  ))}
+                  {ledger && ledger.entries.length === 0 && (
+                    <tr>
+                      <td colSpan={5} className="px-4 py-10 text-center text-muted-foreground">
+                        {t('No transactions yet.')}
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
           </CardContent>
         </Card>
       )}
@@ -273,41 +275,45 @@ export function LabourDetailPage() {
               <Printer className="h-4 w-4" /> {t('Print Invoice')}
             </Button>
           </div>
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b bg-muted/50 text-left text-xs uppercase tracking-wide text-muted-foreground">
-                <th className="px-4 py-3 font-medium">{t('Source')}</th>
-                <th className="px-4 py-3 font-medium">{t('Date')}</th>
-                <th className="px-4 py-3 text-right font-medium">{t('Amount')}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {jobsLoading && (
-                <tr>
-                  <td colSpan={3} className="px-4 py-10 text-center text-muted-foreground">
-                    {t('Loading…')}
-                  </td>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b bg-muted/50 text-left text-xs uppercase tracking-wide text-muted-foreground">
+                  <th className="px-4 py-3 font-medium">{t('Source')}</th>
+                  <th className="px-4 py-3 font-medium">{t('Date')}</th>
+                  <th className="px-4 py-3 text-right font-medium">{t('Amount')}</th>
                 </tr>
-              )}
-              {!jobsLoading &&
-                jobs.map((j) => (
-                  <tr key={j.key} className="border-b last:border-0 hover:bg-muted/30">
-                    <td className="px-4 py-3 font-medium">{j.sourceLabel}</td>
-                    <td className="px-4 py-3 text-muted-foreground">
-                      {new Date(j.date).toLocaleDateString()}
+              </thead>
+              <tbody>
+                {jobsLoading && (
+                  <tr>
+                    <td colSpan={3} className="px-4 py-10 text-center text-muted-foreground">
+                      {t('Loading…')}
                     </td>
-                    <td className="px-4 py-3 text-right tabular-nums">{formatCurrency(j.rent)}</td>
                   </tr>
-                ))}
-              {!jobsLoading && jobs.length === 0 && (
-                <tr>
-                  <td colSpan={3} className="px-4 py-10 text-center text-muted-foreground">
-                    {t('No jobs for this labourer yet.')}
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+                )}
+                {!jobsLoading &&
+                  jobs.map((j) => (
+                    <tr key={j.key} className="border-b last:border-0 hover:bg-muted/30">
+                      <td className="px-4 py-3 font-medium">{j.sourceLabel}</td>
+                      <td className="px-4 py-3 text-muted-foreground">
+                        {new Date(j.date).toLocaleDateString()}
+                      </td>
+                      <td className="px-4 py-3 text-right tabular-nums">
+                        {formatCurrency(j.rent)}
+                      </td>
+                    </tr>
+                  ))}
+                {!jobsLoading && jobs.length === 0 && (
+                  <tr>
+                    <td colSpan={3} className="px-4 py-10 text-center text-muted-foreground">
+                      {t('No jobs for this labourer yet.')}
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
         </Card>
       )}
 

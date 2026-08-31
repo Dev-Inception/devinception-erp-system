@@ -399,7 +399,7 @@ function EstimateDialog({
             </div>
 
             {lines.length > 0 ? (
-              <div className="rounded-md border">
+              <div className="overflow-x-auto rounded-md border">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b bg-muted/50 text-left text-xs uppercase text-muted-foreground">
@@ -750,117 +750,119 @@ export function EstimatesPage() {
       </div>
 
       <Card className="overflow-hidden">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b bg-muted/50 text-left text-xs uppercase tracking-wide text-muted-foreground">
-              <th className="px-4 py-3 font-medium">{t('Estimate #')}</th>
-              <th className="px-4 py-3 font-medium">{t('Date')}</th>
-              <th className="px-4 py-3 font-medium">{t('Customer')}</th>
-              <th className="px-4 py-3 text-right font-medium">{t('Total')}</th>
-              <th className="px-4 py-3 font-medium">{t('Status')}</th>
-              <th className="px-4 py-3 font-medium">{t('Next Follow-up')}</th>
-              <th className="px-4 py-3 text-right font-medium">{t('Actions')}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {isLoading && (
-              <tr>
-                <td colSpan={7} className="px-4 py-10 text-center text-muted-foreground">
-                  Loading…
-                </td>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b bg-muted/50 text-left text-xs uppercase tracking-wide text-muted-foreground">
+                <th className="px-4 py-3 font-medium">{t('Estimate #')}</th>
+                <th className="px-4 py-3 font-medium">{t('Date')}</th>
+                <th className="px-4 py-3 font-medium">{t('Customer')}</th>
+                <th className="px-4 py-3 text-right font-medium">{t('Total')}</th>
+                <th className="px-4 py-3 font-medium">{t('Status')}</th>
+                <th className="px-4 py-3 font-medium">{t('Next Follow-up')}</th>
+                <th className="px-4 py-3 text-right font-medium">{t('Actions')}</th>
               </tr>
-            )}
-            {!isLoading &&
-              estimates.map((e) => {
-                const editable = e.status === 'PENDING' || e.status === 'FOLLOWED_UP';
-                return (
-                  <tr key={e.id} className="border-b last:border-0 hover:bg-muted/30">
-                    <td className="px-4 py-3 font-medium">{e.number}</td>
-                    <td className="px-4 py-3 text-muted-foreground">
-                      {new Date(e.date).toLocaleDateString()}
-                    </td>
-                    <td className="px-4 py-3">
-                      <p className="font-medium">{e.customerName}</p>
-                      {e.customerPhone && (
-                        <p className="text-xs text-muted-foreground">{e.customerPhone}</p>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-right font-medium">
-                      {formatCurrency(Number(e.grandTotal))}
-                    </td>
-                    <td className="px-4 py-3">
-                      <span
-                        className={cn(
-                          'inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium',
-                          STATUS_STYLE[e.status],
+            </thead>
+            <tbody>
+              {isLoading && (
+                <tr>
+                  <td colSpan={7} className="px-4 py-10 text-center text-muted-foreground">
+                    Loading…
+                  </td>
+                </tr>
+              )}
+              {!isLoading &&
+                estimates.map((e) => {
+                  const editable = e.status === 'PENDING' || e.status === 'FOLLOWED_UP';
+                  return (
+                    <tr key={e.id} className="border-b last:border-0 hover:bg-muted/30">
+                      <td className="px-4 py-3 font-medium">{e.number}</td>
+                      <td className="px-4 py-3 text-muted-foreground">
+                        {new Date(e.date).toLocaleDateString()}
+                      </td>
+                      <td className="px-4 py-3">
+                        <p className="font-medium">{e.customerName}</p>
+                        {e.customerPhone && (
+                          <p className="text-xs text-muted-foreground">{e.customerPhone}</p>
                         )}
-                      >
-                        {t(STATUS_LABEL[e.status])}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3">
-                      {e.nextFollowUpDate ? (
-                        <span className={isOverdue(e) ? 'font-medium text-destructive' : ''}>
-                          {new Date(e.nextFollowUpDate).toLocaleDateString()}
+                      </td>
+                      <td className="px-4 py-3 text-right font-medium">
+                        {formatCurrency(Number(e.grandTotal))}
+                      </td>
+                      <td className="px-4 py-3">
+                        <span
+                          className={cn(
+                            'inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium',
+                            STATUS_STYLE[e.status],
+                          )}
+                        >
+                          {t(STATUS_LABEL[e.status])}
                         </span>
-                      ) : (
-                        <span className="text-muted-foreground">—</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      <div className="flex justify-end gap-1">
-                        {editable && canManage && (
-                          <Button size="sm" variant="outline" onClick={() => setFollowUpFor(e)}>
-                            {t('Follow Up')}
-                          </Button>
-                        )}
-                        {editable && canCreate && (
-                          <Button size="sm" onClick={() => convert(e)}>
-                            <ShoppingCart className="h-3.5 w-3.5" /> {t('Convert')}
-                          </Button>
-                        )}
-                        {editable && canManage && (
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            className="h-8 w-8"
-                            title={t('Edit')}
-                            onClick={() => setEditingEstimate(e)}
-                          >
-                            <Pencil className="h-4 w-4" />
-                          </Button>
-                        )}
-                        {!editable && e.convertedSaleId && (
-                          <span className="self-center text-xs text-muted-foreground">
-                            {t('Converted')}
+                      </td>
+                      <td className="px-4 py-3">
+                        {e.nextFollowUpDate ? (
+                          <span className={isOverdue(e) ? 'font-medium text-destructive' : ''}>
+                            {new Date(e.nextFollowUpDate).toLocaleDateString()}
                           </span>
+                        ) : (
+                          <span className="text-muted-foreground">—</span>
                         )}
-                        {canDelete && e.status !== 'CONVERTED' && (
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            className="h-8 w-8"
-                            title={t('Delete')}
-                            disabled={del.isPending}
-                            onClick={() => remove(e)}
-                          >
-                            <Trash2 className="h-4 w-4 text-destructive" />
-                          </Button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            {!isLoading && estimates.length === 0 && (
-              <tr>
-                <td colSpan={7} className="px-4 py-10 text-center text-muted-foreground">
-                  No estimates yet.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <div className="flex justify-end gap-1">
+                          {editable && canManage && (
+                            <Button size="sm" variant="outline" onClick={() => setFollowUpFor(e)}>
+                              {t('Follow Up')}
+                            </Button>
+                          )}
+                          {editable && canCreate && (
+                            <Button size="sm" onClick={() => convert(e)}>
+                              <ShoppingCart className="h-3.5 w-3.5" /> {t('Convert')}
+                            </Button>
+                          )}
+                          {editable && canManage && (
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="h-8 w-8"
+                              title={t('Edit')}
+                              onClick={() => setEditingEstimate(e)}
+                            >
+                              <Pencil className="h-4 w-4" />
+                            </Button>
+                          )}
+                          {!editable && e.convertedSaleId && (
+                            <span className="self-center text-xs text-muted-foreground">
+                              {t('Converted')}
+                            </span>
+                          )}
+                          {canDelete && e.status !== 'CONVERTED' && (
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="h-8 w-8"
+                              title={t('Delete')}
+                              disabled={del.isPending}
+                              onClick={() => remove(e)}
+                            >
+                              <Trash2 className="h-4 w-4 text-destructive" />
+                            </Button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              {!isLoading && estimates.length === 0 && (
+                <tr>
+                  <td colSpan={7} className="px-4 py-10 text-center text-muted-foreground">
+                    No estimates yet.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
         {!isSearching && (
           <Pagination
             page={page}

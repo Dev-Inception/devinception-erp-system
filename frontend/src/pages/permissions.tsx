@@ -483,102 +483,104 @@ function UsersCard() {
         <CreateUserDialog roles={assignableRoles} />
       </CardHeader>
       <CardContent className="px-0 pb-0">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b bg-muted/50 text-left text-xs uppercase tracking-wide text-muted-foreground">
-              <th className="px-4 py-3 font-medium">User</th>
-              <th className="px-4 py-3 font-medium">Email</th>
-              <th className="px-4 py-3 font-medium">Role</th>
-              <th className="px-4 py-3 font-medium">Store</th>
-              <th className="px-4 py-3 font-medium">Status</th>
-              <th className="px-4 py-3 text-right font-medium">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {users.map((u) => {
-              const isSelf = currentUser?.email === u.email;
-              const isSuperAdmin = u.role === 'SUPER_ADMIN';
-              return (
-                <tr key={u.id} className="border-b last:border-0 hover:bg-muted/30">
-                  <td className="px-4 py-3">
-                    <div className="flex items-center gap-3">
-                      <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
-                        {u.fullName?.[0] ?? 'U'}
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b bg-muted/50 text-left text-xs uppercase tracking-wide text-muted-foreground">
+                <th className="px-4 py-3 font-medium">User</th>
+                <th className="px-4 py-3 font-medium">Email</th>
+                <th className="px-4 py-3 font-medium">Role</th>
+                <th className="px-4 py-3 font-medium">Store</th>
+                <th className="px-4 py-3 font-medium">Status</th>
+                <th className="px-4 py-3 text-right font-medium">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {users.map((u) => {
+                const isSelf = currentUser?.email === u.email;
+                const isSuperAdmin = u.role === 'SUPER_ADMIN';
+                return (
+                  <tr key={u.id} className="border-b last:border-0 hover:bg-muted/30">
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-3">
+                        <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
+                          {u.fullName?.[0] ?? 'U'}
+                        </div>
+                        <span className="font-medium">{u.fullName}</span>
                       </div>
-                      <span className="font-medium">{u.fullName}</span>
-                    </div>
-                  </td>
-                  <td className="px-4 py-3 text-muted-foreground">{u.email}</td>
-                  <td className="px-4 py-3">
-                    <div className="w-40">
-                      <RoleSelect
-                        value={u.role.toLowerCase()}
-                        onChange={(role) => updateUser(u.id, { role })}
-                        roles={roles}
-                      />
-                    </div>
-                  </td>
-                  <td className="px-4 py-3 text-muted-foreground">
-                    {u.storeName ?? (u.role === 'SUPER_ADMIN' ? 'All stores' : '—')}
-                  </td>
-                  <td className="px-4 py-3">
-                    <button
-                      type="button"
-                      onClick={() => updateUser(u.id, { active: !u.active })}
-                      className={cn(
-                        'inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium transition-colors',
-                        u.active
-                          ? 'bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/20'
-                          : 'bg-muted text-muted-foreground hover:bg-muted/70',
-                      )}
-                    >
-                      {u.active ? 'Active' : 'Disabled'}
-                    </button>
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="flex justify-end gap-1">
-                      {canEdit && (
-                        <EditUserDialog
-                          user={u}
-                          isSelf={isSelf}
-                          trigger={
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-8 w-8"
-                              aria-label={`Edit ${u.fullName}`}
-                              title={t('Edit user')}
-                            >
-                              <Pencil className="h-4 w-4" />
-                            </Button>
-                          }
+                    </td>
+                    <td className="px-4 py-3 text-muted-foreground">{u.email}</td>
+                    <td className="px-4 py-3">
+                      <div className="w-40">
+                        <RoleSelect
+                          value={u.role.toLowerCase()}
+                          onChange={(role) => updateUser(u.id, { role })}
+                          roles={roles}
                         />
-                      )}
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8"
-                        aria-label={`Remove ${u.fullName}`}
-                        disabled={isSelf}
-                        title={isSelf ? 'You cannot remove your own account' : 'Remove user'}
-                        onClick={() => remove(u)}
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 text-muted-foreground">
+                      {u.storeName ?? (u.role === 'SUPER_ADMIN' ? 'All stores' : '—')}
+                    </td>
+                    <td className="px-4 py-3">
+                      <button
+                        type="button"
+                        onClick={() => updateUser(u.id, { active: !u.active })}
+                        className={cn(
+                          'inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium transition-colors',
+                          u.active
+                            ? 'bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/20'
+                            : 'bg-muted text-muted-foreground hover:bg-muted/70',
+                        )}
                       >
-                        <Trash2 className="h-4 w-4 text-destructive" />
-                      </Button>
-                    </div>
+                        {u.active ? 'Active' : 'Disabled'}
+                      </button>
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex justify-end gap-1">
+                        {canEdit && (
+                          <EditUserDialog
+                            user={u}
+                            isSelf={isSelf}
+                            trigger={
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8"
+                                aria-label={`Edit ${u.fullName}`}
+                                title={t('Edit user')}
+                              >
+                                <Pencil className="h-4 w-4" />
+                              </Button>
+                            }
+                          />
+                        )}
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8"
+                          aria-label={`Remove ${u.fullName}`}
+                          disabled={isSelf}
+                          title={isSelf ? 'You cannot remove your own account' : 'Remove user'}
+                          onClick={() => remove(u)}
+                        >
+                          <Trash2 className="h-4 w-4 text-destructive" />
+                        </Button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+              {users.length === 0 && (
+                <tr>
+                  <td colSpan={6} className="px-4 py-10 text-center text-muted-foreground">
+                    No users yet.
                   </td>
                 </tr>
-              );
-            })}
-            {users.length === 0 && (
-              <tr>
-                <td colSpan={6} className="px-4 py-10 text-center text-muted-foreground">
-                  No users yet.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+              )}
+            </tbody>
+          </table>
+        </div>
       </CardContent>
     </Card>
   );
