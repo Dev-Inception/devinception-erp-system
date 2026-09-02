@@ -32,7 +32,7 @@ interface StoreRow {
  */
 export function StorePickerModal() {
   const role = useAuthStore((s) => s.user?.role);
-  const { data: stores = [] } = useQuery<StoreRow[]>({
+  const { data: stores = [], isFetched } = useQuery<StoreRow[]>({
     queryKey: ['stores'],
     queryFn: async () => (await api.get('/stores')).data,
     enabled: role === 'SUPER_ADMIN',
@@ -43,13 +43,18 @@ export function StorePickerModal() {
   const [selected, setSelected] = useState('');
 
   useEffect(() => {
-    if (role !== 'SUPER_ADMIN') return;
+    // `stores` defaults to `[]` while the query is still in flight, which
+    // looks identical to "confirmed zero stores" — resolving on that before
+    // `isFetched` would auto-pick 'ALL' (and clear needsSelection) before the
+    // real list ever arrives, permanently suppressing the modal. Only acts
+    // once the fetch has actually completed.
+    if (role !== 'SUPER_ADMIN' || !isFetched) return;
     if (stores.length === 0 && currentStoreId === null) {
       setCurrentStore('ALL');
     } else if (stores.length === 1 && currentStoreId !== stores[0].id) {
       setCurrentStore(stores[0].id);
     }
-  }, [role, stores, currentStoreId, setCurrentStore]);
+  }, [role, stores, currentStoreId, setCurrentStore, isFetched]);
 
   if (role !== 'SUPER_ADMIN' || stores.length <= 1) return null;
 

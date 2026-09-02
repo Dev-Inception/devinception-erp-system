@@ -26,7 +26,7 @@ export function MobileSidebar() {
           className="fixed inset-y-0 left-0 z-50 flex w-72 flex-col border-r bg-card shadow-lg data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:slide-out-to-left data-[state=open]:slide-in-from-left duration-200 md:hidden"
           aria-describedby={undefined}
         >
-          <div className="flex h-16 shrink-0 items-center gap-2 border-b px-3">
+          <div className="flex h-16 shrink-0 items-center gap-2 border-b px-3 pt-[env(safe-area-inset-top)]">
             <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground font-bold">
               D
             </div>

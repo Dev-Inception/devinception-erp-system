@@ -19,7 +19,7 @@ function AuthenticatedShell() {
   useWarehouses();
 
   return (
-    <div className="flex h-screen overflow-hidden bg-background print:block print:h-auto print:overflow-visible">
+    <div className="flex h-screen overflow-hidden bg-background pt-[env(safe-area-inset-top)] print:block print:h-auto print:overflow-visible print:pt-0">
       <div className="no-print">
         <Sidebar />
       </div>
