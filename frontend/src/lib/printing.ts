@@ -314,7 +314,7 @@ export function renderTemplate(type: TemplateType, d: DocData): string {
       <p class="words">Amount: <strong>${amountInWords(d.total)} Only.</strong></p>
       ${
         d.bankNote
-          ? `<div style="margin-top:10px;padding:8px 12px;border:1px solid #c7d2fe;background:#eef2ff;border-radius:6px;font-size:13px;font-weight:600;color:#1f2937;">${d.bankNote}</div>`
+          ? `<div style="margin-top:10px;padding:8px 12px;border:1px solid #c7d2fe;background:#eef2ff;border-radius:6px;font-size:13px;font-weight:400;color:#1f2937;">${d.bankNote}</div>`
           : ''
       }
       ${d.notes ? `<p style="margin-top:12px;color:#b91c1c;font-size:12px;">${d.notes}</p>` : ''}

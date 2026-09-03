@@ -177,7 +177,6 @@ export const MODULES: ModuleDef[] = [
     label: 'Day Book',
     section: 'Finance',
     icon: BookText,
-    superAdminOnly: true,
   },
   {
     key: 'cash',
@@ -201,7 +200,12 @@ export const MODULES: ModuleDef[] = [
     label: 'Permissions',
     section: 'System',
     icon: ShieldCheck,
-    superAdminOnly: true,
+    // No configurable role gets this by default — user management and the
+    // module access matrix live here, so a super admin has to opt a role in
+    // explicitly rather than it defaulting open (matters only for the legacy
+    // no-`permissions`-loaded fallback in defaultModulesForRole below; a real
+    // session is always gated by MODULE_PERMISSION.permissions instead).
+    defaultRoles: [],
   },
 ];
 
@@ -238,6 +242,12 @@ export const MODULE_PERMISSION: Record<string, string> = {
   vendors: 'vendors:read',
   suppliers: 'suppliers:read',
   transporters: 'transporters:read',
+  // No dedicated backend permission — the Roles page only lets a non-super-
+  // admin *see* role definitions (creating/editing is separately gated by
+  // `canManage` inside the page itself, hardcoded to super admin), so
+  // roles:read (currently held by nobody but super admin) is a reasonable,
+  // purely opt-in visibility gate.
+  roles: 'roles:read',
   // Matches the backend's /labour read routes, which require sales:create
   // (not a dedicated labour permission) — see labourRoutes.js.
   labour: 'sales:create',
@@ -245,8 +255,16 @@ export const MODULE_PERMISSION: Record<string, string> = {
   'pending-entities': 'finance:read',
   reports: 'reports:read',
   expenses: 'expenses:manage',
+  // Same governing permission as Reports — the Day Book is another report
+  // view (see reportRoutes.js), not a distinct backend permission.
+  'day-book': 'reports:read',
   cash: 'finance:manage',
   settings: 'settings:manage',
+  // User management + this very module-access matrix. roles:update isn't
+  // held by anyone but super admin today, so this stays opt-in — a super
+  // admin has to deliberately grant a role access to it (see the
+  // defaultRoles note on the `permissions` module above).
+  permissions: 'roles:update',
 };
 
 /** True if a permission list grants `permission`, honoring the wildcard. */

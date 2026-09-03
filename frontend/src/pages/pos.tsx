@@ -698,7 +698,11 @@ export function PosPage() {
         customer: { name: customer!.name, phone: customer!.phone },
         storeName: currentStore?.name,
         storeAddress: currentStore?.address,
-        labour: selectedLabour.map((l) => ({ name: l.name })),
+        labour: selectedLabour.map((l) => ({
+          name: l.name,
+          phone: l.phoneNumber,
+          rent: l.rent || 0,
+        })),
         labourRentTotal,
         paidAmount: advance,
         balanceDue: Math.max(0, grandTotal - advance),

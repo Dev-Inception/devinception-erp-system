@@ -73,6 +73,9 @@ interface ReceiptItem {
   pricingStatus?: 'PENDING' | 'PRICED';
   purchasePrice?: number;
   lineTotal?: number;
+  // Opening stock only — a known cost, priced immediately on save instead of
+  // left pending (see the "isOpeningStock" toggle in ReceiptDialog).
+  unitCost?: number;
 }
 
 interface ReceiptLabourRow {
@@ -98,6 +101,10 @@ interface StockReceipt {
   warehouseId: string;
   warehouseName: string;
   date: string;
+  // Stock that was already in the warehouse (taken on credit from the
+  // supplier before this system was in use) rather than a real truck
+  // delivery — see the "already in warehouse" toggle in ReceiptDialog.
+  isOpeningStock: boolean;
   truck: { vehicleNumber: string; driverName: string; driverPhone: string };
   items: ReceiptItem[];
   labour: ReceiptLabourRow[];
@@ -142,6 +149,9 @@ function ReceiptDialog({ receipt, onClose }: { receipt?: StockReceipt; onClose: 
   const [date, setDate] = useState(
     () => receipt?.date.slice(0, 10) ?? new Date().toISOString().slice(0, 10),
   );
+  // Fixed at creation (see the model) — only offered when creating, never
+  // shown/changeable on edit.
+  const [isOpeningStock, setIsOpeningStock] = useState(receipt?.isOpeningStock ?? false);
   const [vehicleNumber, setVehicleNumber] = useState(receipt?.truck.vehicleNumber ?? '');
   const [driverName, setDriverName] = useState(receipt?.truck.driverName ?? '');
   const [driverPhone, setDriverPhone] = useState(receipt?.truck.driverPhone ?? '');
@@ -227,7 +237,10 @@ function ReceiptDialog({ receipt, onClose }: { receipt?: StockReceipt; onClose: 
     productSearchRef.current?.blur();
     setItems((rows) => {
       if (rows.some((r) => r.productId === p.id)) return rows;
-      return [...rows, { productId: p.id, name: p.name, receivedQuantity: 1, damagedQuantity: 0 }];
+      return [
+        ...rows,
+        { productId: p.id, name: p.name, receivedQuantity: 1, damagedQuantity: 0, unitCost: 0 },
+      ];
     });
   };
   const patchItem = (productId: string, patch: Partial<ReceiptItem>) =>
@@ -311,24 +324,33 @@ function ReceiptDialog({ receipt, onClose }: { receipt?: StockReceipt; onClose: 
         supplierId,
         warehouseId,
         date,
-        truck: {
-          vehicleNumber,
-          driverName: driverName || undefined,
-          driverPhone: driverPhone || undefined,
-        },
+        isOpeningStock,
+        truck: isOpeningStock
+          ? undefined
+          : {
+              vehicleNumber,
+              driverName: driverName || undefined,
+              driverPhone: driverPhone || undefined,
+            },
         items: items.map((r) => ({
           productId: r.productId,
           receivedQuantity: r.receivedQuantity || 0,
           damagedQuantity: r.damagedQuantity || 0,
+          unitCost: isOpeningStock && r.unitCost ? r.unitCost : undefined,
         })),
-        truckFare: truckFare || 0,
-        truckFarePaidBy,
-        truckFareMethod: truckFarePaidNow ? truckFareMethod : undefined,
-        truckFareBankAccountId: needsTruckFareBank
-          ? truckFareBankAccountId || undefined
-          : undefined,
-        transporterId: transporterId || undefined,
-        labour: labourRows.map((r) => ({ labourId: r.labourId, rent: r.rent || 0 })),
+        truckFare: isOpeningStock ? undefined : truckFare || 0,
+        truckFarePaidBy: isOpeningStock ? undefined : truckFarePaidBy,
+        truckFareMethod: isOpeningStock
+          ? undefined
+          : truckFarePaidNow
+            ? truckFareMethod
+            : undefined,
+        truckFareBankAccountId:
+          !isOpeningStock && needsTruckFareBank ? truckFareBankAccountId || undefined : undefined,
+        transporterId: isOpeningStock ? undefined : transporterId || undefined,
+        labour: isOpeningStock
+          ? []
+          : labourRows.map((r) => ({ labourId: r.labourId, rent: r.rent || 0 })),
         note: note || undefined,
       };
       return (
@@ -357,22 +379,33 @@ function ReceiptDialog({ receipt, onClose }: { receipt?: StockReceipt; onClose: 
     (editing || hasSpecificStore) &&
     supplierId &&
     warehouseId &&
-    vehicleNumber.trim() &&
+    (isOpeningStock || vehicleNumber.trim()) &&
     items.length > 0 &&
     items.every((r) => r.receivedQuantity > 0 || r.damagedQuantity > 0) &&
-    (!needsTruckFareBank || truckFareBankAccountId);
+    (isOpeningStock || !needsTruckFareBank || truckFareBankAccountId);
 
   return (
     <Dialog open onOpenChange={(v) => !v && onClose()}>
       <DialogContent className="max-h-[85vh] max-w-2xl overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <Truck className="h-4 w-4" /> {editing ? 'Edit Stock Receipt' : 'New Stock Receipt'}
+            <Truck className="h-4 w-4" />{' '}
+            {editing
+              ? isOpeningStock
+                ? 'Edit Opening Stock Entry'
+                : 'Edit Stock Receipt'
+              : isOpeningStock
+                ? 'New Opening Stock Entry'
+                : 'New Stock Receipt'}
           </DialogTitle>
           <DialogDescription>
             {editing
-              ? 'Update this truck delivery — quantities are reconciled against current stock.'
-              : "Record a truck delivery from a supplier — how much of each product arrived good versus damaged. Damaged quantities are logged for tracking only; they don't add to stock."}
+              ? isOpeningStock
+                ? 'Update this opening stock entry — quantities are reconciled against current stock.'
+                : 'Update this truck delivery — quantities are reconciled against current stock.'
+              : isOpeningStock
+                ? "Record stock you already have in the warehouse from a supplier — for goods received before this system was in use, or brought in outside a normal delivery. Add a cost per item now if you know what's owed, or leave it blank to price later."
+                : "Record a truck delivery from a supplier — how much of each product arrived good versus damaged. Damaged quantities are logged for tracking only; they don't add to stock."}
           </DialogDescription>
         </DialogHeader>
         <form
@@ -388,6 +421,23 @@ function ReceiptDialog({ receipt, onClose }: { receipt?: StockReceipt; onClose: 
               Select a specific store from the header before recording a receipt — "All Stores"
               can't be recorded on a delivery.
             </div>
+          )}
+          {!editing && (
+            <label className="flex items-start gap-2 rounded-md border bg-muted/20 px-3 py-2 text-sm">
+              <input
+                type="checkbox"
+                className="mt-0.5"
+                checked={isOpeningStock}
+                onChange={(e) => setIsOpeningStock(e.target.checked)}
+              />
+              <span>
+                <span className="font-medium">This stock is already in the warehouse</span>
+                <span className="block text-xs text-muted-foreground">
+                  Use this for stock taken on credit from a supplier before this system was set up —
+                  no truck, driver, or fare, just quantities (and optionally cost).
+                </span>
+              </span>
+            </label>
           )}
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-1.5">
@@ -426,281 +476,291 @@ function ReceiptDialog({ receipt, onClose }: { receipt?: StockReceipt; onClose: 
               <Label>Date</Label>
               <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
             </div>
-            <div className="space-y-1.5">
-              <Label>Truck / Vehicle Number *</Label>
-              <Input
-                required
-                value={vehicleNumber}
-                onChange={(e) => setVehicleNumber(e.target.value)}
-                placeholder="e.g. LEA-1234"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Driver Name</Label>
-              <Input value={driverName} onChange={(e) => setDriverName(e.target.value)} />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Driver Phone</Label>
-              <Input value={driverPhone} onChange={(e) => setDriverPhone(e.target.value)} />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Transporter (optional)</Label>
-              <select
-                value={transporterId}
-                onChange={(e) => {
-                  const id = e.target.value;
-                  setTransporterId(id);
-                  const tr = transporters.find((t) => t.id === id);
-                  if (tr) {
-                    setDriverName(tr.name);
-                    setDriverPhone(tr.phone || '');
-                    setVehicleNumber(tr.vehicleNumber || '');
-                  } else {
-                    setPayTruckFareNow(true);
-                  }
-                }}
-                className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
-              >
-                <option value="">One-off driver (no roster entry)</option>
-                {transporters.map((tr) => (
-                  <option key={tr.id} value={tr.id}>
-                    {tr.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          <div className="grid gap-3 rounded-md border p-3 sm:grid-cols-2">
-            <div className="space-y-1.5">
-              <Label>Truck Fare</Label>
-              <Input
-                type="number"
-                min={0}
-                step="0.01"
-                value={truckFare || ''}
-                onChange={(e) => setTruckFare(Number(e.target.value))}
-                placeholder="0.00"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Fare Covered By</Label>
-              <select
-                value={truckFarePaidBy}
-                onChange={(e) => setTruckFarePaidBy(e.target.value as 'SUPPLIER' | 'US')}
-                className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
-              >
-                <option value="SUPPLIER">Supplier (already paid)</option>
-                <option value="US">Us (pay the driver)</option>
-              </select>
-            </div>
-            {truckFarePaidBy === 'US' && truckFare > 0 && transporterId && (
-              <div className="space-y-1.5 sm:col-span-2">
-                <label className="flex items-center gap-2 text-sm font-medium">
-                  <input
-                    type="checkbox"
-                    checked={payTruckFareNow}
-                    onChange={(e) => setPayTruckFareNow(e.target.checked)}
-                  />
-                  Pay driver now
-                </label>
-                {!payTruckFareNow && (
-                  <p className="text-xs text-muted-foreground">
-                    The fare will be owed to this transporter — pay them later from their profile.
-                  </p>
-                )}
-              </div>
-            )}
-            {truckFarePaidBy === 'US' && truckFare > 0 && truckFarePaidNow && (
+            {!isOpeningStock && (
               <>
                 <div className="space-y-1.5">
-                  <Label>Payment Method</Label>
+                  <Label>Truck / Vehicle Number *</Label>
+                  <Input
+                    required
+                    value={vehicleNumber}
+                    onChange={(e) => setVehicleNumber(e.target.value)}
+                    placeholder="e.g. LEA-1234"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Driver Name</Label>
+                  <Input value={driverName} onChange={(e) => setDriverName(e.target.value)} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Driver Phone</Label>
+                  <Input value={driverPhone} onChange={(e) => setDriverPhone(e.target.value)} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Transporter (optional)</Label>
                   <select
-                    value={truckFareMethod}
-                    onChange={(e) => setTruckFareMethod(e.target.value)}
+                    value={transporterId}
+                    onChange={(e) => {
+                      const id = e.target.value;
+                      setTransporterId(id);
+                      const tr = transporters.find((t) => t.id === id);
+                      if (tr) {
+                        setDriverName(tr.name);
+                        setDriverPhone(tr.phone || '');
+                        setVehicleNumber(tr.vehicleNumber || '');
+                      } else {
+                        setPayTruckFareNow(true);
+                      }
+                    }}
                     className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
                   >
-                    <option value="CASH">Cash</option>
-                    <option value="BANK_TRANSFER">Bank transfer</option>
-                    <option value="ONLINE">Online</option>
-                    <option value="CARD">Card</option>
+                    <option value="">One-off driver (no roster entry)</option>
+                    {transporters.map((tr) => (
+                      <option key={tr.id} value={tr.id}>
+                        {tr.name}
+                      </option>
+                    ))}
                   </select>
                 </div>
-                {needsTruckFareBank && (
-                  <div className="space-y-1.5">
-                    <Label>Bank Account *</Label>
-                    <select
-                      required
-                      value={truckFareBankAccountId}
-                      onChange={(e) => setTruckFareBankAccountId(e.target.value)}
-                      className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
-                    >
-                      <option value="">Select account…</option>
-                      {activeBankAccounts.map((b) => (
-                        <option key={b.id} value={b.id}>
-                          {b.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                )}
               </>
             )}
           </div>
 
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between">
-              <Label>Labour</Label>
-              {labourRentTotal > 0 && (
-                <span className="text-xs font-medium text-muted-foreground">
-                  {t('Total')} {formatCurrency(labourRentTotal)}
-                </span>
+          {!isOpeningStock && (
+            <div className="grid gap-3 rounded-md border p-3 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label>Truck Fare</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  value={truckFare || ''}
+                  onChange={(e) => setTruckFare(Number(e.target.value))}
+                  placeholder="0.00"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Fare Covered By</Label>
+                <select
+                  value={truckFarePaidBy}
+                  onChange={(e) => setTruckFarePaidBy(e.target.value as 'SUPPLIER' | 'US')}
+                  className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
+                >
+                  <option value="SUPPLIER">Supplier (already paid)</option>
+                  <option value="US">Us (pay the driver)</option>
+                </select>
+              </div>
+              {truckFarePaidBy === 'US' && truckFare > 0 && transporterId && (
+                <div className="space-y-1.5 sm:col-span-2">
+                  <label className="flex items-center gap-2 text-sm font-medium">
+                    <input
+                      type="checkbox"
+                      checked={payTruckFareNow}
+                      onChange={(e) => setPayTruckFareNow(e.target.checked)}
+                    />
+                    Pay driver now
+                  </label>
+                  {!payTruckFareNow && (
+                    <p className="text-xs text-muted-foreground">
+                      The fare will be owed to this transporter — pay them later from their profile.
+                    </p>
+                  )}
+                </div>
+              )}
+              {truckFarePaidBy === 'US' && truckFare > 0 && truckFarePaidNow && (
+                <>
+                  <div className="space-y-1.5">
+                    <Label>Payment Method</Label>
+                    <select
+                      value={truckFareMethod}
+                      onChange={(e) => setTruckFareMethod(e.target.value)}
+                      className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
+                    >
+                      <option value="CASH">Cash</option>
+                      <option value="BANK_TRANSFER">Bank transfer</option>
+                      <option value="ONLINE">Online</option>
+                      <option value="CARD">Card</option>
+                    </select>
+                  </div>
+                  {needsTruckFareBank && (
+                    <div className="space-y-1.5">
+                      <Label>Bank Account *</Label>
+                      <select
+                        required
+                        value={truckFareBankAccountId}
+                        onChange={(e) => setTruckFareBankAccountId(e.target.value)}
+                        className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
+                      >
+                        <option value="">Select account…</option>
+                        {activeBankAccounts.map((b) => (
+                          <option key={b.id} value={b.id}>
+                            {b.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                </>
               )}
             </div>
-            <div className="relative">
-              <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                ref={labourSearchRef}
-                value={labourSearch}
-                onChange={(e) => setLabourSearch(e.target.value)}
-                onFocus={() => setLabourPickerOpen(true)}
-                onBlur={() => setTimeout(() => setLabourPickerOpen(false), 150)}
-                placeholder="Click to browse, or type to search labour…"
-                className="pl-8"
-              />
-              {labourPickerOpen && (
-                <div className="absolute z-10 mt-1 max-h-56 w-full overflow-y-auto rounded-md border bg-popover shadow-md">
-                  {filteredLabour.length === 0 ? (
-                    <p className="px-3 py-3 text-sm text-muted-foreground">
-                      No labour found{labourSearch ? ` for "${labourSearch}"` : ''}.
-                    </p>
-                  ) : (
-                    filteredLabour.map((l) => (
+          )}
+
+          {!isOpeningStock && (
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <Label>Labour</Label>
+                {labourRentTotal > 0 && (
+                  <span className="text-xs font-medium text-muted-foreground">
+                    {t('Total')} {formatCurrency(labourRentTotal)}
+                  </span>
+                )}
+              </div>
+              <div className="relative">
+                <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  ref={labourSearchRef}
+                  value={labourSearch}
+                  onChange={(e) => setLabourSearch(e.target.value)}
+                  onFocus={() => setLabourPickerOpen(true)}
+                  onBlur={() => setTimeout(() => setLabourPickerOpen(false), 150)}
+                  placeholder="Click to browse, or type to search labour…"
+                  className="pl-8"
+                />
+                {labourPickerOpen && (
+                  <div className="absolute z-10 mt-1 max-h-56 w-full overflow-y-auto rounded-md border bg-popover shadow-md">
+                    {filteredLabour.length === 0 ? (
+                      <p className="px-3 py-3 text-sm text-muted-foreground">
+                        No labour found{labourSearch ? ` for "${labourSearch}"` : ''}.
+                      </p>
+                    ) : (
+                      filteredLabour.map((l) => (
+                        <button
+                          key={l.id}
+                          type="button"
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() => addLabour(l)}
+                          className="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-accent"
+                        >
+                          <span>{l.name}</span>
+                          <span className="text-xs text-muted-foreground">{l.phoneNumber}</span>
+                        </button>
+                      ))
+                    )}
+                    {canCreateLabour && (
                       <button
-                        key={l.id}
                         type="button"
                         onMouseDown={(e) => e.preventDefault()}
-                        onClick={() => addLabour(l)}
-                        className="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-accent"
+                        onClick={() => {
+                          setNewLabour((f) => ({ ...f, name: labourSearch.trim() }));
+                          setCreatingLabour(true);
+                          setLabourPickerOpen(false);
+                        }}
+                        className="flex w-full items-center gap-2 border-t px-3 py-2 text-left text-sm font-medium text-primary hover:bg-accent"
                       >
-                        <span>{l.name}</span>
-                        <span className="text-xs text-muted-foreground">{l.phoneNumber}</span>
+                        <Plus className="h-4 w-4" /> {t('Add new labour')}
+                        {labourSearch.trim() ? ` "${labourSearch.trim()}"` : ''}
                       </button>
-                    ))
-                  )}
-                  {canCreateLabour && (
-                    <button
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {creatingLabour && (
+                // A plain div, not a <form> — this already sits inside the
+                // receipt's own <form>, and HTML forms can't nest. A nested
+                // <form>'s submit bubbles up as a plain DOM event and fires the
+                // outer form's onSubmit too, saving (and closing) the whole
+                // receipt. Enter-to-submit is wired manually below instead.
+                <div className="space-y-2 rounded-md border bg-muted/20 p-3">
+                  <div
+                    className="grid gap-2 sm:grid-cols-2"
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        if (newLabour.name && newLabour.phoneNumber) createLabour.mutate();
+                      }
+                    }}
+                  >
+                    <div className="space-y-1">
+                      <Label className="text-xs">{t('Name *')}</Label>
+                      <Input
+                        required
+                        autoFocus
+                        minLength={2}
+                        maxLength={100}
+                        value={newLabour.name}
+                        onChange={(e) => setNewLabour((f) => ({ ...f, name: e.target.value }))}
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">{t('Phone Number *')}</Label>
+                      <Input
+                        required
+                        value={newLabour.phoneNumber}
+                        onChange={(e) =>
+                          setNewLabour((f) => ({ ...f, phoneNumber: e.target.value }))
+                        }
+                        placeholder="e.g. 0300-1234567"
+                      />
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button
                       type="button"
-                      onMouseDown={(e) => e.preventDefault()}
-                      onClick={() => {
-                        setNewLabour((f) => ({ ...f, name: labourSearch.trim() }));
-                        setCreatingLabour(true);
-                        setLabourPickerOpen(false);
-                      }}
-                      className="flex w-full items-center gap-2 border-t px-3 py-2 text-left text-sm font-medium text-primary hover:bg-accent"
+                      variant="outline"
+                      size="sm"
+                      className="flex-1"
+                      onClick={() => setCreatingLabour(false)}
                     >
-                      <Plus className="h-4 w-4" /> {t('Add new labour')}
-                      {labourSearch.trim() ? ` "${labourSearch.trim()}"` : ''}
-                    </button>
-                  )}
+                      {t('Cancel')}
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      className="flex-1"
+                      disabled={createLabour.isPending || !newLabour.name || !newLabour.phoneNumber}
+                      onClick={() => createLabour.mutate()}
+                    >
+                      {createLabour.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+                      {t('Add')}
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              {labourRows.length > 0 && (
+                <div className="space-y-2 rounded-md border p-2">
+                  {labourRows.map((r) => (
+                    <div key={r.labourId} className="flex items-center gap-2">
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium">{r.name}</p>
+                        {r.phoneNumber && (
+                          <p className="truncate text-xs text-muted-foreground">{r.phoneNumber}</p>
+                        )}
+                      </div>
+                      <Input
+                        type="number"
+                        min={0}
+                        step="0.01"
+                        placeholder="Rent"
+                        className="h-9 w-28 text-right"
+                        value={r.rent || ''}
+                        onChange={(e) => setLabourRent(r.labourId, Number(e.target.value))}
+                      />
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="ghost"
+                        className="h-8 w-8 shrink-0 text-muted-foreground hover:text-destructive"
+                        onClick={() => removeLabour(r.labourId)}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  ))}
                 </div>
               )}
             </div>
-
-            {creatingLabour && (
-              // A plain div, not a <form> — this already sits inside the
-              // receipt's own <form>, and HTML forms can't nest. A nested
-              // <form>'s submit bubbles up as a plain DOM event and fires the
-              // outer form's onSubmit too, saving (and closing) the whole
-              // receipt. Enter-to-submit is wired manually below instead.
-              <div className="space-y-2 rounded-md border bg-muted/20 p-3">
-                <div
-                  className="grid gap-2 sm:grid-cols-2"
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      e.preventDefault();
-                      if (newLabour.name && newLabour.phoneNumber) createLabour.mutate();
-                    }
-                  }}
-                >
-                  <div className="space-y-1">
-                    <Label className="text-xs">{t('Name *')}</Label>
-                    <Input
-                      required
-                      autoFocus
-                      minLength={2}
-                      maxLength={100}
-                      value={newLabour.name}
-                      onChange={(e) => setNewLabour((f) => ({ ...f, name: e.target.value }))}
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <Label className="text-xs">{t('Phone Number *')}</Label>
-                    <Input
-                      required
-                      value={newLabour.phoneNumber}
-                      onChange={(e) => setNewLabour((f) => ({ ...f, phoneNumber: e.target.value }))}
-                      placeholder="e.g. 0300-1234567"
-                    />
-                  </div>
-                </div>
-                <div className="flex gap-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="flex-1"
-                    onClick={() => setCreatingLabour(false)}
-                  >
-                    {t('Cancel')}
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    className="flex-1"
-                    disabled={createLabour.isPending || !newLabour.name || !newLabour.phoneNumber}
-                    onClick={() => createLabour.mutate()}
-                  >
-                    {createLabour.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
-                    {t('Add')}
-                  </Button>
-                </div>
-              </div>
-            )}
-
-            {labourRows.length > 0 && (
-              <div className="space-y-2 rounded-md border p-2">
-                {labourRows.map((r) => (
-                  <div key={r.labourId} className="flex items-center gap-2">
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium">{r.name}</p>
-                      {r.phoneNumber && (
-                        <p className="truncate text-xs text-muted-foreground">{r.phoneNumber}</p>
-                      )}
-                    </div>
-                    <Input
-                      type="number"
-                      min={0}
-                      step="0.01"
-                      placeholder="Rent"
-                      className="h-9 w-28 text-right"
-                      value={r.rent || ''}
-                      onChange={(e) => setLabourRent(r.labourId, Number(e.target.value))}
-                    />
-                    <Button
-                      type="button"
-                      size="icon"
-                      variant="ghost"
-                      className="h-8 w-8 shrink-0 text-muted-foreground hover:text-destructive"
-                      onClick={() => removeLabour(r.labourId)}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
+          )}
 
           <div className="space-y-1.5">
             <Label>Products</Label>
@@ -833,6 +893,9 @@ function ReceiptDialog({ receipt, onClose }: { receipt?: StockReceipt; onClose: 
                       <th className="px-3 py-2 font-medium">{t('Product')}</th>
                       <th className="px-3 py-2 font-medium">{t('Qty Received')}</th>
                       <th className="px-3 py-2 font-medium">{t('Qty Damaged')}</th>
+                      {isOpeningStock && (
+                        <th className="px-3 py-2 font-medium">{t('Unit Cost (optional)')}</th>
+                      )}
                       <th className="w-8" />
                     </tr>
                   </thead>
@@ -864,6 +927,21 @@ function ReceiptDialog({ receipt, onClose }: { receipt?: StockReceipt; onClose: 
                             }
                           />
                         </td>
+                        {isOpeningStock && (
+                          <td className="px-3 py-2">
+                            <Input
+                              type="number"
+                              min={0}
+                              step="0.01"
+                              placeholder="0.00"
+                              className="h-8 w-28"
+                              value={r.unitCost || ''}
+                              onChange={(e) =>
+                                patchItem(r.productId, { unitCost: Number(e.target.value) })
+                              }
+                            />
+                          </td>
+                        )}
                         <td className="px-3 py-2 text-right">
                           <Button
                             type="button"
@@ -932,6 +1010,11 @@ function ReceiptDetailDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Truck className="h-4 w-4" /> {receipt.number}
+            {receipt.isOpeningStock && (
+              <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-normal text-muted-foreground">
+                {t('Opening Stock')}
+              </span>
+            )}
           </DialogTitle>
           <DialogDescription>
             {new Date(receipt.date).toLocaleDateString()} · {receipt.supplierName}
@@ -947,28 +1030,41 @@ function ReceiptDetailDialog({
             <span className="text-muted-foreground">{t('Warehouse')}: </span>
             {receipt.warehouseName}
           </div>
-          <div>
-            <span className="text-muted-foreground">{t('Vehicle #')}: </span>
-            {receipt.truck.vehicleNumber}
-          </div>
-          <div>
-            <span className="text-muted-foreground">{t('Driver')}: </span>
-            {receipt.truck.driverName || '—'}
-            {receipt.truck.driverPhone ? ` (${receipt.truck.driverPhone})` : ''}
-          </div>
-          <div>
-            <span className="text-muted-foreground">{t('Truck Fare')}: </span>
-            {receipt.truckFare > 0 ? (
-              <>
-                {formatCurrency(receipt.truckFare)}{' '}
-                <span className="text-xs text-muted-foreground">
-                  ({receipt.truckFarePaidBy === 'US' ? t('paid by us') : t('covered by supplier')})
-                </span>
-              </>
-            ) : (
-              '—'
-            )}
-          </div>
+          {receipt.isOpeningStock ? (
+            <div className="col-span-2">
+              <span className="text-muted-foreground">{t('Source')}: </span>
+              {t('Stock already in warehouse (no truck delivery)')}
+            </div>
+          ) : (
+            <>
+              <div>
+                <span className="text-muted-foreground">{t('Vehicle #')}: </span>
+                {receipt.truck.vehicleNumber}
+              </div>
+              <div>
+                <span className="text-muted-foreground">{t('Driver')}: </span>
+                {receipt.truck.driverName || '—'}
+                {receipt.truck.driverPhone ? ` (${receipt.truck.driverPhone})` : ''}
+              </div>
+              <div>
+                <span className="text-muted-foreground">{t('Truck Fare')}: </span>
+                {receipt.truckFare > 0 ? (
+                  <>
+                    {formatCurrency(receipt.truckFare)}{' '}
+                    <span className="text-xs text-muted-foreground">
+                      (
+                      {receipt.truckFarePaidBy === 'US'
+                        ? t('paid by us')
+                        : t('covered by supplier')}
+                      )
+                    </span>
+                  </>
+                ) : (
+                  '—'
+                )}
+              </div>
+            </>
+          )}
         </div>
 
         <div className="overflow-x-auto rounded-md border">
@@ -1293,7 +1389,13 @@ export function StockReceiptsPage() {
                       </td>
                       <td className="px-4 py-3 text-muted-foreground">{receipt.warehouseName}</td>
                       <td className="px-4 py-3 text-muted-foreground">
-                        {receipt.truck.vehicleNumber}
+                        {receipt.isOpeningStock ? (
+                          <span className="rounded-full bg-muted px-2 py-0.5 text-xs">
+                            {t('Opening Stock')}
+                          </span>
+                        ) : (
+                          receipt.truck.vehicleNumber
+                        )}
                       </td>
                       <td className="px-4 py-3 text-right tabular-nums text-muted-foreground">
                         {receipt.items.length}

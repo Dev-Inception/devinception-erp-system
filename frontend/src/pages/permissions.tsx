@@ -3,7 +3,6 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Plus,
   Trash2,
-  ShieldAlert,
   Check,
   UserPlus,
   ChevronDown,
@@ -516,6 +515,12 @@ function UsersCard() {
                           value={u.role.toLowerCase()}
                           onChange={(role) => updateUser(u.id, { role })}
                           roles={roles}
+                          disabled={isSelf && isSuperAdmin}
+                          title={
+                            isSelf && isSuperAdmin
+                              ? 'A super admin cannot change their own role'
+                              : undefined
+                          }
                         />
                       </div>
                     </td>
@@ -625,8 +630,8 @@ function ModuleAccessCard() {
         <CardTitle>Module Access</CardTitle>
         <CardDescription>
           Controls each role's real permissions on the server — a checked box grants that module's
-          governing permission. Super Admin always has full access. (Dashboard and Reports share a
-          permission, so they toggle together.)
+          governing permission. Super Admin always has full access. (Dashboard, Reports and Day Book
+          share a permission, so they toggle together.)
         </CardDescription>
       </CardHeader>
       <CardContent className="px-0 pb-0">
@@ -700,25 +705,11 @@ function ModuleAccessCard() {
   );
 }
 
+// Visibility is already handled by ModuleGuard (see App.tsx), which gates
+// this whole route on the `permissions` module's governing permission
+// (roles:update — see MODULE_PERMISSION in lib/modules.ts) before this
+// component ever renders, so no in-component role check is needed here.
 export function PermissionsPage() {
-  const role = useAuthStore((s) => s.user?.role);
-
-  if (role !== 'SUPER_ADMIN') {
-    return (
-      <Card>
-        <CardContent className="flex flex-col items-center justify-center gap-3 py-20 text-center">
-          <div className="flex h-12 w-12 items-center justify-center rounded-full bg-destructive/10 text-destructive">
-            <ShieldAlert className="h-6 w-6" />
-          </div>
-          <h2 className="text-lg font-semibold">Super Admin only</h2>
-          <p className="max-w-md text-sm text-muted-foreground">
-            You don't have permission to manage users and module access.
-          </p>
-        </CardContent>
-      </Card>
-    );
-  }
-
   return (
     <div className="space-y-4">
       <UsersCard />

@@ -11,8 +11,10 @@ const { ROLES } = require('../utils/constants');
 
 // Verify the target role exists and that the actor is allowed to assign it.
 // Only a super admin may grant the super_admin role, and the system only
-// ever has one — `excludeUserId` lets a super admin re-save their own role
-// without tripping over themselves as "already existing".
+// ever has one — `excludeUserId` excludes the target themselves from that
+// existing-super-admin check (relevant if they're ever re-saved via a path
+// other than updateUserRole, which now blocks a super admin from targeting
+// themselves at all — see the guard there).
 async function assertAssignableRole(actor, roleName, excludeUserId = null) {
   const role = await Role.findOne({ name: roleName });
   if (!role) throw ApiError.badRequest(`Unknown role: ${roleName}`);
@@ -82,6 +84,14 @@ async function createUser(actor, { name, email, password, role, store }) {
 }
 
 async function updateUserRole(actor, targetId, newRole) {
+  // A super admin can lock themselves out of the only account that can
+  // manage users/permissions by changing their own role — nobody else could
+  // then undo it through the app. Block it outright, same as they can
+  // already never deactivate or delete themselves below.
+  if (actor.role === ROLES.SUPER_ADMIN && actor._id.toString() === String(targetId)) {
+    throw ApiError.badRequest('A super admin cannot change their own role');
+  }
+
   const target = await User.findById(targetId);
   if (!target) throw ApiError.notFound('User not found');
 

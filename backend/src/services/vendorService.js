@@ -1,9 +1,11 @@
 const Vendor = require('../models/vendorModel');
+const Store = require('../models/storeModel');
 const ApiError = require('../utils/ApiError');
 const journalService = require('./journalService');
-const { ACCOUNT } = require('../utils/finance');
-const { toRupees } = require('../utils/money');
+const { ACCOUNT, REF } = require('../utils/finance');
+const { toRupees, toPaisa } = require('../utils/money');
 const { parsePagination, escapeRegex } = require('../utils/query');
+const { assertStoreAccess } = require('../utils/storeScope');
 
 /**
  * Vendor (supplier) management. Authorization is enforced by route
@@ -56,14 +58,92 @@ async function getVendorById(id) {
   return vendor;
 }
 
-async function createVendor(data) {
-  return Vendor.create(pickWritable(data));
+/**
+ * Posts a balance movement for a vendor that isn't a real purchase/payment —
+ * an opening balance at creation, or a later correction from the edit form.
+ * The ledger is append-only (see journalService.post), so this never rewrites
+ * anything already posted; instead `weOwe`/`theyOwe` are read as the balance
+ * the caller wants the vendor to *end up at* (their net, weOwe − theyOwe),
+ * and only the difference from the vendor's current store-scoped balance is
+ * posted — so the edit form can safely prefill these fields with the current
+ * balance and re-save it unchanged without double-posting anything.
+ *
+ * `store` doubles as the "do you actually want to touch the balance" signal:
+ * the caller (see createVendor/updateVendor) only supplies it when the
+ * frontend determined a balance change was intended — its absence always
+ * means "leave the balance alone," never "set it to zero".
+ *
+ *   net > current balance -> Dr Equity / Cr AP  (we now owe more)
+ *   net < current balance -> Dr AP / Cr Equity  (moves toward them owing us)
+ */
+async function postVendorBalanceAdjustment(actor, vendor, { weOwe, theyOwe }, store, description) {
+  if (!store) return;
+
+  const storeDoc = await Store.findById(store);
+  if (!storeDoc) throw ApiError.badRequest('Store not found');
+  assertStoreAccess(actor, storeDoc._id);
+
+  const desiredNet = toPaisa(weOwe || 0) - toPaisa(theyOwe || 0);
+  const currentNet = await journalService.accountBalance(ACCOUNT.AP, vendor._id, {
+    store: storeDoc._id,
+  });
+  const delta = desiredNet - currentNet;
+  if (delta === 0) return;
+
+  const amt = Math.abs(delta);
+  const weOweMore = delta > 0;
+  await journalService.post({
+    description,
+    refType: REF.OPENING,
+    refId: vendor._id,
+    store: storeDoc._id,
+    createdBy: actor ? actor._id : null,
+    lines: weOweMore
+      ? [
+          journalService.line(ACCOUNT.EQUITY, { debit: amt }),
+          journalService.line(ACCOUNT.AP, { credit: amt, ref: vendor._id }),
+        ]
+      : [
+          journalService.line(ACCOUNT.AP, { debit: amt, ref: vendor._id }),
+          journalService.line(ACCOUNT.EQUITY, { credit: amt }),
+        ],
+  });
 }
 
-async function updateVendor(id, data) {
+/**
+ * Creates a vendor, optionally seeding a pre-existing balance for one
+ * already carrying a payable/receivable from before this system was in use
+ * — e.g. an existing business being onboarded.
+ */
+async function createVendor(actor, { weOweAmount, theyOweAmount, store, ...data }) {
+  const vendor = await Vendor.create(pickWritable(data));
+  await postVendorBalanceAdjustment(
+    actor,
+    vendor,
+    { weOwe: weOweAmount, theyOwe: theyOweAmount },
+    store,
+    `Opening balance: ${vendor.name}`,
+  );
+  return vendor;
+}
+
+/**
+ * Updates a vendor's profile fields, and optionally moves its balance to a
+ * new net figure (see postVendorBalanceAdjustment) — the edit form prefills
+ * `weOweAmount`/`theyOweAmount` from the vendor's current balance, so this
+ * behaves like editing a normal field: only the actual change posts.
+ */
+async function updateVendor(actor, id, { weOweAmount, theyOweAmount, store, ...data }) {
   const vendor = await getVendorById(id);
   Object.assign(vendor, pickWritable(data));
   await vendor.save();
+  await postVendorBalanceAdjustment(
+    actor,
+    vendor,
+    { weOwe: weOweAmount, theyOwe: theyOweAmount },
+    store,
+    `Balance adjustment: ${vendor.name}`,
+  );
   return vendor;
 }
 

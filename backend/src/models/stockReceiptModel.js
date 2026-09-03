@@ -18,9 +18,12 @@ const stockReceiptItemSchema = new mongoose.Schema(
   { _id: false },
 );
 
+// vehicleNumber is only actually required for a real truck delivery — an
+// opening-stock entry (see `isOpeningStock` below) has no truck at all, so
+// enforcement of that lives in stockReceiptService rather than here.
 const stockReceiptTruckSchema = new mongoose.Schema(
   {
-    vehicleNumber: { type: String, required: true, trim: true, maxlength: 80 },
+    vehicleNumber: { type: String, trim: true, maxlength: 80, default: '' },
     driverName: { type: String, trim: true, maxlength: 120, default: '' },
     driverPhone: { type: String, trim: true, maxlength: 40, default: '' },
   },
@@ -62,6 +65,12 @@ const stockReceiptSchema = new mongoose.Schema(
       index: true,
     },
     date: { type: Date, default: Date.now, index: true },
+    // Stock that was already sitting in the warehouse (received before this
+    // system was in use, taken on credit from the supplier) rather than a
+    // real truck delivery — no truck/driver/fare/labour applies, and it's
+    // numbered OPN- instead of GRN- (see stockReceiptService.createReceipt).
+    // Fixed at creation; never changed on edit.
+    isOpeningStock: { type: Boolean, default: false },
     truck: { type: stockReceiptTruckSchema, required: true },
     // A registered Transporter this delivery is attributed to, if any — the
     // free-text truck.driverName/driverPhone above still works standalone

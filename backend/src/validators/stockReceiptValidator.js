@@ -19,7 +19,11 @@ const receiptFieldsValidator = [
   body('supplier').isMongoId().withMessage('A valid supplier is required'),
   body('warehouse').isMongoId().withMessage('A valid warehouse is required'),
   body('date').optional({ values: 'falsy' }).isISO8601().withMessage('Invalid date'),
+  body('isOpeningStock').optional({ values: 'falsy' }).isBoolean().toBoolean(),
+  // Only a real truck delivery needs a vehicle number — an opening-stock
+  // entry (already-in-warehouse stock, no truck) skips this.
   body('truck.vehicleNumber')
+    .if((_value, { req }) => !req.body.isOpeningStock)
     .trim()
     .notEmpty()
     .withMessage('Vehicle number is required')
@@ -36,6 +40,12 @@ const receiptFieldsValidator = [
     .optional({ values: 'falsy' })
     .isFloat({ min: 0 })
     .withMessage('Damaged quantity must be non-negative'),
+  // Opening-stock only — a known per-unit cost owed to the supplier for this
+  // line, priced immediately instead of left pending (see stockReceiptService).
+  body('items.*.unitCost')
+    .optional({ values: 'falsy' })
+    .isFloat({ min: 0 })
+    .withMessage('Unit cost must be non-negative'),
   body('note').optional({ values: 'falsy' }).trim().isLength({ max: 500 }),
   body('truckFare')
     .optional({ values: 'falsy' })

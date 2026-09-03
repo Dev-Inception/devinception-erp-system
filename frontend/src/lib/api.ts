@@ -920,6 +920,13 @@ async function realCreateVendor(body: any) {
     email: body.email,
     address: body.address,
     ntn: body.ntn,
+    // Pre-existing balance, create only — see vendorService.createVendor.
+    // Two separate directions (not one signed figure): both can be true at
+    // once, e.g. we owe the vendor for one thing while they owe us for
+    // another.
+    weOweAmount: body.weOweAmount || undefined,
+    theyOweAmount: body.theyOweAmount || undefined,
+    store: body.store || undefined,
   });
   return mapVendor(res.data.vendor);
 }
@@ -930,6 +937,10 @@ async function realUpdateVendor(id: string, body: any) {
     email: body.email,
     address: body.address,
     ntn: body.ntn,
+    // Balance adjustment, edit form only — see vendorService.updateVendor.
+    weOweAmount: body.weOweAmount || undefined,
+    theyOweAmount: body.theyOweAmount || undefined,
+    store: body.store || undefined,
   });
   return mapVendor(res.data.vendor);
 }
@@ -1341,6 +1352,10 @@ function mapStockReceipt(r: any) {
     warehouseId: String(r.warehouse?._id ?? r.warehouse),
     warehouseName: r.warehouse?.name || '',
     date: r.date,
+    // Stock already in the warehouse (taken on credit before this system was
+    // set up) rather than a real truck delivery — fixed at creation, see
+    // stockReceiptModel.js.
+    isOpeningStock: !!r.isOpeningStock,
     truck: {
       vehicleNumber: r.truck?.vehicleNumber || '',
       driverName: r.truck?.driverName || '',
@@ -1411,15 +1426,19 @@ async function realCreateStockReceipt(body: any) {
     supplier: body.supplierId,
     warehouse: body.warehouseId,
     date: body.date || undefined,
-    truck: {
-      vehicleNumber: body.truck?.vehicleNumber,
-      driverName: body.truck?.driverName || undefined,
-      driverPhone: body.truck?.driverPhone || undefined,
-    },
+    isOpeningStock: !!body.isOpeningStock,
+    truck: body.truck
+      ? {
+          vehicleNumber: body.truck.vehicleNumber,
+          driverName: body.truck.driverName || undefined,
+          driverPhone: body.truck.driverPhone || undefined,
+        }
+      : undefined,
     items: (body.items ?? []).map((it: any) => ({
       product: it.productId,
       receivedQuantity: it.receivedQuantity || 0,
       damagedQuantity: it.damagedQuantity || 0,
+      unitCost: it.unitCost || undefined,
     })),
     truckFare: body.truckFare || undefined,
     truckFarePaidBy: body.truckFarePaidBy || undefined,
@@ -1437,15 +1456,22 @@ async function realUpdateStockReceipt(id: string, body: any) {
     supplier: body.supplierId,
     warehouse: body.warehouseId,
     date: body.date || undefined,
-    truck: {
-      vehicleNumber: body.truck?.vehicleNumber,
-      driverName: body.truck?.driverName || undefined,
-      driverPhone: body.truck?.driverPhone || undefined,
-    },
+    // Fixed at creation (see the model) — sent through so the validator's
+    // truck.vehicleNumber requirement matches the receipt's actual type; the
+    // backend service itself always trusts the stored value, never this.
+    isOpeningStock: !!body.isOpeningStock,
+    truck: body.truck
+      ? {
+          vehicleNumber: body.truck.vehicleNumber,
+          driverName: body.truck.driverName || undefined,
+          driverPhone: body.truck.driverPhone || undefined,
+        }
+      : undefined,
     items: (body.items ?? []).map((it: any) => ({
       product: it.productId,
       receivedQuantity: it.receivedQuantity || 0,
       damagedQuantity: it.damagedQuantity || 0,
+      unitCost: it.unitCost || undefined,
     })),
     truckFare: body.truckFare || undefined,
     truckFarePaidBy: body.truckFarePaidBy || undefined,

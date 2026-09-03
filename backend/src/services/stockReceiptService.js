@@ -206,6 +206,7 @@ async function createReceipt(
     truckFareBankAccount,
     transporter,
     labour = [],
+    isOpeningStock = false,
   },
 ) {
   const supplierDoc = await Supplier.findById(supplier);
@@ -217,7 +218,9 @@ async function createReceipt(
   assertStoreAccess(actor, storeDoc._id);
   const warehouseDoc = await Warehouse.findById(warehouse);
   if (!warehouseDoc) throw ApiError.notFound('Warehouse not found');
-  if (!truck || !truck.vehicleNumber) {
+  // Opening-stock entries (already-in-warehouse stock, no truck) skip the
+  // truck requirement entirely — see isOpeningStock on the model.
+  if (!isOpeningStock && (!truck || !truck.vehicleNumber)) {
     throw ApiError.badRequest('Truck vehicle number is required');
   }
   if (!Array.isArray(items) || items.length === 0) {
@@ -249,11 +252,20 @@ async function createReceipt(
     if (receivedQuantity <= 0 && damagedQuantity <= 0) {
       throw ApiError.badRequest(`${product.name}: enter a received or damaged quantity`);
     }
-    lines.push({ product, receivedQuantity, damagedQuantity });
+    // Opening-stock only — a known cost, priced immediately below instead of
+    // left as an unpriced Pending Entity.
+    const unitCost = isOpeningStock && Number(it.unitCost) > 0 ? Number(it.unitCost) : 0;
+    lines.push({ product, receivedQuantity, damagedQuantity, unitCost });
   }
 
   const when = date ? new Date(date) : new Date();
-  const number = await counterService.nextDocNumber('GRN', when.getFullYear(), 6);
+  // Opening-stock entries get their own OPN- numbering series so they read
+  // as distinct from a real truck delivery (GRN-) in reports/search.
+  const number = await counterService.nextDocNumber(
+    isOpeningStock ? 'OPN' : 'GRN',
+    when.getFullYear(),
+    6,
+  );
 
   // Only the received-good quantity ever becomes stock; damaged units are
   // written off on arrival and are recorded on the receipt for tracking only.
@@ -276,10 +288,11 @@ async function createReceipt(
     store: storeDoc._id,
     warehouse: warehouseDoc._id,
     date: when,
+    isOpeningStock,
     truck: {
-      vehicleNumber: truck.vehicleNumber,
-      driverName: truck.driverName || '',
-      driverPhone: truck.driverPhone || '',
+      vehicleNumber: (truck && truck.vehicleNumber) || '',
+      driverName: (truck && truck.driverName) || '',
+      driverPhone: (truck && truck.driverPhone) || '',
     },
     items: lines.map((l) => ({
       product: l.product._id,
@@ -302,7 +315,9 @@ async function createReceipt(
   if (totalReceivedValue > 0) {
     await journalService.post({
       date: when,
-      description: `Stock receipt ${number} from ${supplierDoc.name}`,
+      description: isOpeningStock
+        ? `Opening stock ${number} from ${supplierDoc.name}`
+        : `Stock receipt ${number} from ${supplierDoc.name}`,
       refType: REF.PURCHASE,
       refId: receipt._id,
       refNo: number,
@@ -332,23 +347,50 @@ async function createReceipt(
   // Every received line becomes a Pending Entity — the supplier hasn't
   // actually gone payable for this delivery yet (see pendingEntityService).
   // Not fatal: the receipt and its stock addition are already committed.
+  const receivedLines = lines.filter((l) => l.receivedQuantity > 0);
   try {
-    await pendingEntityService.recordStockReceiptItems(
+    const pendingEntities = await pendingEntityService.recordStockReceiptItems(
       receipt,
-      lines.filter((l) => l.receivedQuantity > 0),
+      receivedLines,
       actor,
     );
+    // Opening stock only: a line given a known unit cost is priced right
+    // away — the supplier debt for it is real today, not deferred pricing
+    // (see pendingEntityService.setPurchasePrice). Lines left without a cost
+    // stay PENDING, same as a normal delivery.
+    if (isOpeningStock) {
+      for (let i = 0; i < pendingEntities.length; i += 1) {
+        if (receivedLines[i].unitCost > 0) {
+          try {
+            await pendingEntityService.setPurchasePrice(
+              actor,
+              pendingEntities[i]._id,
+              receivedLines[i].unitCost,
+            );
+          } catch (error) {
+            // eslint-disable-next-line no-console
+            console.error(
+              `Auto-pricing failed for opening stock ${number} (${receivedLines[i].product.name}):`,
+              error,
+            );
+          }
+        }
+      }
+    }
   } catch (error) {
     // eslint-disable-next-line no-console
     console.error(`Pending entity creation failed for stock receipt ${number}:`, error);
   }
 
   // "Goods coming in" gate pass — how much of each product actually entered
-  // the warehouse on this truck.
-  const gatePass = await gatePassService.createForReceipt(receipt);
-  if (gatePass) {
-    receipt.gatePass = gatePass._id;
-    await receipt.save();
+  // the warehouse on this truck. Doesn't apply to opening stock: there's no
+  // truck at the gate for stock that was already in the warehouse.
+  if (!isOpeningStock) {
+    const gatePass = await gatePassService.createForReceipt(receipt);
+    if (gatePass) {
+      receipt.gatePass = gatePass._id;
+      await receipt.save();
+    }
   }
 
   if (receipt.transporter) await receipt.populate('transporter', 'name phone vehicleNumber');
@@ -430,7 +472,11 @@ async function updateReceipt(
   if (!supplierDoc) throw ApiError.notFound('Supplier not found');
   const warehouseDoc = await Warehouse.findById(warehouse);
   if (!warehouseDoc) throw ApiError.notFound('Warehouse not found');
-  if (!truck || !truck.vehicleNumber) {
+  // Whether a receipt is opening stock is fixed at creation (see the model)
+  // — an edit can't flip it, so this is read from the existing document
+  // rather than the request body.
+  const isOpeningStock = receipt.isOpeningStock;
+  if (!isOpeningStock && (!truck || !truck.vehicleNumber)) {
     throw ApiError.badRequest('Truck vehicle number is required');
   }
   if (!Array.isArray(items) || items.length === 0) {
@@ -497,9 +543,9 @@ async function updateReceipt(
   receipt.warehouse = warehouseDoc._id;
   receipt.date = when;
   receipt.truck = {
-    vehicleNumber: truck.vehicleNumber,
-    driverName: truck.driverName || '',
-    driverPhone: truck.driverPhone || '',
+    vehicleNumber: (truck && truck.vehicleNumber) || '',
+    driverName: (truck && truck.driverName) || '',
+    driverPhone: (truck && truck.driverPhone) || '',
   };
   receipt.items = lines.map((l) => ({
     product: l.product._id,
@@ -546,12 +592,15 @@ async function updateReceipt(
     label: 'stock receipt',
   });
 
-  // Re-snapshot the gate pass for the revised quantities/warehouse.
-  const gatePass = await gatePassService.createForReceipt(receipt);
-  const gatePassId = gatePass ? gatePass._id : null;
-  if (String(receipt.gatePass || '') !== String(gatePassId || '')) {
-    receipt.gatePass = gatePassId;
-    await receipt.save();
+  // Re-snapshot the gate pass for the revised quantities/warehouse — doesn't
+  // apply to opening stock (see createReceipt).
+  if (!isOpeningStock) {
+    const gatePass = await gatePassService.createForReceipt(receipt);
+    const gatePassId = gatePass ? gatePass._id : null;
+    if (String(receipt.gatePass || '') !== String(gatePassId || '')) {
+      receipt.gatePass = gatePassId;
+      await receipt.save();
+    }
   }
 
   if (receipt.transporter) await receipt.populate('transporter', 'name phone vehicleNumber');

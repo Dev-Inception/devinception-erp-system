@@ -74,7 +74,10 @@ async function bankNoteFor(storeId: string | undefined): Promise<string | undefi
       .filter((a) => a.isActive)
       .map((a) => [a.name, a.bankName, a.accountNumber].filter(Boolean).join(' — '));
     if (!lines.length) return undefined;
-    return `Bank Details: ${lines.join(' | ')}`;
+    // One row per account, under a heading row — rendered as-is by the
+    // INVOICE_A4 template (see printing.ts), not a single inline line.
+    const rows = lines.map((line) => `<div>${line}</div>`).join('');
+    return `<div style="font-weight:700;margin-bottom:4px;">Bank Details</div>${rows}`;
   } catch {
     return undefined;
   }

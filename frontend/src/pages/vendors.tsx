@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Plus, Search, Loader2, Pencil, Trash2 } from 'lucide-react';
+import { Plus, Search, Loader2, Pencil, Trash2, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -22,7 +22,7 @@ import { api } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
 import { useAuthStore } from '@/store/auth';
 import { grantsPermission } from '@/lib/modules';
-import { useStorefrontFilter } from '@/store/storefront';
+import { useStorefrontFilter, useStorefrontStore } from '@/store/storefront';
 import { useLanguage } from '@/components/language-provider';
 
 interface Vendor {
@@ -46,8 +46,26 @@ function VendorDialog({ vendor, trigger }: { vendor?: Vendor; trigger: React.Rea
   const editing = !!vendor;
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(emptyForm);
+  // On create: a pre-existing balance for a vendor already carrying a
+  // payable/receivable from before this system was in use. On edit: prefilled
+  // from the vendor's current balance (below) so it behaves like editing a
+  // normal field — only the actual change gets posted, as a new ledger entry
+  // for the difference (the ledger never rewrites one already posted; see
+  // vendorService.postVendorBalanceAdjustment). Two separate amounts, not one
+  // signed figure, since both can be true at once (we owe them for one thing,
+  // they owe us for another) — only their net actually matters to the ledger.
+  const [weOweAmount, setWeOweAmount] = useState<number>(0);
+  const [theyOweAmount, setTheyOweAmount] = useState<number>(0);
+  const currentStoreId = useStorefrontStore((s) => s.currentStoreId);
+  const hasSpecificStore = !!currentStoreId && currentStoreId !== 'ALL';
+  const hasBalanceEntry = weOweAmount > 0 || theyOweAmount > 0;
 
-  // Reset the form to the vendor's values (or blank) each time the dialog opens.
+  // Reset the form to the vendor's values (or blank) each time the dialog
+  // opens. The balance fields only prefill on edit, and only once a specific
+  // store is selected — `vendor.outstanding` is itself scoped to whichever
+  // store is currently active (see useStorefrontFilter), so prefilling
+  // without one selected would show a figure that doesn't match what a save
+  // would actually be scoped against.
   useEffect(() => {
     if (open) {
       setForm(
@@ -61,20 +79,38 @@ function VendorDialog({ vendor, trigger }: { vendor?: Vendor; trigger: React.Rea
             }
           : emptyForm,
       );
+      const outstanding = vendor && hasSpecificStore ? vendor.outstanding : 0;
+      setWeOweAmount(Math.max(outstanding, 0));
+      setTheyOweAmount(Math.max(-outstanding, 0));
     }
-  }, [open, vendor]);
+  }, [open, vendor, hasSpecificStore]);
 
   const save = useMutation({
-    mutationFn: async () =>
-      editing
-        ? (await api.patch(`/vendors/${vendor!.id}`, form)).data
-        : (await api.post('/vendors', form)).data,
+    mutationFn: async () => {
+      if (hasBalanceEntry && !hasSpecificStore) {
+        throw new Error(
+          editing
+            ? 'Select a specific store from the header before adjusting the balance.'
+            : 'Select a specific store from the header before adding an opening balance.',
+        );
+      }
+      const payload = hasBalanceEntry
+        ? { ...form, weOweAmount, theyOweAmount, store: currentStoreId }
+        : form;
+      return (
+        editing
+          ? await api.patch(`/vendors/${vendor!.id}`, payload)
+          : await api.post('/vendors', payload)
+      ).data;
+    },
     onSuccess: () => {
       toast.success(editing ? 'Vendor updated' : 'Vendor created');
       qc.invalidateQueries({ queryKey: ['vendors'] });
+      qc.invalidateQueries({ queryKey: ['vendor-ledger'] });
       setOpen(false);
     },
-    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Could not save vendor'),
+    onError: (e: any) =>
+      toast.error(e?.response?.data?.message ?? e?.message ?? 'Could not save vendor'),
   });
 
   return (
@@ -85,8 +121,8 @@ function VendorDialog({ vendor, trigger }: { vendor?: Vendor; trigger: React.Rea
           <DialogTitle>{editing ? 'Edit Vendor' : 'New Vendor'}</DialogTitle>
           <DialogDescription>
             {editing
-              ? 'Update this supplier’s details.'
-              : 'Add a supplier you purchase goods from.'}
+              ? "Update this vendor's details."
+              : 'Add a vendor whose items you sell directly, without stocking them in your warehouse — different from a supplier, who delivers stock into your warehouse.'}
           </DialogDescription>
         </DialogHeader>
         <form
@@ -140,13 +176,84 @@ function VendorDialog({ vendor, trigger }: { vendor?: Vendor; trigger: React.Rea
               onChange={(e) => setForm({ ...form, address: e.target.value })}
             />
           </div>
+
+          <div className="space-y-2 rounded-md border p-3">
+            <Label>{t(editing ? 'Balance' : 'Opening Balance (optional)')}</Label>
+            {editing ? (
+              hasSpecificStore ? (
+                <p className="text-xs text-muted-foreground">
+                  {t('Reflects the current balance for this store — change and save to update it.')}
+                </p>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  {t('Select a specific store from the header to view or change the balance.')}
+                </p>
+              )
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                {t(
+                  'For a vendor already carrying a balance from before this system was in use. Fill in both if the vendor owes you for one thing while you owe them for another — they net out automatically.',
+                )}
+              </p>
+            )}
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-1">
+                <Label className="text-xs font-normal text-muted-foreground">
+                  {t('We owe them')}
+                </Label>
+                <Input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  placeholder="0.00"
+                  value={weOweAmount || ''}
+                  onChange={(e) => setWeOweAmount(Math.max(0, Number(e.target.value)))}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs font-normal text-muted-foreground">
+                  {t('They owe us')}
+                </Label>
+                <Input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  placeholder="0.00"
+                  value={theyOweAmount || ''}
+                  onChange={(e) => setTheyOweAmount(Math.max(0, Number(e.target.value)))}
+                />
+              </div>
+            </div>
+            {weOweAmount > 0 && theyOweAmount > 0 && (
+              <p className="text-xs text-muted-foreground">
+                {t('Net')}:{' '}
+                <span className="font-medium text-foreground">
+                  {weOweAmount === theyOweAmount
+                    ? t('settles evenly')
+                    : weOweAmount > theyOweAmount
+                      ? `${t('we owe them')} ${formatCurrency(weOweAmount - theyOweAmount)}`
+                      : `${t('they owe us')} ${formatCurrency(theyOweAmount - weOweAmount)}`}
+                </span>
+              </p>
+            )}
+            {hasBalanceEntry && !hasSpecificStore && (
+              <div className="flex items-center gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                <AlertTriangle className="h-4 w-4 shrink-0" />
+                {t('Select a specific store from the header first.')}
+              </div>
+            )}
+          </div>
+
           <div className="flex justify-end gap-2 pt-2">
             <DialogClose asChild>
               <Button type="button" variant="outline">
                 {t('Cancel')}
               </Button>
             </DialogClose>
-            <Button type="submit" disabled={save.isPending}>
+            <Button
+              type="submit"
+              disabled={save.isPending || (hasBalanceEntry && !hasSpecificStore)}
+            >
               {save.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
               {t('Save')}
             </Button>
