@@ -1,5 +1,5 @@
-const BankAccount = require('../models/bankAccountModel');
-const Store = require('../models/storeModel');
+const { getPostgres } = require('../db/postgres');
+const { initializeModels } = require('../db/models');
 const ApiError = require('../utils/ApiError');
 const { toPaisa } = require('../utils/money');
 const { ACCOUNT, REF } = require('../utils/finance');
@@ -20,21 +20,23 @@ const { assertStoreAccess, actorStoreId } = require('../utils/storeScope');
 // list endpoints degrade to "everything" — except for a store-restricted
 // actor, whose own store always wins.
 async function listBankAccounts({ store, actor } = {}) {
+  const { BankAccount } = initializeModels();
   const restricted = actorStoreId(actor);
   const effectiveStore = restricted || store;
-  const filter = effectiveStore ? { store: effectiveStore } : {};
-  const accounts = await BankAccount.find(filter).sort({ createdAt: 1 }).lean();
+  const where = effectiveStore ? { store: effectiveStore } : {};
+  const accounts = await BankAccount.findAll({ where, order: [['createdAt', 'ASC']] });
   // Attach each account's derived balance (paisa).
   return Promise.all(
     accounts.map(async (a) => ({
-      ...a,
-      balance: await journalService.accountBalance(ACCOUNT.BANK, a._id),
+      ...a.toJSON(),
+      balance: await journalService.accountBalance(ACCOUNT.BANK, a.id),
     })),
   );
 }
 
 async function getBankAccountById(id) {
-  const account = await BankAccount.findById(id);
+  const { BankAccount } = initializeModels();
+  const account = await BankAccount.findByPk(id);
   if (!account) throw ApiError.notFound('Bank account not found');
   return account;
 }
@@ -43,37 +45,45 @@ async function createBankAccount(
   actor,
   { name, bankName, accountNumber, store, openingBalance = 0 },
 ) {
-  const storeDoc = await Store.findById(store);
-  if (!storeDoc) throw ApiError.badRequest('A store is required');
-  assertStoreAccess(actor, storeDoc._id);
+  const { Store, BankAccount } = initializeModels();
+  return getPostgres().transaction(async (transaction) => {
+    const storeDoc = await Store.findByPk(store, { transaction });
+    if (!storeDoc) throw ApiError.badRequest('A store is required');
+    assertStoreAccess(actor, storeDoc.id);
 
-  const account = await BankAccount.create({ name, bankName, accountNumber, store: storeDoc._id });
+    const account = await BankAccount.create(
+      { name, bankName, accountNumber, store: storeDoc.id },
+      { transaction },
+    );
 
-  const opening = toPaisa(openingBalance);
-  if (opening > 0) {
-    await journalService.post({
-      description: `Opening balance: ${name}`,
-      refType: REF.OPENING,
-      refId: account._id,
-      store: storeDoc._id,
-      createdBy: actor ? actor._id : null,
-      lines: [
-        journalService.line(ACCOUNT.BANK, { debit: opening, ref: account._id }),
-        journalService.line(ACCOUNT.EQUITY, { credit: opening }),
-      ],
-    });
-  }
-  return account;
+    const opening = toPaisa(openingBalance);
+    if (opening > 0) {
+      await journalService.post({
+        description: `Opening balance: ${name}`,
+        refType: REF.OPENING,
+        refId: account.id,
+        store: storeDoc.id,
+        createdBy: actor ? actor.id : null,
+        transaction,
+        lines: [
+          journalService.line(ACCOUNT.BANK, { debit: opening, ref: account.id }),
+          journalService.line(ACCOUNT.EQUITY, { credit: opening }),
+        ],
+      });
+    }
+    return account;
+  });
 }
 
 async function updateBankAccount(actor, id, { name, bankName, accountNumber, store, isActive }) {
+  const { Store } = initializeModels();
   const account = await getBankAccountById(id);
   if (account.store) assertStoreAccess(actor, account.store);
   if (store !== undefined) {
-    const storeDoc = await Store.findById(store);
+    const storeDoc = await Store.findByPk(store);
     if (!storeDoc) throw ApiError.badRequest('Store not found');
-    assertStoreAccess(actor, storeDoc._id);
-    account.store = storeDoc._id;
+    assertStoreAccess(actor, storeDoc.id);
+    account.store = storeDoc.id;
   }
   if (name !== undefined) account.name = name;
   if (bankName !== undefined) account.bankName = bankName;
@@ -85,10 +95,10 @@ async function updateBankAccount(actor, id, { name, bankName, accountNumber, sto
 
 async function deleteBankAccount(id) {
   const account = await getBankAccountById(id);
-  const balance = await journalService.accountBalance(ACCOUNT.BANK, account._id);
+  const balance = await journalService.accountBalance(ACCOUNT.BANK, account.id);
   if (balance !== 0)
     throw ApiError.badRequest('Bank account has a non-zero balance and cannot be deleted');
-  await account.deleteOne();
+  await account.destroy();
 }
 
 module.exports = {

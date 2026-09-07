@@ -1,18 +1,13 @@
-const mongoose = require('mongoose');
-const Customer = require('../models/customerModel');
-const Vendor = require('../models/vendorModel');
-const Supplier = require('../models/supplierModel');
-const Labour = require('../models/labourModel');
-const Transporter = require('../models/transporterModel');
-const BankAccount = require('../models/bankAccountModel');
+const { initializeModels } = require('../db/models');
+const { isValidId } = require('../db/id');
 const ApiError = require('../utils/ApiError');
 const { ACCOUNT } = require('../utils/finance');
 const journalService = require('./journalService');
 
 // Degrades a malformed/missing store id to "unscoped" rather than letting an
-// invalid ObjectId reach a Mongo query as a CastError.
+// invalid id reach a query.
 function validStore(store) {
-  return store && mongoose.isValidObjectId(store) ? store : undefined;
+  return store && isValidId(store) ? store : undefined;
 }
 
 /**
@@ -30,48 +25,53 @@ function parseRange({ from, to } = {}) {
 
 // List of customers with their receivable balance, for the ledger picker.
 async function customerLedgers() {
+  const { Customer } = initializeModels();
   const [customers, balances] = await Promise.all([
-    Customer.find().sort({ name: 1 }).lean(),
+    Customer.findAll({ order: [['name', 'ASC']] }),
     journalService.balancesByRef(ACCOUNT.AR),
   ]);
-  return customers.map((c) => ({ ...c, balance: balances.get(String(c._id)) || 0 }));
+  return customers.map((c) => ({ ...c.toJSON(), balance: balances.get(String(c.id)) || 0 }));
 }
 
 // List of vendors with their payable balance.
 async function vendorLedgers() {
+  const { Vendor } = initializeModels();
   const [vendors, balances] = await Promise.all([
-    Vendor.find().sort({ name: 1 }).lean(),
+    Vendor.findAll({ order: [['name', 'ASC']] }),
     journalService.balancesByRef(ACCOUNT.AP),
   ]);
-  return vendors.map((v) => ({ ...v, balance: balances.get(String(v._id)) || 0 }));
+  return vendors.map((v) => ({ ...v.toJSON(), balance: balances.get(String(v.id)) || 0 }));
 }
 
 // List of suppliers with their payable balance.
 async function supplierLedgers() {
+  const { Supplier } = initializeModels();
   const [suppliers, balances] = await Promise.all([
-    Supplier.find().sort({ name: 1 }).lean(),
+    Supplier.findAll({ order: [['name', 'ASC']] }),
     journalService.balancesByRef(ACCOUNT.AP_SUPPLIER),
   ]);
-  return suppliers.map((s) => ({ ...s, balance: balances.get(String(s._id)) || 0 }));
+  return suppliers.map((s) => ({ ...s.toJSON(), balance: balances.get(String(s.id)) || 0 }));
 }
 
 // List of labourers with their payable balance (rent charged on sales that
 // hasn't been paid out yet).
 async function labourLedgers() {
+  const { Labour } = initializeModels();
   const [labourers, balances] = await Promise.all([
-    Labour.find().sort({ name: 1 }).lean(),
+    Labour.findAll({ order: [['name', 'ASC']] }),
     journalService.balancesByRef(ACCOUNT.AP_LABOUR),
   ]);
-  return labourers.map((l) => ({ ...l, balance: balances.get(String(l._id)) || 0 }));
+  return labourers.map((l) => ({ ...l.toJSON(), balance: balances.get(String(l.id)) || 0 }));
 }
 
 // List of transporters with their payable balance.
 async function transporterLedgers() {
+  const { Transporter } = initializeModels();
   const [transporters, balances] = await Promise.all([
-    Transporter.find().sort({ name: 1 }).lean(),
+    Transporter.findAll({ order: [['name', 'ASC']] }),
     journalService.balancesByRef(ACCOUNT.AP_TRANSPORT),
   ]);
-  return transporters.map((tr) => ({ ...tr, balance: balances.get(String(tr._id)) || 0 }));
+  return transporters.map((tr) => ({ ...tr.toJSON(), balance: balances.get(String(tr.id)) || 0 }));
 }
 
 // Statement for one customer (AR), vendor (AP), or labourer (AP_LABOUR),
@@ -79,22 +79,23 @@ async function transporterLedgers() {
 // balance shown alongside stays business-wide — see customerLedgers/
 // vendorLedgers/labourLedgers — only this drill-down statement narrows).
 async function partyStatement(kind, id, { store, ...range } = {}) {
+  const { Customer, Vendor, Supplier, Labour, Transporter } = initializeModels();
   let party;
   let account;
   if (kind === 'customer') {
-    party = await Customer.findById(id);
+    party = await Customer.findByPk(id);
     account = ACCOUNT.AR;
   } else if (kind === 'vendor') {
-    party = await Vendor.findById(id);
+    party = await Vendor.findByPk(id);
     account = ACCOUNT.AP;
   } else if (kind === 'supplier') {
-    party = await Supplier.findById(id);
+    party = await Supplier.findByPk(id);
     account = ACCOUNT.AP_SUPPLIER;
   } else if (kind === 'labour') {
-    party = await Labour.findById(id);
+    party = await Labour.findByPk(id);
     account = ACCOUNT.AP_LABOUR;
   } else if (kind === 'transport') {
-    party = await Transporter.findById(id);
+    party = await Transporter.findByPk(id);
     account = ACCOUNT.AP_TRANSPORT;
   } else {
     throw ApiError.badRequest(
@@ -103,7 +104,7 @@ async function partyStatement(kind, id, { store, ...range } = {}) {
   }
   if (!party) throw ApiError.notFound(`${kind} not found`);
 
-  const statement = await journalService.accountStatement(account, party._id, {
+  const statement = await journalService.accountStatement(account, party.id, {
     ...parseRange(range),
     store: validStore(store),
   });
@@ -121,9 +122,10 @@ async function cashLedger({ store, ...range } = {}) {
 
 // Statement for one bank account, optionally scoped to one store.
 async function bankLedger(id, { store, ...range } = {}) {
-  const bank = await BankAccount.findById(id);
+  const { BankAccount } = initializeModels();
+  const bank = await BankAccount.findByPk(id);
   if (!bank) throw ApiError.notFound('Bank account not found');
-  const statement = await journalService.accountStatement(ACCOUNT.BANK, bank._id, {
+  const statement = await journalService.accountStatement(ACCOUNT.BANK, bank.id, {
     ...parseRange(range),
     store: validStore(store),
   });

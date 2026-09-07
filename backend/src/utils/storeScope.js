@@ -1,6 +1,7 @@
-const mongoose = require('mongoose');
-const Store = require('../models/storeModel');
-const ApiError = require('../utils/ApiError');
+const { Op } = require('sequelize');
+const { initializeModels } = require('../db/models');
+const { isValidId } = require('../db/id');
+const ApiError = require('./ApiError');
 
 // A non-super-admin user with a `store` assigned is confined to it; anyone
 // else (super admin, or a legacy user with no store yet) is unrestricted.
@@ -33,24 +34,25 @@ function assertStoreAccess(actor, storeId) {
  * that, but only to narrow further: it's kept only when it's actually one of
  * the effective store's own warehouses, so it can never escape the store.
  */
-async function resolveWarehouseScope({ store, warehouse, actor } = {}) {
+async function resolveWarehouseScope({ store, warehouse, actor, transaction } = {}) {
+  const { Store } = initializeModels();
   const restricted = actorStoreId(actor);
   const effectiveStore = restricted || store;
 
-  if (effectiveStore && mongoose.isValidObjectId(effectiveStore)) {
-    const doc = await Store.findById(effectiveStore).select('warehouses').lean();
+  if (effectiveStore && isValidId(effectiveStore)) {
+    const doc = await Store.findByPk(effectiveStore, {
+      attributes: ['id'],
+      include: [{ association: 'warehouses', attributes: ['id'] }],
+      transaction,
+    });
     if (!doc) throw ApiError.notFound('Store not found');
-    const storeWarehouseIds = doc.warehouses.map(String);
-    if (
-      warehouse &&
-      mongoose.isValidObjectId(warehouse) &&
-      storeWarehouseIds.includes(String(warehouse))
-    ) {
+    const storeWarehouseIds = doc.warehouses.map((w) => w.id);
+    if (warehouse && isValidId(warehouse) && storeWarehouseIds.includes(String(warehouse))) {
       return { warehouseIds: [String(warehouse)] };
     }
     return { warehouseIds: storeWarehouseIds };
   }
-  if (!restricted && warehouse && mongoose.isValidObjectId(warehouse)) {
+  if (!restricted && warehouse && isValidId(warehouse)) {
     return { warehouseIds: [String(warehouse)] };
   }
   // A restricted actor whose own store id didn't resolve gets "nothing",
@@ -58,16 +60,13 @@ async function resolveWarehouseScope({ store, warehouse, actor } = {}) {
   return { warehouseIds: restricted ? [] : null };
 }
 
-// Mongo filter fragment for any model with a `warehouse` field (Sale,
-// StockReceipt, GatePass, Product, StockLevel, JournalEntry all share the
-// field name), built from a `resolveWarehouseScope` result. Ids are cast to
-// ObjectId so this is safe inside `.aggregate()` pipelines too — unlike
-// `.find()`, aggregation `$match` does not auto-cast query strings.
-function warehouseMongoFilter(warehouseIds) {
+// Sequelize `where` fragment for any model with a `warehouse` attribute
+// (Sale, StockReceipt, GatePass, Product, StockLevel, JournalEntry all share
+// it), built from a `resolveWarehouseScope` result.
+function warehouseWhere(warehouseIds) {
   if (!warehouseIds) return {};
-  const objectIds = warehouseIds.map((id) => new mongoose.Types.ObjectId(id));
-  if (objectIds.length === 1) return { warehouse: objectIds[0] };
-  return { warehouse: { $in: objectIds } };
+  if (warehouseIds.length === 1) return { warehouse: warehouseIds[0] };
+  return { warehouse: { [Op.in]: warehouseIds } };
 }
 
-module.exports = { resolveWarehouseScope, warehouseMongoFilter, actorStoreId, assertStoreAccess };
+module.exports = { resolveWarehouseScope, warehouseWhere, actorStoreId, assertStoreAccess };

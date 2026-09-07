@@ -1,17 +1,25 @@
-const Vendor = require('../models/vendorModel');
-const Store = require('../models/storeModel');
+const { Op } = require('sequelize');
+const { getPostgres } = require('../db/postgres');
+const { initializeModels } = require('../db/models');
 const ApiError = require('../utils/ApiError');
 const journalService = require('./journalService');
 const { ACCOUNT, REF } = require('../utils/finance');
 const { toRupees, toPaisa } = require('../utils/money');
-const { parsePagination, escapeRegex } = require('../utils/query');
+const { parsePagination } = require('../utils/query');
 const { assertStoreAccess } = require('../utils/storeScope');
 
 /**
  * Vendor (supplier) management. Authorization is enforced by route
  * middleware; here we enforce the data rules. `outstanding` is intentionally
- * never accepted from the client — it is maintained by purchase/payment flows.
+ * never accepted from the client, and the stored column (kept only for
+ * schema parity with the old Mongo model) is never trusted for a balance
+ * check either — the live payable is always read from the ledger.
  */
+
+// Escapes ILIKE wildcards so a search term is matched literally.
+function escapeLike(str) {
+  return String(str).replace(/[\\%_]/g, '\\$&');
+}
 
 // Whitelist the fields a client may set, so `outstanding` (and anything else)
 // can't be injected through the request body.
@@ -23,37 +31,39 @@ function pickWritable({ name, phone, email, ntn, address }) {
 }
 
 async function listVendors(query = {}) {
+  const { Vendor } = initializeModels();
   // The GP vendor picker and the Vendors page consume the full list (no
   // pagination UI), so allow a far larger page size than the default cap.
   const { page, limit, skip } = parsePagination(query, { defaultLimit: 1000, maxLimit: 100000 });
-  const filter = {};
+  const where = {};
   if (query.search) {
-    const term = escapeRegex(query.search);
-    filter.$or = [
-      { name: { $regex: term, $options: 'i' } },
-      { phone: { $regex: term, $options: 'i' } },
-      { email: { $regex: term, $options: 'i' } },
+    const term = `%${escapeLike(query.search)}%`;
+    where[Op.or] = [
+      { name: { [Op.iLike]: term } },
+      { phone: { [Op.iLike]: term } },
+      { email: { [Op.iLike]: term } },
     ];
   }
 
   const [docs, total, balances] = await Promise.all([
-    Vendor.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
-    Vendor.countDocuments(filter),
+    Vendor.findAll({ where, order: [['createdAt', 'DESC']], offset: skip, limit }),
+    Vendor.count({ where }),
     journalService.balancesByRef(ACCOUNT.AP, { store: query.store }),
   ]);
 
   // Replace the (legacy) stored outstanding with the live payable from the
   // ledger, in rupees, so the list matches the partner's statement.
-  const vendors = docs.map((v) => ({
-    ...v,
-    outstanding: toRupees(balances.get(String(v._id)) || 0),
-  }));
+  const vendors = docs.map((v) => {
+    const json = v.toJSON();
+    return { ...json, outstanding: toRupees(balances.get(json._id) || 0) };
+  });
 
   return { vendors, total, page, limit };
 }
 
 async function getVendorById(id) {
-  const vendor = await Vendor.findById(id);
+  const { Vendor } = initializeModels();
+  const vendor = await Vendor.findByPk(id);
   if (!vendor) throw ApiError.notFound('Vendor not found');
   return vendor;
 }
@@ -78,35 +88,40 @@ async function getVendorById(id) {
  */
 async function postVendorBalanceAdjustment(actor, vendor, { weOwe, theyOwe }, store, description) {
   if (!store) return;
+  const { Store } = initializeModels();
 
-  const storeDoc = await Store.findById(store);
-  if (!storeDoc) throw ApiError.badRequest('Store not found');
-  assertStoreAccess(actor, storeDoc._id);
+  await getPostgres().transaction(async (transaction) => {
+    const storeDoc = await Store.findByPk(store, { transaction });
+    if (!storeDoc) throw ApiError.badRequest('Store not found');
+    assertStoreAccess(actor, storeDoc.id);
 
-  const desiredNet = toPaisa(weOwe || 0) - toPaisa(theyOwe || 0);
-  const currentNet = await journalService.accountBalance(ACCOUNT.AP, vendor._id, {
-    store: storeDoc._id,
-  });
-  const delta = desiredNet - currentNet;
-  if (delta === 0) return;
+    const desiredNet = toPaisa(weOwe || 0) - toPaisa(theyOwe || 0);
+    const currentNet = await journalService.accountBalance(ACCOUNT.AP, vendor.id, {
+      store: storeDoc.id,
+      transaction,
+    });
+    const delta = desiredNet - currentNet;
+    if (delta === 0) return;
 
-  const amt = Math.abs(delta);
-  const weOweMore = delta > 0;
-  await journalService.post({
-    description,
-    refType: REF.OPENING,
-    refId: vendor._id,
-    store: storeDoc._id,
-    createdBy: actor ? actor._id : null,
-    lines: weOweMore
-      ? [
-          journalService.line(ACCOUNT.EQUITY, { debit: amt }),
-          journalService.line(ACCOUNT.AP, { credit: amt, ref: vendor._id }),
-        ]
-      : [
-          journalService.line(ACCOUNT.AP, { debit: amt, ref: vendor._id }),
-          journalService.line(ACCOUNT.EQUITY, { credit: amt }),
-        ],
+    const amt = Math.abs(delta);
+    const weOweMore = delta > 0;
+    await journalService.post({
+      description,
+      refType: REF.OPENING,
+      refId: vendor.id,
+      store: storeDoc.id,
+      createdBy: actor ? actor.id : null,
+      transaction,
+      lines: weOweMore
+        ? [
+            journalService.line(ACCOUNT.EQUITY, { debit: amt }),
+            journalService.line(ACCOUNT.AP, { credit: amt, ref: vendor.id }),
+          ]
+        : [
+            journalService.line(ACCOUNT.AP, { debit: amt, ref: vendor.id }),
+            journalService.line(ACCOUNT.EQUITY, { credit: amt }),
+          ],
+    });
   });
 }
 
@@ -116,6 +131,7 @@ async function postVendorBalanceAdjustment(actor, vendor, { weOwe, theyOwe }, st
  * — e.g. an existing business being onboarded.
  */
 async function createVendor(actor, { weOweAmount, theyOweAmount, store, ...data }) {
+  const { Vendor } = initializeModels();
   const vendor = await Vendor.create(pickWritable(data));
   await postVendorBalanceAdjustment(
     actor,
@@ -149,10 +165,11 @@ async function updateVendor(actor, id, { weOweAmount, theyOweAmount, store, ...d
 
 async function deleteVendor(id) {
   const vendor = await getVendorById(id);
-  if (vendor.outstanding > 0) {
+  const balance = await journalService.accountBalance(ACCOUNT.AP, vendor.id);
+  if (balance > 0) {
     throw ApiError.badRequest('Vendor has an outstanding balance and cannot be deleted');
   }
-  await vendor.deleteOne();
+  await vendor.destroy();
 }
 
 module.exports = {

@@ -1,10 +1,7 @@
-const mongoose = require('mongoose');
-const Category = require('../models/categoryModel');
-const Brand = require('../models/brandModel');
-const Unit = require('../models/unitModel');
-const Product = require('../models/productModel');
+const { fn, col, where: sqlWhere, UniqueConstraintError } = require('sequelize');
+const { initializeModels } = require('../db/models');
+const { isValidId } = require('../db/id');
 const ApiError = require('../utils/ApiError');
-const { escapeRegex } = require('../utils/query');
 
 /**
  * The product catalog's classification entities — categories, brands and units
@@ -13,14 +10,24 @@ const { escapeRegex } = require('../utils/query');
  * (find-or-create), so both the id-based payloads and legacy name strings work.
  */
 
-const KIND_MODEL = { category: Category, brand: Brand, unit: Unit };
+function kindModel() {
+  const { Category, Brand, Unit } = initializeModels();
+  return { category: Category, brand: Brand, unit: Unit };
+}
+
+// Case-insensitive equality fragment for a `name` column, matching the
+// `LOWER(name)` unique indexes on categories/brands/units.
+function nameEquals(value) {
+  return sqlWhere(fn('LOWER', col('name')), value.toLowerCase());
+}
 
 // Everything the catalog screen / product-form dropdowns need, active only.
 async function listCatalog() {
+  const { Category, Brand, Unit } = initializeModels();
   const [categories, brands, units] = await Promise.all([
-    Category.find({ isActive: true }).sort({ name: 1 }).lean(),
-    Brand.find({ isActive: true }).sort({ name: 1 }).lean(),
-    Unit.find({ isActive: true }).sort({ name: 1 }).lean(),
+    Category.findAll({ where: { isActive: true }, order: [['name', 'ASC']] }),
+    Brand.findAll({ where: { isActive: true }, order: [['name', 'ASC']] }),
+    Unit.findAll({ where: { isActive: true }, order: [['name', 'ASC']] }),
   ]);
   return { categories, brands, units };
 }
@@ -30,16 +37,14 @@ async function listCatalog() {
 async function findOrCreateByName(Model, name, extra = {}) {
   const trimmed = String(name || '').trim();
   if (!trimmed) return null;
-  const existing = await Model.findOne({
-    name: { $regex: `^${escapeRegex(trimmed)}$`, $options: 'i' },
-  });
+  const existing = await Model.findOne({ where: nameEquals(trimmed) });
   if (existing) return existing;
   try {
     return await Model.create({ name: trimmed, ...extra });
   } catch (err) {
     // Lost a create race against the unique index — fetch the winner.
-    if (err && err.code === 11000) {
-      return Model.findOne({ name: { $regex: `^${escapeRegex(trimmed)}$`, $options: 'i' } });
+    if (err instanceof UniqueConstraintError) {
+      return Model.findOne({ where: nameEquals(trimmed) });
     }
     throw err;
   }
@@ -47,21 +52,21 @@ async function findOrCreateByName(Model, name, extra = {}) {
 
 /**
  * Resolve a single catalog reference. Prefers an explicit `id`; falls back to a
- * free-text `name` (find-or-create). Returns the entity's `_id`, `null` to
- * clear the ref (explicit empty/null), or `undefined` to leave it unchanged.
+ * free-text `name` (find-or-create). Returns the entity's id, `null` to clear
+ * the ref (explicit empty/null), or `undefined` to leave it unchanged.
  */
 async function resolveRef(Model, id, name, extra) {
   if (id !== undefined && id !== null && id !== '') {
-    if (!mongoose.isValidObjectId(id)) {
-      throw ApiError.badRequest(`Invalid ${Model.modelName.toLowerCase()} id`);
+    if (!isValidId(id)) {
+      throw ApiError.badRequest(`Invalid ${Model.name.toLowerCase()} id`);
     }
-    const doc = await Model.findById(id);
-    if (!doc) throw ApiError.notFound(`${Model.modelName} not found`);
-    return doc._id;
+    const doc = await Model.findByPk(id);
+    if (!doc) throw ApiError.notFound(`${Model.name} not found`);
+    return doc.id;
   }
   if (typeof name === 'string' && name.trim()) {
     const doc = await findOrCreateByName(Model, name, extra);
-    return doc ? doc._id : null;
+    return doc ? doc.id : null;
   }
   if (id === null || id === '' || name === null || name === '') return null;
   return undefined;
@@ -74,6 +79,7 @@ async function resolveRef(Model, id, name, extra) {
  * an update leaves unspecified refs untouched.
  */
 async function resolveProductRefs(data = {}) {
+  const { Category, Brand, Unit } = initializeModels();
   const refs = {};
   const category = await resolveRef(Category, data.categoryId, data.category);
   const brand = await resolveRef(Brand, data.brandId, data.brand);
@@ -88,7 +94,7 @@ async function resolveProductRefs(data = {}) {
 
 // Create (or return existing) a catalog entry of the given kind.
 async function createEntry(kind, { name, description, abbreviation, unit } = {}) {
-  const Model = KIND_MODEL[kind];
+  const Model = kindModel()[kind];
   if (!Model) throw ApiError.badRequest('Unknown catalog type');
   if (!name || !String(name).trim()) throw ApiError.badRequest('A name is required');
   let extra = {};
@@ -98,17 +104,17 @@ async function createEntry(kind, { name, description, abbreviation, unit } = {})
 }
 
 function modelFor(kind) {
-  const Model = KIND_MODEL[kind];
+  const Model = kindModel()[kind];
   if (!Model) throw ApiError.badRequest('Unknown catalog type');
   return Model;
 }
 
 async function listEntries(kind) {
-  return modelFor(kind).find({ isActive: true }).sort({ name: 1 }).lean();
+  return modelFor(kind).findAll({ where: { isActive: true }, order: [['name', 'ASC']] });
 }
 
 async function getEntryById(kind, id) {
-  const entry = await modelFor(kind).findById(id);
+  const entry = await modelFor(kind).findByPk(id);
   if (!entry) throw ApiError.notFound(`${kind === 'unit' ? 'Unit' : 'Category'} not found`);
   return entry;
 }
@@ -128,14 +134,16 @@ async function updateEntry(kind, id, data = {}) {
 }
 
 async function deleteEntry(kind, id) {
+  const { Product } = initializeModels();
   const entry = await getEntryById(kind, id);
   const productField = kind === 'unit' ? 'unit' : 'category';
-  if (await Product.exists({ [productField]: entry._id })) {
+  const inUse = await Product.count({ where: { [productField]: entry.id } });
+  if (inUse > 0) {
     throw ApiError.badRequest(
       `${kind === 'unit' ? 'Unit' : 'Category'} is used by products and cannot be deleted`,
     );
   }
-  await entry.deleteOne();
+  await entry.destroy();
 }
 
 module.exports = {

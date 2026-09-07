@@ -59,6 +59,27 @@ const HIDDEN_FIELDS = {
   GatePass: ['token', 'signatureData'],
 };
 
+// Reshapes flattened columns back into the nested object shape the old
+// Mongoose subdocument had, so response payloads stay contract-compatible.
+const TRANSFORMS = {
+  GatePass: (values) => {
+    const hasDriver = values.driverName || values.driverVehicleNumber;
+    values.driver = hasDriver
+      ? {
+          name: values.driverName || '',
+          phone: values.driverPhone || '',
+          licenseNumber: values.driverLicenseNumber || '',
+          vehicleNumber: values.driverVehicleNumber || '',
+        }
+      : null;
+    delete values.driverName;
+    delete values.driverPhone;
+    delete values.driverLicenseNumber;
+    delete values.driverVehicleNumber;
+    return values;
+  },
+};
+
 let models;
 
 function initializeModels() {
@@ -71,7 +92,7 @@ function initializeModels() {
   associateModels(models);
 
   for (const [name, model] of Object.entries(models)) {
-    addPublicSerialization(model, HIDDEN_FIELDS[name] || []);
+    addPublicSerialization(model, HIDDEN_FIELDS[name] || [], TRANSFORMS[name]);
   }
 
   return models;

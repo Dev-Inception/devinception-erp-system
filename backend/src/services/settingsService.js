@@ -1,10 +1,13 @@
-const Settings = require('../models/settingsModel');
+const { UniqueConstraintError } = require('sequelize');
+const { initializeModels } = require('../db/models');
 const env = require('../config/env');
 
 /**
- * The singleton settings document. `getSettings` lazily creates it on first
- * read, seeded from the env company info so a fresh install still has sensible
- * values. Writes only touch the known fields.
+ * The singleton settings row. `getSettings` lazily creates it on first read,
+ * seeded from the env company info so a fresh install still has sensible
+ * values — though migration 002 already inserts a `key = 'app'` row via
+ * `ON CONFLICT DO NOTHING`, so in practice this almost always just finds it.
+ * Writes only touch the known fields.
  */
 
 const KEY = 'app';
@@ -22,14 +25,15 @@ function defaults() {
 }
 
 async function getSettings() {
-  let settings = await Settings.findOne({ key: KEY });
+  const { Settings } = initializeModels();
+  let settings = await Settings.findOne({ where: { key: KEY } });
   if (settings) return settings;
   try {
     settings = await Settings.create({ key: KEY, ...defaults() });
     return settings;
   } catch (err) {
     // Concurrent first-read created it first — fetch the winner.
-    if (err && err.code === 11000) return Settings.findOne({ key: KEY });
+    if (err instanceof UniqueConstraintError) return Settings.findOne({ where: { key: KEY } });
     throw err;
   }
 }

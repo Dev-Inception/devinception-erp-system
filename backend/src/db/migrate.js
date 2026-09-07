@@ -22,6 +22,7 @@ async function printStatus() {
   await ensureMetaTable(db);
   const applied = await appliedNames(db);
   for (const migration of migrations) {
+    // eslint-disable-next-line no-console
     console.log(`${applied.has(migration.name) ? 'up  ' : 'pending'} ${migration.name}`);
   }
 }
@@ -41,6 +42,7 @@ async function runMigrations() {
         transaction,
       });
     });
+    // eslint-disable-next-line no-console
     console.log(`Applied ${migration.name}`);
   }
 }
@@ -53,6 +55,7 @@ async function main() {
       await runMigrations();
     }
   } catch (err) {
+    // eslint-disable-next-line no-console
     console.error('Migration failed:', err);
     process.exitCode = 1;
   } finally {

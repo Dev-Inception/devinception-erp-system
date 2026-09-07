@@ -1,5 +1,6 @@
 const crypto = require('crypto');
-const User = require('../models/userModel');
+const { Op } = require('sequelize');
+const { initializeModels } = require('../db/models');
 const ApiError = require('../utils/ApiError');
 const env = require('../config/env');
 const tokenService = require('./tokenService');
@@ -11,8 +12,9 @@ const { sendPasswordResetEmail } = require('./emailService');
  */
 
 async function login({ email, password }) {
-  // Password is select:false, so request it explicitly.
-  const user = await User.findOne({ email }).select('+password +tokenVersion');
+  // password/tokenVersion are excluded by the default scope, so opt back in.
+  const { User } = initializeModels();
+  const user = await User.scope('withSecrets').findOne({ where: { email } });
   if (!user || !(await user.comparePassword(password))) {
     throw ApiError.unauthorized('Invalid email or password');
   }
@@ -36,7 +38,8 @@ async function refresh(refreshToken) {
     throw ApiError.unauthorized('Invalid or expired refresh token');
   }
 
-  const user = await User.findById(payload.sub).select('+passwordChangedAt +tokenVersion');
+  const { User } = initializeModels();
+  const user = await User.scope('withSecrets').findByPk(payload.sub);
   if (!user || !user.isActive) {
     throw ApiError.unauthorized('User no longer exists or is inactive');
   }
@@ -65,19 +68,21 @@ async function logout({ accessToken, refreshToken }) {
     }
   }
   if (payload?.sub) {
-    await User.updateOne({ _id: payload.sub }, { $inc: { tokenVersion: 1 } });
+    const { User } = initializeModels();
+    await User.increment('tokenVersion', { where: { id: payload.sub } });
   }
 }
 
 async function forgotPassword(email) {
-  const user = await User.findOne({ email });
+  const { User } = initializeModels();
+  const user = await User.findOne({ where: { email } });
 
   // Always behave the same way whether or not the email exists, so we
   // don't leak which addresses are registered.
   if (!user) return;
 
   const rawToken = user.createPasswordResetToken(env.resetTokenExpiresMin);
-  await user.save({ validateBeforeSave: false });
+  await user.save();
 
   const resetUrl = `${env.clientUrl}/reset-password?token=${rawToken}`;
 
@@ -85,9 +90,9 @@ async function forgotPassword(email) {
     await sendPasswordResetEmail(user.email, resetUrl);
   } catch (err) {
     // Roll back the token so a failed send doesn't leave a dangling reset.
-    user.passwordResetToken = undefined;
-    user.passwordResetExpires = undefined;
-    await user.save({ validateBeforeSave: false });
+    user.passwordResetToken = null;
+    user.passwordResetExpires = null;
+    await user.save();
     throw ApiError.badRequest('Failed to send reset email, try again later');
   }
 }
@@ -95,18 +100,21 @@ async function forgotPassword(email) {
 async function resetPassword(rawToken, newPassword) {
   const hashed = crypto.createHash('sha256').update(rawToken).digest('hex');
 
-  const user = await User.findOne({
-    passwordResetToken: hashed,
-    passwordResetExpires: { $gt: new Date() },
-  }).select('+password +tokenVersion');
+  const { User } = initializeModels();
+  const user = await User.scope('withSecrets').findOne({
+    where: {
+      passwordResetToken: hashed,
+      passwordResetExpires: { [Op.gt]: new Date() },
+    },
+  });
 
   if (!user) {
     throw ApiError.badRequest('Token is invalid or has expired');
   }
 
   user.password = newPassword;
-  user.passwordResetToken = undefined;
-  user.passwordResetExpires = undefined;
+  user.passwordResetToken = null;
+  user.passwordResetExpires = null;
   await user.save();
 
   // Issue fresh tokens so the user is logged in after resetting.
@@ -114,7 +122,8 @@ async function resetPassword(rawToken, newPassword) {
 }
 
 async function changePassword(userId, currentPassword, newPassword) {
-  const user = await User.findById(userId).select('+password +tokenVersion');
+  const { User } = initializeModels();
+  const user = await User.scope('withSecrets').findByPk(userId);
   if (!user) throw ApiError.notFound('User not found');
 
   if (!(await user.comparePassword(currentPassword))) {

@@ -38,13 +38,16 @@ function defineModel(db, name, attributes, options = {}) {
 
 // Makes a model's JSON output look like the Mongoose documents the frontend
 // already expects: an `_id` field instead of `id`, and no leaked secrets.
-function addPublicSerialization(model, hidden = []) {
+// `transform`, when given, runs last and can reshape flattened columns back
+// into the nested object shape the old Mongoose subdocument had (e.g.
+// GatePass.driver — see models/index.js's TRANSFORMS map).
+function addPublicSerialization(model, hidden = [], transform = null) {
   model.prototype.toJSON = function toJSON() {
     const values = { ...this.get() };
     values._id = values.id;
     delete values.id;
     for (const field of hidden) delete values[field];
-    return values;
+    return transform ? transform(values) : values;
   };
 }
 
