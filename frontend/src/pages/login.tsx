@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useAuthStore } from '@/store/auth';
+import { useStorefrontStore } from '@/store/storefront';
 import { landingPath } from '@/lib/modules';
 
 /* ── Faux dashboard shown on the brand panel ── */
@@ -134,12 +135,24 @@ export function LoginPage() {
     setLoading(true);
     try {
       await login(email, password);
+      const user = useAuthStore.getState().user;
+      if (user?.role === 'SUPER_ADMIN') {
+        // Fresh login — the store picker modal should prompt again if
+        // there's more than one storefront, even if a selection was already
+        // persisted.
+        useStorefrontStore.getState().markLoggedIn();
+      } else {
+        // Every other role is confined to the one store they were created
+        // under — set it directly, no picker to show.
+        useStorefrontStore.getState().setCurrentStore(user?.storeId ?? 'ALL');
+      }
       // Land on the first module this user can actually see (a cashier, for
       // example, can't open the dashboard, so send them to their first module).
-      const user = useAuthStore.getState().user;
       navigate(landingPath(user?.role, user?.permissions), { replace: true });
-    } catch {
-      setError('Invalid email or password');
+    } catch (e: any) {
+      // Surface the backend's actual reason (e.g. a deactivated account)
+      // instead of always showing the generic invalid-credentials message.
+      setError(e?.response?.data?.message || 'Invalid email or password');
     } finally {
       setLoading(false);
     }
@@ -233,9 +246,6 @@ export function LoginPage() {
                 {loading && <Loader2 className="h-4 w-4 animate-spin" />}
                 Sign in
               </Button>
-              <p className="animate-fade-in delay-500 text-center text-xs text-muted-foreground">
-                Demo: admin@devinception.com / Password123!
-              </p>
             </form>
           </CardContent>
         </Card>

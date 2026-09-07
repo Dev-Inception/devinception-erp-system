@@ -6,7 +6,9 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { api } from '@/lib/api';
-import { cn, formatCurrency, formatQuantity } from '@/lib/utils';
+import { cn, formatCurrency } from '@/lib/utils';
+import { useStorefrontFilter } from '@/store/storefront';
+import { useLanguage } from '@/components/language-provider';
 
 interface ReportResult {
   title: string;
@@ -17,26 +19,28 @@ interface ReportResult {
 
 const TYPES = [
   { key: 'sales', label: 'Sales' },
-  { key: 'purchases', label: 'Purchases' },
   { key: 'stock', label: 'Stock Valuation' },
   { key: 'pnl', label: 'Profit & Loss' },
 ];
 
 export function ReportsPage() {
+  const { t } = useLanguage();
   const [type, setType] = useState('sales');
   const today = new Date().toISOString().slice(0, 10);
   const monthAgo = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
   const [from, setFrom] = useState(monthAgo);
   const [to, setTo] = useState(today);
+  const storefront = useStorefrontFilter();
 
   const { data, isLoading } = useQuery<ReportResult>({
-    queryKey: ['report', type, from, to],
-    queryFn: async () => (await api.get(`/reports/${type}`, { params: { from, to } })).data,
+    queryKey: ['report', type, from, to, storefront.store],
+    queryFn: async () =>
+      (await api.get(`/reports/${type}`, { params: { from, to, ...storefront } })).data,
   });
 
   const downloadCsv = async () => {
     // Build the CSV client-side from the mock report data (no backend).
-    const report = (await api.get(`/reports/${type}`, { params: { from, to } }))
+    const report = (await api.get(`/reports/${type}`, { params: { from, to, ...storefront } }))
       .data as ReportResult;
     const escape = (v: any) => {
       const s = String(v ?? '').replace(/"/g, '""');
@@ -54,18 +58,12 @@ export function ReportsPage() {
     URL.revokeObjectURL(url);
   };
 
-  const fmt = (col: { key: string; numeric?: boolean }, value: any) => {
-    if (col.key === 'qty') return formatQuantity(value);
-    if (col.key === 'avgCost' && Number.isFinite(Number(value))) {
-      return formatCurrency(Number(value), 'PKR', 2);
-    }
-    if (col.numeric && Number.isFinite(Number(value))) return formatCurrency(Number(value));
-    return String(value ?? '');
-  };
+  const fmt = (col: { numeric?: boolean }, v: any) =>
+    col.numeric && typeof v === 'number' ? formatCurrency(v) : String(v ?? '');
 
   return (
     <div className="space-y-4">
-      <Card>
+      <Card className="no-print">
         <CardContent className="flex flex-wrap items-end gap-3 p-4">
           <div className="space-y-1.5">
             <Label>Report</Label>
@@ -107,11 +105,11 @@ export function ReportsPage() {
             </>
           )}
           <div className="ml-auto flex gap-2">
-            <Button variant="outline" onClick={() => window.print()}>
-              <Printer className="h-4 w-4" /> Print / PDF
+            <Button variant="outline" onClick={() => window.print()} disabled={!data}>
+              <Printer className="h-4 w-4" /> {t('Print / PDF')}
             </Button>
             <Button onClick={downloadCsv}>
-              <Download className="h-4 w-4" /> CSV
+              <Download className="h-4 w-4" /> {t('CSV')}
             </Button>
           </div>
         </CardContent>
@@ -120,6 +118,11 @@ export function ReportsPage() {
       <Card className="overflow-hidden">
         <CardHeader>
           <CardTitle>{data?.title ?? 'Report'}</CardTitle>
+          {type !== 'stock' && (
+            <p className="text-sm text-muted-foreground">
+              {from} to {to}
+            </p>
+          )}
         </CardHeader>
         <CardContent className="p-0">
           <div className="overflow-x-auto">
@@ -131,7 +134,7 @@ export function ReportsPage() {
                       key={c.key}
                       className={cn('px-4 py-2 font-medium', c.numeric && 'text-right')}
                     >
-                      {c.label}
+                      {t(c.label)}
                     </th>
                   ))}
                 </tr>

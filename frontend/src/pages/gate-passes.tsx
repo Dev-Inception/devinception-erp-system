@@ -1,230 +1,88 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { CheckCircle2, Clock3, Pencil } from 'lucide-react';
+import { CheckCircle2, Clock3, Eye, Search, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
-import { SignaturePad } from '@/components/signature-pad';
+import { GatePassDialog } from '@/components/gate-pass-dialog';
 import { api } from '@/lib/api';
-import { formatQuantity } from '@/lib/utils';
+import { useAuthStore } from '@/store/auth';
+import { useStorefrontFilter } from '@/store/storefront';
+import { useLanguage } from '@/components/language-provider';
 
 interface GatePassItem {
   productId: string;
   name: string;
   sku?: string;
-  quantity: number | string;
-  loadedQuantity?: number | string;
-  loadConfirmed?: boolean;
+  quantity: number;
+  returnedQuantity?: number;
 }
 
 interface GatePass {
   id: string;
   number: string;
-  sourceType: 'SALE' | 'PURCHASE';
+  sourceType: 'SALE' | 'PURCHASE' | 'RETURN';
   saleNumber: string;
   saleDate: string;
   status: 'PENDING' | 'PROCESSED' | 'CANCELLED';
   items: GatePassItem[];
-  driver?: {
-    name: string;
-    phone?: string;
-    licenseNumber?: string;
-    vehicleNumber: string;
-  };
-  loadNotes?: string;
   processedAt?: string;
   processedBy?: { name?: string };
-  lastEditedAt?: string;
-}
-
-function EditGatePass({ gatePass, onClose }: { gatePass: GatePass | null; onClose: () => void }) {
-  const qc = useQueryClient();
-  const [driver, setDriver] = useState({
-    name: '',
-    phone: '',
-    licenseNumber: '',
-    vehicleNumber: '',
-  });
-  const [loadNotes, setLoadNotes] = useState('');
-  const [items, setItems] = useState<GatePassItem[]>([]);
-  const [signatureData, setSignatureData] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!gatePass) return;
-    setDriver({
-      name: gatePass.driver?.name ?? '',
-      phone: gatePass.driver?.phone ?? '',
-      licenseNumber: gatePass.driver?.licenseNumber ?? '',
-      vehicleNumber: gatePass.driver?.vehicleNumber ?? '',
-    });
-    setLoadNotes(gatePass.loadNotes ?? '');
-    setItems(
-      gatePass.items.map((item) => ({
-        ...item,
-        quantity: Number(item.quantity),
-        loadedQuantity: item.loadedQuantity === undefined ? undefined : Number(item.loadedQuantity),
-      })),
-    );
-    setSignatureData(null);
-  }, [gatePass]);
-
-  const save = useMutation({
-    mutationFn: async () =>
-      (
-        await api.patch(`/gate-passes/${gatePass!.id}`, {
-          driver,
-          loadNotes,
-          items: items.map((item) => ({
-            productId: item.productId,
-            loadedQuantity: item.loadedQuantity,
-            loadConfirmed: item.loadConfirmed,
-          })),
-          ...(signatureData ? { signatureData } : {}),
-        })
-      ).data,
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['gate-passes'] });
-      toast.success('Gate pass updated');
-      onClose();
-    },
-    onError: (error: any) =>
-      toast.error(error?.response?.data?.message ?? 'Could not update gate pass'),
-  });
-
-  return (
-    <Dialog open={Boolean(gatePass)} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>Edit processed gate pass</DialogTitle>
-          <DialogDescription>
-            Admin corrections are timestamped. Leave the signature blank to retain the existing
-            signature.
-          </DialogDescription>
-        </DialogHeader>
-        {gatePass && (
-          <form
-            className="space-y-4"
-            onSubmit={(event) => {
-              event.preventDefault();
-              save.mutate();
-            }}
-          >
-            <div className="grid gap-3 sm:grid-cols-2">
-              {[
-                ['Driver name', 'name'],
-                ['Vehicle number', 'vehicleNumber'],
-                ['Driver phone', 'phone'],
-                ['License number', 'licenseNumber'],
-              ].map(([label, key]) => (
-                <div key={key} className="space-y-1">
-                  <Label>{label}</Label>
-                  <Input
-                    required={key === 'name' || key === 'vehicleNumber'}
-                    value={driver[key as keyof typeof driver]}
-                    onChange={(event) =>
-                      setDriver((current) => ({ ...current, [key]: event.target.value }))
-                    }
-                  />
-                </div>
-              ))}
-            </div>
-
-            <div className="space-y-2">
-              <Label>Loaded products</Label>
-              {items.map((item, index) => (
-                <div
-                  key={item.productId}
-                  className="grid grid-cols-[1fr_6rem_auto] items-center gap-2 rounded-md border p-2 text-sm"
-                >
-                  <span>
-                    {item.name} (gate qty {formatQuantity(item.quantity)})
-                  </span>
-                  <Input
-                    type="number"
-                    step="1"
-                    min="0"
-                    value={item.loadedQuantity ?? ''}
-                    onChange={(event) =>
-                      setItems((current) =>
-                        current.map((value, itemIndex) =>
-                          itemIndex === index
-                            ? {
-                                ...value,
-                                loadedQuantity: Math.max(0, Math.trunc(Number(event.target.value))),
-                              }
-                            : value,
-                        ),
-                      )
-                    }
-                  />
-                  <input
-                    type="checkbox"
-                    className="h-4 w-4"
-                    checked={item.loadConfirmed ?? false}
-                    onChange={(event) =>
-                      setItems((current) =>
-                        current.map((value, itemIndex) =>
-                          itemIndex === index
-                            ? { ...value, loadConfirmed: event.target.checked }
-                            : value,
-                        ),
-                      )
-                    }
-                  />
-                </div>
-              ))}
-            </div>
-
-            <div className="space-y-1">
-              <Label>Load notes</Label>
-              <textarea
-                className="min-h-20 w-full rounded-md border bg-transparent px-3 py-2 text-sm"
-                maxLength={1000}
-                value={loadNotes}
-                onChange={(event) => setLoadNotes(event.target.value)}
-              />
-            </div>
-
-            <div className="space-y-1">
-              <Label>Replacement signature (optional)</Label>
-              <SignaturePad onChange={setSignatureData} />
-            </div>
-
-            <Button className="w-full" disabled={save.isPending}>
-              Save Admin Correction
-            </Button>
-          </form>
-        )}
-      </DialogContent>
-    </Dialog>
-  );
+  scannedBy?: { name?: string };
 }
 
 export function GatePassesPage() {
   const [status, setStatus] = useState<'ALL' | 'PENDING' | 'PROCESSED'>('ALL');
-  const [editing, setEditing] = useState<GatePass | null>(null);
+  const [search, setSearch] = useState('');
+  const [from, setFrom] = useState('');
+  const [to, setTo] = useState('');
+  const storefront = useStorefrontFilter();
+  const { t } = useLanguage();
+  const qc = useQueryClient();
+  const isSuperAdmin = useAuthStore((s) => s.user?.role) === 'SUPER_ADMIN';
+  const [viewing, setViewing] = useState<GatePass | null>(null);
+
   const { data, isLoading } = useQuery<{
     gatePasses: GatePass[];
     total: number;
   }>({
-    queryKey: ['gate-passes', status],
+    queryKey: ['gate-passes', status, from, to, storefront.store],
     queryFn: async () =>
       (
         await api.get('/gate-passes', {
-          params: { limit: 100, ...(status === 'ALL' ? {} : { status }) },
+          params: {
+            limit: 100,
+            ...(status === 'ALL' ? {} : { status }),
+            from: from || undefined,
+            to: to || undefined,
+            ...storefront,
+          },
         })
       ).data,
   });
   const gatePasses = data?.gatePasses ?? [];
+
+  const q = search.trim().toLowerCase();
+  const filteredGatePasses = q
+    ? gatePasses.filter((g) => g.number.toLowerCase().includes(q))
+    : gatePasses;
+
+  const deleteGatePass = useMutation({
+    mutationFn: async (id: string) => api.delete(`/gate-passes/${id}`),
+    onSuccess: () => {
+      toast.success('Gate pass deleted');
+      qc.invalidateQueries({ queryKey: ['gate-passes'] });
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Could not delete gate pass'),
+  });
+
+  const remove = (gatePass: GatePass) => {
+    if (window.confirm(`Delete gate pass "${gatePass.number}"? This cannot be undone.`)) {
+      deleteGatePass.mutate(gatePass.id);
+    }
+  };
 
   return (
     <div className="space-y-4">
@@ -235,7 +93,37 @@ export function GatePassesPage() {
             Review pending and processed vehicle loads.
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap items-end gap-2">
+          <div className="w-64 space-y-1.5">
+            <Label className="text-xs">{t('Search')}</Label>
+            <div className="relative">
+              <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder={t('Search by gate pass #…')}
+                className="pl-8"
+              />
+            </div>
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs">{t('From')}</Label>
+            <Input
+              type="date"
+              value={from}
+              onChange={(e) => setFrom(e.target.value)}
+              className="w-36"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs">{t('To')}</Label>
+            <Input
+              type="date"
+              value={to}
+              onChange={(e) => setTo(e.target.value)}
+              className="w-36"
+            />
+          </div>
           {(['ALL', 'PENDING', 'PROCESSED'] as const).map((value) => (
             <Button
               key={value}
@@ -253,12 +141,12 @@ export function GatePassesPage() {
         <table className="w-full min-w-[760px] text-sm">
           <thead>
             <tr className="border-b bg-muted/50 text-left text-xs uppercase tracking-wide text-muted-foreground">
-              <th className="px-4 py-3 font-medium">Gate Pass</th>
-              <th className="px-4 py-3 font-medium">Document</th>
-              <th className="px-4 py-3 font-medium">Products / Qty</th>
-              <th className="px-4 py-3 font-medium">Driver / Vehicle</th>
-              <th className="px-4 py-3 font-medium">Status</th>
-              <th className="px-4 py-3 text-right font-medium">Action</th>
+              <th className="px-4 py-3 font-medium">{t('Gate Pass')}</th>
+              <th className="px-4 py-3 font-medium">{t('Document')}</th>
+              <th className="px-4 py-3 font-medium">{t('Products / Qty')}</th>
+              <th className="px-4 py-3 font-medium">{t('Scanned By')}</th>
+              <th className="px-4 py-3 font-medium">{t('Status')}</th>
+              <th className="px-4 py-3 text-right font-medium">{t('Actions')}</th>
             </tr>
           </thead>
           <tbody>
@@ -269,38 +157,36 @@ export function GatePassesPage() {
                 </td>
               </tr>
             )}
-            {!isLoading && gatePasses.length === 0 && (
+            {!isLoading && filteredGatePasses.length === 0 && (
               <tr>
                 <td colSpan={6} className="px-4 py-10 text-center text-muted-foreground">
-                  No gate passes found.
+                  {q ? `No gate passes match "${search}".` : 'No gate passes found.'}
                 </td>
               </tr>
             )}
-            {gatePasses.map((gatePass) => (
+            {filteredGatePasses.map((gatePass) => (
               <tr key={gatePass.id} className="border-b last:border-0">
                 <td className="px-4 py-3 font-medium">{gatePass.number}</td>
                 <td className="px-4 py-3">
                   <div>{gatePass.saleNumber}</div>
                   <div className="text-xs text-muted-foreground">
-                    {gatePass.sourceType === 'PURCHASE' ? 'Goods In' : 'Goods Out'}
+                    {gatePass.sourceType === 'SALE' ? 'Goods Out' : 'Goods In'}
                   </div>
                 </td>
                 <td className="px-4 py-3">
                   {gatePass.items.map((item) => (
                     <div key={item.productId}>
-                      {item.name} × {formatQuantity(item.quantity)}
+                      {item.name} × {item.quantity}
+                      {item.returnedQuantity ? (
+                        <span className="ml-1 text-xs text-destructive">
+                          ({item.returnedQuantity} returned)
+                        </span>
+                      ) : null}
                     </div>
                   ))}
                 </td>
                 <td className="px-4 py-3 text-muted-foreground">
-                  {gatePass.driver ? (
-                    <>
-                      <div>{gatePass.driver.name}</div>
-                      <div>{gatePass.driver.vehicleNumber}</div>
-                    </>
-                  ) : (
-                    '—'
-                  )}
+                  {gatePass.scannedBy?.name ?? gatePass.processedBy?.name ?? '—'}
                 </td>
                 <td className="px-4 py-3">
                   <div className="flex items-center gap-2">
@@ -318,12 +204,29 @@ export function GatePassesPage() {
                   )}
                 </td>
                 <td className="px-4 py-3 text-right">
-                  {gatePass.status === 'PROCESSED' && (
-                    <Button size="sm" variant="outline" onClick={() => setEditing(gatePass)}>
-                      <Pencil className="h-4 w-4" />
-                      Edit
+                  <div className="flex justify-end gap-1">
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="h-8 w-8"
+                      title={t('View')}
+                      onClick={() => setViewing(gatePass)}
+                    >
+                      <Eye className="h-4 w-4" />
                     </Button>
-                  )}
+                    {isSuperAdmin && (
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="h-8 w-8"
+                        title={t('Delete')}
+                        disabled={deleteGatePass.isPending}
+                        onClick={() => remove(gatePass)}
+                      >
+                        <Trash2 className="h-4 w-4 text-destructive" />
+                      </Button>
+                    )}
+                  </div>
                 </td>
               </tr>
             ))}
@@ -331,7 +234,13 @@ export function GatePassesPage() {
         </table>
       </Card>
 
-      <EditGatePass gatePass={editing} onClose={() => setEditing(null)} />
+      <GatePassDialog
+        gatePassId={viewing?.id}
+        gatePassQrUrl={viewing ? `/gate-passes/${viewing.id}/qr` : undefined}
+        title={viewing?.number}
+        open={viewing !== null}
+        onOpenChange={(o) => !o && setViewing(null)}
+      />
     </div>
   );
 }

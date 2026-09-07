@@ -76,12 +76,11 @@ Legend: ✅ done · ◑ backend done, UI still on mock data · 🚧 next · ⬜ 
 - [ ] Company (logo), invoice, tax, printer-mapping, WhatsApp, SMTP settings — needs a settings collection (none today).
 - [ ] Print-template editor.
 
-## Phase 9 — Desktop & Realtime ◑
+## Phase 9 — PWA & Realtime ◑
 
-- [x] Electron shell + silent printing IPC + auto-update wiring (`electron-builder`).
-- [ ] Offline mode: local cache/queue, sync on reconnect.
+- [x] Progressive Web App: installable manifest + service worker (`vite-plugin-pwa`), app-shell precache, `NetworkFirst` API caching.
+- [ ] Offline mutation queue (POS sales while offline) + background sync on reconnect.
 - [ ] Realtime: introduce Socket.IO (not yet present) for live KPI/stock updates; Redis adapter for multi-terminal.
-- [ ] Code-sign + notarize (mac) / NSIS (win), release channel.
 
 ## Phase 10 — Quality & Ops ⬜
 

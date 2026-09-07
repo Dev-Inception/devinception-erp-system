@@ -1,283 +1,478 @@
 const crypto = require('crypto');
 const QRCode = require('qrcode');
-const { Op } = require('sequelize');
-const { initializeModels } = require('../db/models');
-const { getPostgres } = require('../db/postgres');
+const GatePass = require('../models/gatePassModel');
+const Sale = require('../models/saleModel');
+const Product = require('../models/productModel');
+const mongoose = require('mongoose');
 const ApiError = require('../utils/ApiError');
 const counterService = require('./counterService');
 const { parsePagination } = require('../utils/query');
-
 const {
-  GatePass,
-  GatePassItem,
-  Sale,
-  SaleItem,
-  GoodsPurchase,
-  GoodsPurchaseItem,
-  Invoice,
-  Customer,
-  Vendor,
-  Product,
-  User,
-} = initializeModels();
+  resolveWarehouseScope,
+  warehouseMongoFilter,
+  actorStoreId,
+} = require('../utils/storeScope');
 
 const QR_PREFIX = 'ERP_GATE_PASS:';
+const SALE_FILTER = { sourceType: 'SALE' };
 
 function refId(value) {
-  return value && typeof value === 'object' ? value._id || value.id : value;
+  return value && typeof value === 'object' && value._id ? value._id : value;
 }
 
-function actorId(actor) {
-  return refId(actor) || null;
-}
-
-async function productsById(items, transaction) {
-  const ids = [...new Set((items || []).map((item) => refId(item.product)).filter(Boolean))];
-  if (!ids.length) return new Map();
-  const products = await Product.findAll({
-    where: { id: { [Op.in]: ids } },
-    transaction,
+// CUSTOMER covers one warehouse's worth of this sale's WAREHOUSE-sourced
+// lines — a sale spanning several warehouses gets one CUSTOMER pass per
+// warehouse (see createGatePassesForSale). VENDOR covers every vendor-sourced
+// line regardless of warehouse — a single additional pass, since that
+// portion never touched any warehouse's stock.
+function saleItemsForKind(sale, kind, warehouseId) {
+  const items = sale.items || [];
+  if (kind === 'VENDOR') return items.filter((item) => item.source === 'VENDOR');
+  return items.filter((item) => {
+    if (item.source === 'VENDOR') return false;
+    // Sales recorded before per-line warehouses existed have no `warehouse`
+    // on the item — treat those as belonging to the sale's own warehouse
+    // (its only one, back then) so old gate passes keep refreshing correctly.
+    const itemWarehouseId = refId(item.warehouse) || refId(sale.warehouse);
+    return String(itemWarehouseId) === String(warehouseId);
   });
-  return new Map(products.map((product) => [String(product.id), product]));
 }
 
-async function snapshotForSale(sale, suppliedCustomer, transaction) {
-  const [products, customer] = await Promise.all([
-    productsById(sale.items, transaction),
-    suppliedCustomer ||
-      (sale.customer ? Customer.findByPk(refId(sale.customer), { transaction }) : null),
-  ]);
+async function saleSnapshot(sale, kind = 'CUSTOMER', warehouseId = null) {
+  const resolvedWarehouseId = warehouseId || refId(sale.warehouse);
+  const relevantItems = saleItemsForKind(sale, kind, resolvedWarehouseId);
+  const productIds = relevantItems.map((item) => refId(item.product)).filter(Boolean);
+  const products = productIds.length
+    ? await Product.find({ _id: { $in: productIds } })
+        .select('name sku barcode')
+        .lean()
+    : [];
+  const productsById = new Map(products.map((product) => [String(product._id), product]));
 
   return {
-    parent: {
-      sourceType: 'SALE',
-      sale: refId(sale),
-      purchase: null,
-      documentNumber: sale.number,
-      warehouse: refId(sale.warehouse),
-      saleDate: sale.date,
-      customer: customer ? refId(customer) : null,
-      customerName: customer ? customer.name : sale.customerName || 'Walk-in',
-      customerPhone: customer?.phone || '',
-      customerEmail: customer?.email || '',
-      customerAddress: customer?.address || '',
-      vendor: null,
-      vendorName: null,
-      vendorPhone: '',
-      vendorEmail: '',
-      vendorAddress: '',
-      pricingSubtotal: sale.subtotal,
-      pricingDiscount: sale.discount || 0,
-      pricingTaxPercent: sale.taxPercent || 0,
-      pricingTax: sale.tax || 0,
-      pricingTotal: sale.total,
-      createdBy: refId(sale.createdBy) || null,
-    },
-    items: (sale.items || []).map((item, position) => {
+    sourceType: 'SALE',
+    kind,
+    sale: sale._id,
+    documentNumber: sale.number,
+    partyName: sale.customerName || '',
+    store: refId(sale.store) || null,
+    warehouse: resolvedWarehouseId,
+    saleDate: sale.date,
+    items: relevantItems.map((item) => {
       const productId = refId(item.product);
-      const product = products.get(String(productId));
+      const product = productsById.get(String(productId));
       return {
-        position,
         product: productId,
-        name: item.name || product?.name || 'Product',
-        sku: product?.sku || '',
-        barcode: product?.barcode || '',
+        name: item.name || (product && product.name) || 'Product',
+        sku: (product && product.sku) || '',
+        barcode: (product && product.barcode) || '',
         quantity: item.quantity,
-        unitPrice: item.unitPrice,
-        lineTotal: item.lineTotal,
         loadedQuantity: null,
         loadConfirmed: false,
       };
     }),
+    createdBy: refId(sale.createdBy) || null,
   };
 }
 
-async function snapshotForPurchase(purchase, suppliedVendor, transaction) {
-  const [products, vendor] = await Promise.all([
-    productsById(purchase.items, transaction),
-    suppliedVendor ||
-      (purchase.vendor ? Vendor.findByPk(refId(purchase.vendor), { transaction }) : null),
-  ]);
-
-  return {
-    parent: {
-      sourceType: 'PURCHASE',
-      sale: null,
-      purchase: refId(purchase),
-      documentNumber: purchase.number,
-      warehouse: refId(purchase.warehouse),
-      saleDate: purchase.date,
-      customer: null,
-      customerName: null,
-      customerPhone: '',
-      customerEmail: '',
-      customerAddress: '',
-      vendor: vendor ? refId(vendor) : null,
-      vendorName: vendor ? vendor.name : purchase.vendorName || 'Vendor',
-      vendorPhone: vendor?.phone || '',
-      vendorEmail: vendor?.email || '',
-      vendorAddress: vendor?.address || '',
-      pricingSubtotal: purchase.subtotal,
-      pricingDiscount: purchase.discount || 0,
-      pricingTaxPercent: 0,
-      pricingTax: purchase.tax || 0,
-      pricingTotal: purchase.total,
-      createdBy: refId(purchase.createdBy) || null,
-    },
-    items: (purchase.items || []).map((item, position) => {
-      const productId = refId(item.product);
-      const product = products.get(String(productId));
-      return {
-        position,
-        product: productId,
-        name: item.name || product?.name || 'Product',
-        sku: product?.sku || '',
-        barcode: product?.barcode || '',
-        quantity: item.quantity,
-        unitPrice: item.unitCost,
-        lineTotal: item.lineTotal,
-        loadedQuantity: null,
-        loadConfirmed: false,
-      };
-    }),
-  };
+function needsSnapshotRefresh(gatePass) {
+  // A return is an append-only correction, never edited after the fact — its
+  // gate pass is built complete at creation time and never needs refreshing
+  // (unlike a SALE pass, which can be re-snapshotted if the sale is edited).
+  if (gatePass.sourceType === 'RETURN') return false;
+  if (['PROCESSED', 'USED'].includes(gatePass.status)) return false;
+  return (
+    !gatePass.saleDate ||
+    !gatePass.partyName ||
+    (gatePass.items || []).some((item) => !item.name || item.loadedQuantity === undefined)
+  );
 }
 
-async function linkSource(gatePass, snapshot, transaction) {
-  if (snapshot.parent.sourceType === 'SALE') {
-    await Sale.update(
-      { gatePass: gatePass.id },
-      { where: { id: snapshot.parent.sale }, transaction },
-    );
+async function linkSale(saleId, gatePassId, kind = 'CUSTOMER', warehouseId = null) {
+  if (kind === 'VENDOR') {
+    await Sale.updateOne({ _id: saleId }, { $set: { vendorGatePass: gatePassId } });
     return;
   }
-
-  await Promise.all([
-    GoodsPurchase.update(
-      { gatePass: gatePass.id },
-      { where: { id: snapshot.parent.purchase }, transaction },
-    ),
-    Invoice.update(
-      { gatePass: gatePass.id },
-      { where: { purchase: snapshot.parent.purchase }, transaction },
-    ),
-  ]);
+  // CUSTOMER kind: upsert this warehouse's entry into `warehouseGatePasses`
+  // (update in place if a stale snapshot for that warehouse already exists,
+  // otherwise push a new entry), and keep the legacy singular `gatePass`
+  // pointed at the first one created.
+  await Sale.updateOne(
+    { _id: saleId, 'warehouseGatePasses.warehouse': warehouseId },
+    { $set: { 'warehouseGatePasses.$.gatePass': gatePassId } },
+  );
+  await Sale.updateOne(
+    { _id: saleId, 'warehouseGatePasses.warehouse': { $ne: warehouseId } },
+    { $push: { warehouseGatePasses: { warehouse: warehouseId, gatePass: gatePassId } } },
+  );
+  await Sale.updateOne({ _id: saleId, gatePass: null }, { $set: { gatePass: gatePassId } });
 }
 
-async function persistSnapshot(snapshot, transaction) {
-  const where =
-    snapshot.parent.sourceType === 'SALE'
-      ? { sale: snapshot.parent.sale }
-      : { purchase: snapshot.parent.purchase };
-
-  let gatePass = await GatePass.findOne({ where, transaction });
+async function createForSale(sale, kind = 'CUSTOMER', warehouseId = null) {
+  const resolvedWarehouseId = String(warehouseId || refId(sale.warehouse));
+  const snapshot = await saleSnapshot(sale, kind, resolvedWarehouseId);
+  const identity = { ...SALE_FILTER, sale: sale._id, kind, warehouse: resolvedWarehouseId };
+  let gatePass = await GatePass.findOne(identity);
   if (gatePass) {
-    if (gatePass.status === 'PENDING') {
-      await gatePass.update(snapshot.parent, { transaction });
-      await GatePassItem.destroy({ where: { gatePassId: gatePass.id }, transaction });
-      await GatePassItem.bulkCreate(
-        snapshot.items.map((item) => ({ ...item, gatePassId: gatePass.id })),
-        { transaction, validate: true },
-      );
+    if (['PROCESSED', 'USED'].includes(gatePass.status)) {
+      await linkSale(sale._id, gatePass._id, kind, resolvedWarehouseId);
+      return gatePass;
     }
-  } else {
-    const when = snapshot.parent.saleDate ? new Date(snapshot.parent.saleDate) : new Date();
-    gatePass = await GatePass.create(
+    gatePass = await GatePass.findByIdAndUpdate(
+      gatePass._id,
       {
-        ...snapshot.parent,
-        number: await counterService.nextDocNumber('GATE', when.getFullYear(), 6, transaction),
-        token: crypto.randomBytes(32).toString('hex'),
+        $set: snapshot,
+        $unset: { customerInfo: 1, vendorInfo: 1, pricing: 1 },
       },
-      { transaction },
+      { returnDocument: 'after', runValidators: true },
     );
-    await GatePassItem.bulkCreate(
-      snapshot.items.map((item) => ({ ...item, gatePassId: gatePass.id })),
-      { transaction, validate: true },
-    );
+    await linkSale(sale._id, gatePass._id, kind, resolvedWarehouseId);
+    return gatePass;
   }
 
-  await linkSource(gatePass, snapshot, transaction);
+  const when = sale.date ? new Date(sale.date) : new Date();
+  const number = await counterService.nextDocNumber('GATE', when.getFullYear(), 6);
+  try {
+    gatePass = await GatePass.create({
+      number,
+      token: crypto.randomBytes(32).toString('hex'),
+      ...snapshot,
+    });
+  } catch (error) {
+    if (error && error.code === 11000) {
+      gatePass = await GatePass.findOne(identity);
+      if (!gatePass) throw error;
+    } else {
+      throw error;
+    }
+  }
+
+  await linkSale(sale._id, gatePass._id, kind, resolvedWarehouseId);
   return gatePass;
 }
 
-async function createForSale(sale, customer = null, outerTransaction = null) {
-  const write = async (transaction) =>
-    persistSnapshot(await snapshotForSale(sale, customer, transaction), transaction);
-  if (outerTransaction) return write(outerTransaction);
-  return getPostgres().transaction(write);
+// Creates (or refreshes) one CUSTOMER gate pass per distinct warehouse the
+// sale's WAREHOUSE-sourced lines came from, and — only when the sale has at
+// least one vendor-sourced line — a single additional VENDOR gate pass
+// covering all of those lines together.
+async function createGatePassesForSale(sale) {
+  const warehouseIds = Array.from(
+    new Set(
+      (sale.items || [])
+        .filter((item) => item.source !== 'VENDOR')
+        .map((item) => String(refId(item.warehouse) || refId(sale.warehouse))),
+    ),
+  );
+  const warehouseGatePasses = [];
+  for (const warehouseId of warehouseIds) {
+    const gatePass = await createForSale(sale, 'CUSTOMER', warehouseId);
+    warehouseGatePasses.push({ warehouse: warehouseId, gatePass: gatePass._id });
+  }
+  const hasVendorItems = (sale.items || []).some((item) => item.source === 'VENDOR');
+  const vendorGatePass = hasVendorItems
+    ? await createForSale(sale, 'VENDOR', refId(sale.warehouse))
+    : null;
+  return { warehouseGatePasses, vendorGatePass };
 }
 
-async function createForPurchase(purchase, vendor = null, outerTransaction = null) {
-  const write = async (transaction) =>
-    persistSnapshot(await snapshotForPurchase(purchase, vendor, transaction), transaction);
-  if (outerTransaction) return write(outerTransaction);
-  return getPostgres().transaction(write);
-}
-
-const userInclude = (association) => ({
-  model: User,
-  as: association,
-  attributes: ['id', 'name'],
-});
-
-function shapeGatePass(gatePass, { includeToken = false } = {}) {
-  const value = gatePass.toJSON();
-  if (!includeToken) delete value.token;
-
-  value.customerInfo =
-    value.sourceType === 'SALE'
-      ? {
-          customer: value.customer,
-          name: value.customerName,
-          phone: value.customerPhone,
-          email: value.customerEmail,
-          address: value.customerAddress,
-        }
-      : null;
-  value.vendorInfo =
-    value.sourceType === 'PURCHASE'
-      ? {
-          vendor: value.vendor,
-          name: value.vendorName,
-          phone: value.vendorPhone,
-          email: value.vendorEmail,
-          address: value.vendorAddress,
-        }
-      : null;
-  value.pricing = {
-    subtotal: value.pricingSubtotal,
-    discount: value.pricingDiscount,
-    taxPercent: value.pricingTaxPercent,
-    tax: value.pricingTax,
-    total: value.pricingTotal,
+// Snapshot for a RETURN gate pass — items restocked into one warehouse by
+// this return (WAREHOUSE-sourced lines only; VENDOR-sourced lines never
+// touched warehouse stock, so returning one restocks nothing).
+function returnSnapshot(saleReturn, sale, warehouseId) {
+  const relevantItems = (saleReturn.items || []).filter(
+    (item) => item.source === 'WAREHOUSE' && String(refId(item.warehouse)) === String(warehouseId),
+  );
+  return {
+    sourceType: 'RETURN',
+    kind: 'CUSTOMER',
+    sale: sale._id,
+    saleReturn: saleReturn._id,
+    documentNumber: saleReturn.number,
+    partyName: saleReturn.customerName || '',
+    store: refId(sale.store) || null,
+    warehouse: warehouseId,
+    saleDate: saleReturn.date,
+    items: relevantItems.map((item) => ({
+      product: refId(item.product),
+      name: item.name,
+      sku: '',
+      barcode: '',
+      quantity: item.quantity,
+      loadedQuantity: null,
+      loadConfirmed: false,
+    })),
+    createdBy: refId(saleReturn.createdBy) || null,
   };
-  value.items = (gatePass.items || []).map((item) => item.toJSON());
-  if (gatePass.creator) value.createdBy = gatePass.creator.toJSON();
-  if (gatePass.processor) value.processedBy = gatePass.processor.toJSON();
-  if (gatePass.lastEditor) value.lastEditedBy = gatePass.lastEditor.toJSON();
-  return value;
 }
 
-async function loadGatePass(where, { includeToken = false, transaction, lock } = {}) {
-  const gatePass = await GatePass.findOne({
-    where,
-    include: [
-      { model: GatePassItem, as: 'items' },
-      userInclude('creator'),
-      userInclude('processor'),
-      userInclude('lastEditor'),
-    ],
-    order: [[{ model: GatePassItem, as: 'items' }, 'position', 'ASC']],
-    transaction,
-    lock,
+// Creates one RETURN gate pass for the given warehouse's slice of a return.
+// Unlike createForSale, this is always a brand-new document — returns are
+// append-only and never re-edited, so there's no existing-pass-to-refresh case.
+async function createForReturn(saleReturn, sale, warehouseId) {
+  const snapshot = returnSnapshot(saleReturn, sale, warehouseId);
+  const when = saleReturn.date ? new Date(saleReturn.date) : new Date();
+  const number = await counterService.nextDocNumber('GATE', when.getFullYear(), 6);
+  try {
+    return await GatePass.create({
+      number,
+      token: crypto.randomBytes(32).toString('hex'),
+      ...snapshot,
+    });
+  } catch (error) {
+    if (error && error.code === 11000) {
+      const existing = await GatePass.findOne({
+        sourceType: 'RETURN',
+        saleReturn: saleReturn._id,
+        warehouse: warehouseId,
+      });
+      if (existing) return existing;
+    }
+    throw error;
+  }
+}
+
+// One RETURN gate pass per distinct warehouse the return actually restocks
+// — a return can span more than one warehouse if the original sale's lines
+// did. A return with no WAREHOUSE-sourced lines (all VENDOR-sourced) gets none.
+async function createGatePassesForReturn(saleReturn, sale) {
+  const warehouseIds = Array.from(
+    new Set(
+      (saleReturn.items || [])
+        .filter((item) => item.source === 'WAREHOUSE' && item.warehouse)
+        .map((item) => String(refId(item.warehouse))),
+    ),
+  );
+  const warehouseGatePasses = [];
+  for (const warehouseId of warehouseIds) {
+    const gatePass = await createForReturn(saleReturn, sale, warehouseId);
+    warehouseGatePasses.push({ warehouse: warehouseId, gatePass: gatePass._id });
+  }
+  return { warehouseGatePasses };
+}
+
+// Snapshot for a PURCHASE gate pass — how much of each product actually
+// arrived in sellable condition (the received quantity that's added to
+// stock). Damaged units aren't included: they never enter stock, so there's
+// nothing for the gate to confirm loading of.
+function receiptSnapshot(stockReceipt) {
+  const relevantItems = (stockReceipt.items || []).filter((item) => item.receivedQuantity > 0);
+  return {
+    sourceType: 'PURCHASE',
+    kind: 'CUSTOMER',
+    stockReceipt: stockReceipt._id,
+    documentNumber: stockReceipt.number,
+    partyName: stockReceipt.supplierName || '',
+    store: refId(stockReceipt.store) || null,
+    warehouse: refId(stockReceipt.warehouse),
+    saleDate: stockReceipt.date,
+    items: relevantItems.map((item) => ({
+      product: refId(item.product),
+      name: item.name,
+      sku: '',
+      barcode: '',
+      quantity: item.receivedQuantity,
+      loadedQuantity: null,
+      loadConfirmed: false,
+    })),
+    createdBy: refId(stockReceipt.createdBy) || null,
+  };
+}
+
+// Creates (or refreshes) the one PURCHASE gate pass for a stock receipt —
+// receipts are edited in place (unlike a return), so this re-snapshots an
+// existing pass the same way createForSale does for a revised sale, instead
+// of always minting a new document.
+async function createForReceipt(stockReceipt) {
+  const snapshot = receiptSnapshot(stockReceipt);
+  // Nothing arrived in sellable condition — no gate pass needed (or wanted,
+  // if a prior revision now has none).
+  if (snapshot.items.length === 0) {
+    await GatePass.deleteOne({ sourceType: 'PURCHASE', stockReceipt: stockReceipt._id });
+    return null;
+  }
+
+  let gatePass = await GatePass.findOne({
+    sourceType: 'PURCHASE',
+    stockReceipt: stockReceipt._id,
   });
-  return gatePass ? shapeGatePass(gatePass, { includeToken }) : null;
+  if (gatePass) {
+    if (['PROCESSED', 'USED'].includes(gatePass.status)) return gatePass;
+    return GatePass.findByIdAndUpdate(
+      gatePass._id,
+      { $set: snapshot },
+      { returnDocument: 'after', runValidators: true },
+    );
+  }
+
+  const when = stockReceipt.date ? new Date(stockReceipt.date) : new Date();
+  const number = await counterService.nextDocNumber('GATE', when.getFullYear(), 6);
+  try {
+    return await GatePass.create({
+      number,
+      token: crypto.randomBytes(32).toString('hex'),
+      ...snapshot,
+    });
+  } catch (error) {
+    if (error && error.code === 11000) {
+      gatePass = await GatePass.findOne({ sourceType: 'PURCHASE', stockReceipt: stockReceipt._id });
+      if (gatePass) return gatePass;
+    }
+    throw error;
+  }
+}
+
+// Upgrade legacy status names without changing the meaning of old passes.
+async function refreshLegacySaleGatePasses() {
+  await Promise.all([
+    GatePass.updateMany({ status: 'ACTIVE' }, { $set: { status: 'PENDING' } }),
+    GatePass.collection.updateMany({ status: 'USED' }, [
+      {
+        $set: {
+          status: 'PROCESSED',
+          processedAt: { $ifNull: ['$processedAt', '$scannedAt'] },
+          processedBy: { $ifNull: ['$processedBy', '$scannedBy'] },
+        },
+      },
+    ]),
+    GatePass.collection.updateMany(
+      {},
+      {
+        $unset: {
+          customerInfo: '',
+          vendorInfo: '',
+          pricing: '',
+          'items.$[].unitPrice': '',
+          'items.$[].lineTotal': '',
+        },
+      },
+    ),
+  ]);
+}
+
+// Refreshes/backfills the sale that backs a gate pass. Shared by every
+// lookup path (id, token, post-scan) so gate passes self-heal on read.
+async function refreshSourceIfNeeded(gatePass) {
+  if (!needsSnapshotRefresh(gatePass)) return gatePass;
+  const sale = await Sale.findById(gatePass.sale);
+  if (sale) {
+    await createForSale(sale, gatePass.kind || 'CUSTOMER', gatePass.warehouse);
+    return GatePass.findById(gatePass._id).populate('createdBy', 'name');
+  }
+  return gatePass;
+}
+
+// A sale already collects the driver/vehicle and labour who's loading it at
+// POS time (Sale.transport / Sale.labour) — surface that on the gate pass
+// response so the scan page can just display it instead of asking again.
+async function withSaleExtras(gatePass) {
+  if (!gatePass || !gatePass.sale) return gatePass;
+  const base = gatePass.toJSON ? gatePass.toJSON() : { ...gatePass };
+  // Only a SALE pass (goods going out) needs this — a RETURN pass already
+  // *is* the return, and its `sale` is only kept for context/lookups.
+  if (base.sourceType !== 'SALE') return base;
+
+  // .lean() — without it, `transport` is a Mongoose subdocument whose own
+  // enumerable properties (internal $__ state, _doc, ...) leak straight into
+  // the JSON response once `withoutEmptyValues` spreads it.
+  const sale = await Sale.findById(gatePass.sale).select('transport labour').lean();
+  if (sale) {
+    base.saleTransport = sale.transport;
+    base.saleLabour = sale.labour;
+  }
+
+  // Cross-reference returns against this sale so the original "goods going
+  // out" pass also shows how much of each item has since come back — keeps
+  // the two documents visibly connected instead of the return being
+  // invisible from here.
+  const SaleReturn = require('../models/saleReturnModel');
+  const returns = await SaleReturn.find({ sale: gatePass.sale }).select('items').lean();
+  const returnedByProduct = new Map();
+  for (const r of returns) {
+    for (const item of r.items) {
+      if (item.source !== 'WAREHOUSE' || String(refId(item.warehouse)) !== String(base.warehouse))
+        continue;
+      const key = String(refId(item.product));
+      returnedByProduct.set(key, (returnedByProduct.get(key) || 0) + item.quantity);
+    }
+  }
+  if (returnedByProduct.size > 0) {
+    base.items = (base.items || []).map((item) => {
+      const returned = returnedByProduct.get(String(refId(item.product)));
+      return returned ? { ...item, returnedQuantity: returned } : item;
+    });
+  }
+
+  return base;
 }
 
 async function getGatePassById(id) {
-  const gatePass = await loadGatePass({ id });
+  const gatePass = await GatePass.findById(id)
+    .populate('createdBy', 'name')
+    .populate('processedBy', 'name');
   if (!gatePass) throw ApiError.notFound('Gate pass not found');
-  return gatePass;
+  return withSaleExtras(await refreshSourceIfNeeded(gatePass));
+}
+
+async function getGatePassByToken(token) {
+  const normalized = normalizeToken(token);
+  if (!normalized) throw ApiError.badRequest('A gate pass token is required');
+  const gatePass = await GatePass.findOne({ token: normalized })
+    .populate('createdBy', 'name')
+    .populate('processedBy', 'name');
+  if (!gatePass) throw ApiError.notFound('Invalid gate pass token');
+  return withSaleExtras(await refreshSourceIfNeeded(gatePass));
+}
+
+async function getGatePassBySale(saleId) {
+  const sale = await Sale.findById(saleId);
+  if (!sale) throw ApiError.notFound('Sale not found');
+  // Legacy single-pass lookup — the primary (first/only) warehouse's pass.
+  const gatePass = await createForSale(sale, 'CUSTOMER', sale.warehouse);
+  return getGatePassById(gatePass._id);
+}
+
+async function listGatePasses({
+  warehouse,
+  store,
+  status,
+  sourceType,
+  from,
+  to,
+  actor,
+  ...query
+} = {}) {
+  await refreshLegacySaleGatePasses();
+  const { page, limit, skip } = parsePagination(query);
+  const filter = {};
+  // Gate passes copy their `store` from the originating sale — prefer that
+  // direct field over the looser warehouse-membership scoping. A store-
+  // restricted actor's own store always wins over the query param.
+  const effectiveStore = actorStoreId(actor) || store;
+  if (effectiveStore && mongoose.isValidObjectId(effectiveStore)) {
+    filter.store = effectiveStore;
+  } else if (warehouse) {
+    const { warehouseIds } = await resolveWarehouseScope({ warehouse, actor });
+    Object.assign(filter, warehouseMongoFilter(warehouseIds));
+  }
+  if (status) filter.status = status;
+  if (sourceType) filter.sourceType = sourceType;
+  if (from || to) {
+    filter.saleDate = {};
+    if (from) filter.saleDate.$gte = new Date(from);
+    if (to) filter.saleDate.$lte = new Date(to);
+  }
+
+  const [gatePasses, total] = await Promise.all([
+    GatePass.find(filter)
+      .populate('createdBy', 'name')
+      .populate('processedBy', 'name')
+      .populate('store', 'name code')
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit),
+    GatePass.countDocuments(filter),
+  ]);
+  return { gatePasses, total, page, limit };
 }
 
 function normalizeToken(value) {
@@ -285,61 +480,8 @@ function normalizeToken(value) {
   return raw.startsWith(QR_PREFIX) ? raw.slice(QR_PREFIX.length) : raw;
 }
 
-async function getGatePassByToken(token) {
-  const normalized = normalizeToken(token);
-  if (!normalized) throw ApiError.badRequest('A gate pass token is required');
-  const gatePass = await loadGatePass({ token: normalized });
-  if (!gatePass) throw ApiError.notFound('Invalid gate pass token');
-  return gatePass;
-}
-
-async function getGatePassBySale(saleId) {
-  const sale = await Sale.findByPk(saleId, {
-    include: [{ model: SaleItem, as: 'items' }],
-  });
-  if (!sale) throw ApiError.notFound('Sale not found');
-  return getGatePassById((await createForSale(sale)).id);
-}
-
-async function getGatePassByPurchase(purchaseId) {
-  const purchase = await GoodsPurchase.findByPk(purchaseId, {
-    include: [{ model: GoodsPurchaseItem, as: 'items' }],
-  });
-  if (!purchase) throw ApiError.notFound('Purchase not found');
-  return getGatePassById((await createForPurchase(purchase)).id);
-}
-
-async function listGatePasses({ warehouse, status, sourceType, ...query } = {}) {
-  const { page, limit, skip } = parsePagination(query);
-  const where = {};
-  if (warehouse) where.warehouse = warehouse;
-  if (status) where.status = status;
-  if (sourceType) where.sourceType = sourceType;
-
-  const [rows, total] = await Promise.all([
-    GatePass.findAll({
-      where,
-      include: [
-        { model: GatePassItem, as: 'items' },
-        userInclude('creator'),
-        userInclude('processor'),
-        userInclude('lastEditor'),
-      ],
-      order: [
-        ['createdAt', 'DESC'],
-        [{ model: GatePassItem, as: 'items' }, 'position', 'ASC'],
-      ],
-      offset: skip,
-      limit,
-      distinct: true,
-    }),
-    GatePass.count({ where }),
-  ]);
-  return { gatePasses: rows.map((row) => shapeGatePass(row)), total, page, limit };
-}
-
 async function generateQrPng(id) {
-  const gatePass = await loadGatePass({ id }, { includeToken: true });
+  const gatePass = await GatePass.findById(id).select('+token');
   if (!gatePass) throw ApiError.notFound('Gate pass not found');
   const png = await QRCode.toBuffer(`${QR_PREFIX}${gatePass.token}`, {
     type: 'png',
@@ -350,121 +492,149 @@ async function generateQrPng(id) {
   return { gatePass, png };
 }
 
-function validateLoadedItems(storedItems, submittedItems) {
-  if (!Array.isArray(submittedItems) || submittedItems.length !== storedItems.length) {
+function processingUpdate(payload, actor, { adminEdit = false } = {}) {
+  return {
+    // The gatekeeper flow no longer collects driver/vehicle info — identity
+    // is captured via `processedBy` (the logged-in gatekeeper) instead. Only
+    // set `driver` when the admin edit form actually supplies one.
+    ...(payload.driver && (payload.driver.name || payload.driver.vehicleNumber)
+      ? { driver: payload.driver }
+      : {}),
+    items: payload.items.map((item) => ({
+      product: item.productId,
+      name: item.name,
+      sku: item.sku || '',
+      barcode: item.barcode || '',
+      quantity: item.quantity,
+      loadedQuantity: item.loadedQuantity,
+      loadConfirmed: item.loadConfirmed,
+    })),
+    loadNotes: payload.loadNotes || '',
+    ...(payload.signatureData ? { signatureData: payload.signatureData } : {}),
+    ...(adminEdit
+      ? { lastEditedAt: new Date(), lastEditedBy: actor._id }
+      : {
+          status: 'PROCESSED',
+          processedAt: new Date(),
+          processedBy: actor._id,
+        }),
+  };
+}
+
+function validateLoadedItems(gatePass, submittedItems) {
+  if (!Array.isArray(submittedItems) || submittedItems.length !== gatePass.items.length) {
     throw ApiError.badRequest('Every gate pass item must be checked');
   }
-
-  const remaining = [...submittedItems];
-  return storedItems.map((item) => {
-    const index = remaining.findIndex(
-      (submitted) => String(submitted.productId) === String(item.product),
-    );
-    const submitted = index >= 0 ? remaining.splice(index, 1)[0] : null;
+  const submittedByProduct = new Map(submittedItems.map((item) => [String(item.productId), item]));
+  return gatePass.items.map((item) => {
+    const submitted = submittedByProduct.get(String(item.product));
     if (!submitted) throw ApiError.badRequest(`Load confirmation is missing for ${item.name}`);
     if (!submitted.loadConfirmed || Number(submitted.loadedQuantity) !== Number(item.quantity)) {
       throw ApiError.badRequest(`Loaded quantity for ${item.name} must match the gate pass`);
     }
     return {
-      id: item.id,
+      productId: item.product,
+      name: item.name,
+      sku: item.sku,
+      barcode: item.barcode,
+      quantity: item.quantity,
       loadedQuantity: Number(submitted.loadedQuantity),
       loadConfirmed: true,
     };
   });
 }
 
-async function updateProcessingFields(
-  gatePass,
-  itemUpdates,
-  payload,
-  actor,
-  transaction,
-  adminEdit,
-) {
-  const by = actorId(actor);
-  await gatePass.update(
-    {
-      driver: payload.driver,
-      loadNotes: payload.loadNotes || '',
-      ...(payload.signatureData ? { signatureData: payload.signatureData } : {}),
-      ...(adminEdit
-        ? { lastEditedAt: new Date(), lastEditedBy: by }
-        : { status: 'PROCESSED', processedAt: new Date(), processedBy: by }),
-    },
-    { transaction },
-  );
-  await Promise.all(
-    itemUpdates.map((item) =>
-      GatePassItem.update(
-        {
-          loadedQuantity: item.loadedQuantity,
-          loadConfirmed: item.loadConfirmed,
-        },
-        { where: { id: item.id, gatePassId: gatePass.id }, transaction },
-      ),
-    ),
-  );
-}
-
 async function processGatePass(actor, encodedValue, payload) {
   const token = normalizeToken(encodedValue);
   if (!token) throw ApiError.badRequest('A gate pass QR token is required');
+  const existing = await GatePass.findOne({ token });
+  if (!existing) throw ApiError.notFound('Invalid gate pass QR code');
+  if (['PROCESSED', 'USED'].includes(existing.status)) {
+    throw ApiError.conflict('Gate pass has already been processed');
+  }
+  if (existing.status === 'CANCELLED') throw ApiError.conflict('Gate pass is cancelled');
 
-  return getPostgres().transaction(async (transaction) => {
-    const gatePass = await GatePass.findOne({
-      where: { token },
-      transaction,
-      lock: transaction.LOCK.UPDATE,
-    });
-    if (!gatePass) throw ApiError.notFound('Invalid gate pass QR code');
-    if (gatePass.status === 'PROCESSED') {
-      throw ApiError.conflict('Gate pass has already been processed');
-    }
-    if (gatePass.status === 'CANCELLED') throw ApiError.conflict('Gate pass is cancelled');
-
-    const storedItems = await GatePassItem.findAll({
-      where: { gatePassId: gatePass.id },
-      order: [['position', 'ASC']],
-      transaction,
-    });
-    const itemUpdates = validateLoadedItems(storedItems, payload.items);
-    await updateProcessingFields(gatePass, itemUpdates, payload, actor, transaction, false);
-    return loadGatePass({ id: gatePass.id }, { transaction });
-  });
+  const items = validateLoadedItems(existing, payload.items);
+  const gatePass = await GatePass.findOneAndUpdate(
+    { token, status: { $in: ['PENDING', 'ACTIVE'] } },
+    { $set: processingUpdate({ ...payload, items }, actor) },
+    { returnDocument: 'after', runValidators: true },
+  )
+    .populate('createdBy', 'name')
+    .populate('processedBy', 'name');
+  if (!gatePass) throw ApiError.conflict('Gate pass has already been processed');
+  return gatePass;
 }
 
 async function updateProcessedGatePass(actor, id, payload) {
-  return getPostgres().transaction(async (transaction) => {
-    const gatePass = await GatePass.findByPk(id, {
-      transaction,
-      lock: transaction.LOCK.UPDATE,
-    });
-    if (!gatePass) throw ApiError.notFound('Gate pass not found');
-    if (gatePass.status !== 'PROCESSED') {
-      throw ApiError.conflict('Only processed gate passes can be edited');
-    }
+  const existing = await GatePass.findById(id);
+  if (!existing) throw ApiError.notFound('Gate pass not found');
+  if (!['PROCESSED', 'USED'].includes(existing.status)) {
+    throw ApiError.conflict('Only processed gate passes can be edited');
+  }
+  const items = validateLoadedItems(existing, payload.items);
+  return GatePass.findByIdAndUpdate(
+    id,
+    { $set: processingUpdate({ ...payload, items }, actor, { adminEdit: true }) },
+    { returnDocument: 'after', runValidators: true },
+  )
+    .populate('createdBy', 'name')
+    .populate('processedBy', 'name');
+}
 
-    const storedItems = await GatePassItem.findAll({
-      where: { gatePassId: gatePass.id },
-      order: [['position', 'ASC']],
-      transaction,
-    });
-    const itemUpdates = validateLoadedItems(storedItems, payload.items);
-    await updateProcessingFields(gatePass, itemUpdates, payload, actor, transaction, true);
-    return loadGatePass({ id: gatePass.id }, { transaction });
-  });
+// Super-admin cleanup — removes the pass and unlinks it from whatever it
+// documents (a sale's warehouse/vendor pass, or a return's), so a stale
+// "View Gate Pass" button never points at a 404 afterward.
+async function deleteGatePass(id) {
+  const gatePass = await GatePass.findById(id);
+  if (!gatePass) throw ApiError.notFound('Gate pass not found');
+
+  if (gatePass.saleReturn) {
+    const SaleReturn = require('../models/saleReturnModel');
+    await SaleReturn.updateOne(
+      { _id: gatePass.saleReturn },
+      { $pull: { warehouseGatePasses: { gatePass: gatePass._id } } },
+    );
+  } else if (gatePass.stockReceipt) {
+    const StockReceipt = require('../models/stockReceiptModel');
+    await StockReceipt.updateOne(
+      { _id: gatePass.stockReceipt, gatePass: gatePass._id },
+      { $set: { gatePass: null } },
+    );
+  } else if (gatePass.sale) {
+    if (gatePass.kind === 'VENDOR') {
+      await Sale.updateOne(
+        { _id: gatePass.sale, vendorGatePass: gatePass._id },
+        { $set: { vendorGatePass: null } },
+      );
+    } else {
+      await Sale.updateOne(
+        { _id: gatePass.sale },
+        { $pull: { warehouseGatePasses: { gatePass: gatePass._id } } },
+      );
+    }
+    // Legacy singular pointer — the first warehouse pass a sale ever got.
+    await Sale.updateOne(
+      { _id: gatePass.sale, gatePass: gatePass._id },
+      { $set: { gatePass: null } },
+    );
+  }
+
+  await gatePass.deleteOne();
 }
 
 module.exports = {
   QR_PREFIX,
   createForSale,
-  createForPurchase,
+  createGatePassesForSale,
+  createGatePassesForReturn,
+  createForReceipt,
   getGatePassById,
   getGatePassByToken,
   getGatePassBySale,
-  getGatePassByPurchase,
   listGatePasses,
   generateQrPng,
   processGatePass,
   updateProcessedGatePass,
+  deleteGatePass,
 };

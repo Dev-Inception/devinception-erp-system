@@ -14,12 +14,13 @@ const getUser = asyncHandler(async (req, res) => {
 });
 
 const createUser = asyncHandler(async (req, res) => {
-  const { name, email, password, role } = req.body;
+  const { name, email, password, role, store } = req.body;
   const user = await userService.createUser(req.user, {
     name,
     email,
     password,
     role,
+    store,
   });
   return sendSuccess(res, 201, 'User created', { user });
 });
@@ -40,6 +41,11 @@ const setUserActive = asyncHandler(async (req, res) => {
   return sendSuccess(res, 200, 'User status updated', { user });
 });
 
+const setUserPassword = asyncHandler(async (req, res) => {
+  await userService.setUserPassword(req.user, req.params.id, req.body.password);
+  return sendSuccess(res, 200, 'Password updated');
+});
+
 const deleteUser = asyncHandler(async (req, res) => {
   await userService.deleteUser(req.user, req.params.id);
   return sendSuccess(res, 200, 'User deleted');
@@ -52,5 +58,6 @@ module.exports = {
   updateUser,
   updateUserRole,
   setUserActive,
+  setUserPassword,
   deleteUser,
 };

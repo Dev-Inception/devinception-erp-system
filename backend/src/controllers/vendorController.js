@@ -3,8 +3,8 @@ const asyncHandler = require('../utils/asyncHandler');
 const { sendSuccess } = require('../utils/ApiResponse');
 
 const listVendors = asyncHandler(async (req, res) => {
-  const { page, limit, search } = req.query;
-  const result = await vendorService.listVendors({ page, limit, search });
+  const { page, limit, search, store } = req.query;
+  const result = await vendorService.listVendors({ page, limit, search, store });
   return sendSuccess(res, 200, 'Vendors fetched', result);
 });
 
@@ -14,12 +14,12 @@ const getVendor = asyncHandler(async (req, res) => {
 });
 
 const createVendor = asyncHandler(async (req, res) => {
-  const vendor = await vendorService.createVendor(req.body);
+  const vendor = await vendorService.createVendor(req.user, req.body);
   return sendSuccess(res, 201, 'Vendor created', { vendor });
 });
 
 const updateVendor = asyncHandler(async (req, res) => {
-  const vendor = await vendorService.updateVendor(req.params.id, req.body);
+  const vendor = await vendorService.updateVendor(req.user, req.params.id, req.body);
   return sendSuccess(res, 200, 'Vendor updated', { vendor });
 });
 

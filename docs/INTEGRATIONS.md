@@ -10,17 +10,15 @@
 ```
 React page ──renderTemplate(type,data)──► HTML string
         │
-        ├── Electron present?  ──yes──► window.electronAPI.print({ html, type, deviceName })
-        │                                   └─► electron/main.js native print bridge
-        │                                       └─► local thermal / A4 printer
-        │
-        └── Browser fallback ──► hidden <iframe> + window.print()
+        └── hidden <iframe> + window.print() ──► browser print dialog
+                                                      └─► local thermal / A4 printer
 ```
 
-`renderTemplate(type, data)` and `printDocument(type, data, deviceName?)` live in
-[`frontend/src/lib/printing.ts`](../frontend/src/lib/printing.ts); the Electron
-bridge is in [`electron/preload.js`](../electron/preload.js) /
-[`electron/main.js`](../electron/main.js).
+`renderTemplate(type, data)` and `printDocument(type, data)` live in
+[`frontend/src/lib/printing.ts`](../frontend/src/lib/printing.ts). The app runs as
+a PWA (see [`vite.config.ts`](../frontend/vite.config.ts)); there is no native
+desktop shell, so printing always goes through the browser's print dialog — pick
+the target printer (thermal or A4) there.
 
 ### Template matrix
 
@@ -89,8 +87,8 @@ There is **no settings collection** yet. Today:
 
 - Company identity (name/address/phone) → env (`COMPANY_NAME`, `COMPANY_ADDRESS`, `COMPANY_PHONE`).
 - SMTP → env (`SMTP_HOST/PORT/USER/PASS`, `MAIL_FROM`).
-- Printer mapping (device-per-document, paper width) is handled ad hoc by the
-  print call's `deviceName`.
+- Printer mapping (device-per-document, paper width) is left to the browser's
+  print dialog — the user picks the target printer per print.
 
 Planned: a settings module persisting `printerConfig`, `whatsappConfig`,
 `emailConfig`, `invoiceConfig` (numbering/footer/terms), and `taxConfig`,

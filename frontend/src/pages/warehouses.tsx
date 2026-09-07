@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Plus,
@@ -8,6 +8,7 @@ import {
   Check,
   Pencil,
   Trash2,
+  Search,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Card, CardContent } from '@/components/ui/card';
@@ -28,6 +29,7 @@ import { formatCurrency } from '@/lib/utils';
 import { useAuthStore } from '@/store/auth';
 import { grantsPermission } from '@/lib/modules';
 import type { WarehouseRow } from '@/components/layout/warehouse-switcher';
+import { useLanguage } from '@/components/language-provider';
 
 /** Create (no `warehouse`) or edit (with `warehouse`) a warehouse. */
 function WarehouseDialog({
@@ -38,6 +40,7 @@ function WarehouseDialog({
   trigger: React.ReactNode;
 }) {
   const qc = useQueryClient();
+  const { t } = useLanguage();
   const editing = !!warehouse;
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({ name: '', location: '', isDefault: false });
@@ -118,11 +121,12 @@ function WarehouseDialog({
           <div className="flex justify-end gap-2 pt-1">
             <DialogClose asChild>
               <Button type="button" variant="outline">
-                Cancel
+                {t('Cancel')}
               </Button>
             </DialogClose>
             <Button type="submit" disabled={save.isPending}>
-              {save.isPending && <Loader2 className="h-4 w-4 animate-spin" />}Save
+              {save.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+              {t('Save')}
             </Button>
           </div>
         </form>
@@ -133,14 +137,29 @@ function WarehouseDialog({
 
 export function WarehousesPage() {
   const qc = useQueryClient();
+  const { t } = useLanguage();
   const perms = useAuthStore((s) => s.user?.permissions);
   // Warehouse create/update/delete all require inventory:manage on the backend.
   const canManage = grantsPermission(perms, 'inventory:manage');
+
+  const [search, setSearch] = useState('');
+  const q = search.trim().toLowerCase();
+  const isSearching = q.length > 0;
 
   const { data: warehouses = [], isLoading } = useQuery<WarehouseRow[]>({
     queryKey: ['warehouses'],
     queryFn: async () => (await api.get('/warehouses')).data,
   });
+
+  const filtered = useMemo(
+    () =>
+      isSearching
+        ? warehouses.filter(
+            (w) => w.name.toLowerCase().includes(q) || (w.location ?? '').toLowerCase().includes(q),
+          )
+        : warehouses,
+    [warehouses, isSearching, q],
+  );
 
   const setDefault = useMutation({
     mutationFn: async (id: string) => (await api.post(`/warehouses/${id}/set-default`)).data,
@@ -165,15 +184,29 @@ export function WarehousesPage() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <p className="text-sm text-muted-foreground">
-          {warehouses.length} warehouse(s) — each keeps its own inventory.
-        </p>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-end gap-3">
+          <div className="space-y-1.5">
+            <Label className="text-xs">{t('Search')}</Label>
+            <div className="relative">
+              <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder={t('Search warehouses…')}
+                className="w-72 pl-8"
+              />
+            </div>
+          </div>
+          <p className="pb-2 text-sm text-muted-foreground">
+            {filtered.length} warehouse(s) — each keeps its own inventory.
+          </p>
+        </div>
         {canManage && (
           <WarehouseDialog
             trigger={
               <Button>
-                <Plus className="h-4 w-4" /> Add Warehouse
+                <Plus className="h-4 w-4" /> {t('Add Warehouse')}
               </Button>
             }
           />
@@ -182,9 +215,13 @@ export function WarehousesPage() {
 
       {isLoading ? (
         <p className="text-sm text-muted-foreground">Loading…</p>
+      ) : filtered.length === 0 ? (
+        <p className="text-sm text-muted-foreground">
+          {isSearching ? 'No warehouses match your search.' : 'No warehouses yet.'}
+        </p>
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-          {warehouses.map((w) => (
+          {filtered.map((w) => (
             <Card key={w.id}>
               <CardContent className="space-y-3 p-5">
                 <div className="flex items-start justify-between">
@@ -227,21 +264,21 @@ export function WarehousesPage() {
                         disabled={setDefault.isPending}
                         onClick={() => setDefault.mutate(w.id)}
                       >
-                        <Check className="h-4 w-4" /> Set default
+                        <Check className="h-4 w-4" /> {t('Set default')}
                       </Button>
                     )}
                     <WarehouseDialog
                       warehouse={w}
                       trigger={
                         <Button variant="outline" size="sm" className={w.isDefault ? 'flex-1' : ''}>
-                          <Pencil className="h-4 w-4" /> Edit
+                          <Pencil className="h-4 w-4" /> {t('Edit')}
                         </Button>
                       }
                     />
                     <Button
                       variant="outline"
                       size="sm"
-                      title="Delete"
+                      title={t('Delete')}
                       disabled={del.isPending || w.isDefault}
                       onClick={() => remove(w)}
                     >

@@ -18,8 +18,8 @@ const createRoleValidator = [
     .trim()
     .notEmpty()
     .withMessage('Role name is required')
-    .matches(/^[a-z0-9_]+$/i)
-    .withMessage('Role name may only contain letters, numbers and underscores'),
+    .isLength({ max: 100 })
+    .withMessage('Role name must be at most 100 characters'),
   body('description').optional().trim().isLength({ max: 200 }),
   permissionsRule('permissions').optional(),
 ];

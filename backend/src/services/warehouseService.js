@@ -1,8 +1,10 @@
-const { Op, QueryTypes } = require('sequelize');
-const { initializeModels } = require('../db/models');
-const { getPostgres } = require('../db/postgres');
+const Warehouse = require('../models/warehouseModel');
+const Product = require('../models/productModel');
+const StockLevel = require('../models/stockLevelModel');
+const Sale = require('../models/saleModel');
+const JournalEntry = require('../models/journalEntryModel');
 const ApiError = require('../utils/ApiError');
-const { Warehouse, Product, StockLevel, Sale, GoodsPurchase, JournalEntry } = initializeModels();
+const { QUANTITY_DECIMALS } = require('../utils/quantity');
 
 /**
  * Warehouse CRUD. Exactly one warehouse carries isDefault=true; setting it on
@@ -13,46 +15,52 @@ const { Warehouse, Product, StockLevel, Sale, GoodsPurchase, JournalEntry } = in
 // each holds, for the Warehouses screen cards.
 async function listWarehouses() {
   const [warehouses, stock] = await Promise.all([
-    Warehouse.findAll({ order: [['createdAt', 'ASC']] }),
-    getPostgres().query(
-      `SELECT warehouse_id,
-              COUNT(*)::integer AS "itemsInStock",
-              COALESCE(SUM(ROUND(ROUND(quantity, 6) * avg_cost)), 0) AS "stockValue"
-         FROM stock_levels
-        WHERE ROUND(quantity, 6) > 0
-        GROUP BY warehouse_id`,
-      { type: QueryTypes.SELECT },
-    ),
+    Warehouse.find().sort({ createdAt: 1 }).lean(),
+    StockLevel.aggregate([
+      {
+        $match: {
+          $expr: { $gt: [{ $round: ['$quantity', QUANTITY_DECIMALS] }, 0] },
+        },
+      },
+      {
+        $group: {
+          _id: '$warehouse',
+          itemsInStock: { $sum: 1 },
+          stockValue: {
+            $sum: {
+              $round: [
+                { $multiply: [{ $round: ['$quantity', QUANTITY_DECIMALS] }, '$avgCost'] },
+                0,
+              ],
+            },
+          },
+        },
+      },
+    ]),
   ]);
-  const byId = new Map(stock.map((s) => [String(s.warehouse_id), s]));
+  const byId = new Map(stock.map((s) => [String(s._id), s]));
   return warehouses.map((w) => {
-    const s = byId.get(String(w.id));
-    return {
-      ...w.toJSON(),
-      itemsInStock: s ? Number(s.itemsInStock) : 0,
-      stockValue: s ? Number(s.stockValue) : 0,
-    };
+    const s = byId.get(String(w._id));
+    return { ...w, itemsInStock: s ? s.itemsInStock : 0, stockValue: s ? s.stockValue : 0 };
   });
 }
 
 async function getWarehouseById(id) {
-  const wh = await Warehouse.findByPk(id);
+  const wh = await Warehouse.findById(id);
   if (!wh) throw ApiError.notFound('Warehouse not found');
   return wh;
 }
 
 async function createWarehouse({ name, location, address, isDefault, isActive }) {
-  return getPostgres().transaction(async (transaction) => {
-    const count = await Warehouse.count({ transaction });
-    const makeDefault = !!isDefault || count === 0;
-    if (makeDefault) {
-      await Warehouse.update({ isDefault: false }, { where: {}, transaction });
-    }
-    return Warehouse.create(
-      { name, location, address, isDefault: makeDefault, isActive },
-      { transaction },
-    );
-  });
+  const wh = await Warehouse.create({ name, location, address, isDefault: !!isDefault, isActive });
+  if (wh.isDefault) {
+    await Warehouse.updateMany({ _id: { $ne: wh._id } }, { isDefault: false });
+  } else if ((await Warehouse.countDocuments()) === 1) {
+    // First warehouse is always the default.
+    wh.isDefault = true;
+    await wh.save();
+  }
+  return wh;
 }
 
 async function updateWarehouse(id, { name, location, address, isDefault, isActive }) {
@@ -61,37 +69,29 @@ async function updateWarehouse(id, { name, location, address, isDefault, isActiv
   if (location !== undefined) wh.location = location;
   if (address !== undefined) wh.address = address;
   if (isActive !== undefined) wh.isActive = isActive;
-  return getPostgres().transaction(async (transaction) => {
-    if (isDefault === true) {
-      await Warehouse.update(
-        { isDefault: false },
-        { where: { id: { [Op.ne]: wh.id } }, transaction },
-      );
-      wh.isDefault = true;
-    }
-    await wh.save({ transaction });
-    return wh;
-  });
+  if (isDefault === true) {
+    wh.isDefault = true;
+    await Warehouse.updateMany({ _id: { $ne: wh._id } }, { isDefault: false });
+  }
+  await wh.save();
+  return wh;
 }
 
 async function deleteWarehouse(id) {
   const wh = await getWarehouseById(id);
   if (wh.isDefault) throw ApiError.badRequest('The default warehouse cannot be deleted');
 
-  const hasProducts = await Product.count({ where: { warehouse: id } });
+  const hasProducts = await Product.exists({ warehouse: id });
   if (hasProducts) {
     throw ApiError.badRequest('Warehouse still owns products and cannot be deleted');
   }
 
-  const hasStock = await StockLevel.count({
-    where: { warehouse: id, quantity: { [Op.ne]: 0 } },
-  });
+  const hasStock = await StockLevel.exists({ warehouse: id, quantity: { $ne: 0 } });
   if (hasStock) throw ApiError.badRequest('Warehouse still holds stock and cannot be deleted');
 
   const history = await Promise.all([
-    Sale.count({ where: { warehouse: id } }),
-    GoodsPurchase.count({ where: { warehouse: id } }),
-    JournalEntry.count({ where: { warehouse: id } }),
+    Sale.exists({ warehouse: id }),
+    JournalEntry.exists({ warehouse: id }),
   ]);
   if (history.some(Boolean)) {
     throw ApiError.badRequest(
@@ -100,8 +100,8 @@ async function deleteWarehouse(id) {
   }
 
   // Drop leftover zero-quantity stock rows so no orphans linger.
-  await StockLevel.destroy({ where: { warehouse: id } });
-  await wh.destroy();
+  await StockLevel.deleteMany({ warehouse: id });
+  await wh.deleteOne();
 }
 
 module.exports = {

@@ -1,8 +1,7 @@
-const { initializeModels } = require('../db/models');
+const User = require('../models/userModel');
 const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
 const tokenService = require('../services/tokenService');
-const { User } = initializeModels();
 
 /**
  * Authenticate the request. Reads a Bearer access token, verifies it,
@@ -29,7 +28,7 @@ const protect = asyncHandler(async (req, _res, next) => {
     throw ApiError.unauthorized('Invalid or expired token');
   }
 
-  const user = await User.scope('withPassword').findByPk(payload.sub);
+  const user = await User.findById(payload.sub).select('+passwordChangedAt +tokenVersion');
   if (!user) {
     throw ApiError.unauthorized('User belonging to this token no longer exists');
   }
@@ -38,6 +37,9 @@ const protect = asyncHandler(async (req, _res, next) => {
   }
   if (user.passwordChangedAfter(payload.iat)) {
     throw ApiError.unauthorized('Password changed, please log in again');
+  }
+  if (Number(payload.tv || 0) !== Number(user.tokenVersion || 0)) {
+    throw ApiError.unauthorized('Session has ended, please log in again');
   }
 
   req.user = user;

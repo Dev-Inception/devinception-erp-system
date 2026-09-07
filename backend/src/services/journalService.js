@@ -1,9 +1,7 @@
-const { QueryTypes, Op } = require('sequelize');
-const { initializeModels } = require('../db/models');
-const { getPostgres } = require('../db/postgres');
+const mongoose = require('mongoose');
+const JournalEntry = require('../models/journalEntryModel');
 const ApiError = require('../utils/ApiError');
 const { naturalBalance } = require('../utils/finance');
-const { JournalEntry, JournalLine } = initializeModels();
 
 /**
  * The ledger engine. Everything that moves money posts through `post()`, and
@@ -18,8 +16,8 @@ function line(account, { debit = 0, credit = 0, ref = null } = {}) {
 
 /**
  * Append an immutable journal entry. The model enforces that lines are
- * balanced; we re-check here so callers get a clean 400 before PostgreSQL's
- * deferred balance constraint runs, and drop zero/zero lines defensively.
+ * balanced; we re-check here so callers get a clean 400 instead of a Mongoose
+ * ValidationError, and drop any zero/zero lines defensively.
  */
 async function post({
   date,
@@ -28,9 +26,9 @@ async function post({
   refId = null,
   refNo = '',
   warehouse = null,
+  store = null,
   lines,
   createdBy = null,
-  transaction: outerTransaction = null,
 }) {
   const clean = (lines || []).filter((l) => (l.debit || 0) > 0 || (l.credit || 0) > 0);
 
@@ -44,82 +42,73 @@ async function post({
     throw ApiError.badRequest('Internal posting is not balanced');
   }
 
-  const write = async (transaction) => {
-    const entry = await JournalEntry.create(
-      {
-        date: date || new Date(),
-        description,
-        refType,
-        refId,
-        refNo,
-        warehouse,
-        createdBy,
-      },
-      { transaction },
-    );
-    await JournalLine.bulkCreate(
-      clean.map((journalLine, position) => ({
-        ...journalLine,
-        journalEntryId: entry.id,
-        position,
-      })),
-      { transaction, validate: true },
-    );
-    return JournalEntry.findByPk(entry.id, {
-      include: [{ model: JournalLine, as: 'lines' }],
-      transaction,
-    });
-  };
+  return JournalEntry.create({
+    date: date || new Date(),
+    description,
+    refType,
+    refId,
+    refNo,
+    warehouse,
+    store,
+    lines: clean,
+    createdBy,
+  });
+}
 
-  if (outerTransaction) return write(outerTransaction);
-  return getPostgres().transaction(write);
+// Match expression selecting lines for one account (ref null for singletons).
+function accountMatch(account, ref = null) {
+  return { 'lines.account': account, 'lines.ref': ref || null };
 }
 
 /**
  * Current natural balance (paisa) for an account: positive means the expected
  * direction — cash on hand, a customer's receivable, a vendor's payable, etc.
  */
-async function accountBalance(account, ref = null) {
-  const totals = await accountTotals(account, ref);
+async function accountBalance(account, ref = null, { store } = {}) {
+  const totals = await accountTotals(account, ref, { store });
   return naturalBalance(account, totals.debit, totals.credit);
 }
 
 // Raw debit/credit totals (paisa) for an account over an optional date range.
-async function accountTotals(account, ref = null, { from, to, refType, refIds, warehouse } = {}) {
-  const clauses = ['jl.account = :account'];
-  const replacements = { account, ref };
-  clauses.push(ref ? 'jl.ref_id = :ref' : 'jl.ref_id IS NULL');
-  if (from) {
-    clauses.push('je.date >= :from');
-    replacements.from = from;
+async function accountTotals(
+  account,
+  ref = null,
+  { from, to, refType, refIds, warehouse, store } = {},
+) {
+  const entryMatch = {};
+  if (from || to) {
+    entryMatch.date = {};
+    if (from) entryMatch.date.$gte = from;
+    if (to) entryMatch.date.$lte = to;
   }
-  if (to) {
-    clauses.push('je.date <= :to');
-    replacements.to = to;
-  }
-  if (refType) {
-    clauses.push('je.ref_type = :refType');
-    replacements.refType = refType;
-  }
-  if (warehouse) {
-    clauses.push('je.warehouse_id = :warehouse');
-    replacements.warehouse = warehouse;
-  }
-  if (Array.isArray(refIds)) {
-    if (!refIds.length) return { debit: 0, credit: 0 };
-    clauses.push('je.ref_id IN (:refIds)');
-    replacements.refIds = refIds.map(String);
+  if (refType) entryMatch.refType = refType;
+  if (Array.isArray(refIds)) entryMatch.refId = { $in: refIds };
+  if (warehouse) entryMatch.warehouse = warehouse;
+  if (store) {
+    // Entries from before store-tracking existed carry no store at all —
+    // always include those alongside the selected store's own, rather than
+    // making that activity disappear entirely. Aggregation `$match` doesn't
+    // auto-cast query strings like `.find()` does, so cast explicitly —
+    // callers pass either a plain string id or an already-cast ObjectId.
+    const storeId =
+      store instanceof mongoose.Types.ObjectId ? store : new mongoose.Types.ObjectId(store);
+    entryMatch.$or = [{ store: null }, { store: storeId }];
   }
 
-  const [row] = await getPostgres().query(
-    `SELECT COALESCE(SUM(jl.debit), 0) AS debit,
-            COALESCE(SUM(jl.credit), 0) AS credit
-       FROM journal_lines jl
-       JOIN journal_entries je ON je.id = jl.journal_entry_id
-      WHERE ${clauses.join(' AND ')}`,
-    { replacements, type: QueryTypes.SELECT },
-  );
-  return { debit: Number(row.debit), credit: Number(row.credit) };
+  const rows = await JournalEntry.aggregate([
+    ...(Object.keys(entryMatch).length ? [{ $match: entryMatch }] : []),
+    { $unwind: '$lines' },
+    { $match: accountMatch(account, ref) },
+    {
+      $group: {
+        _id: null,
+        debit: { $sum: '$lines.debit' },
+        credit: { $sum: '$lines.credit' },
+      },
+    },
+  ]);
+
+  return rows[0] ? { debit: rows[0].debit, credit: rows[0].credit } : { debit: 0, credit: 0 };
 }
 
 /**
@@ -127,39 +116,26 @@ async function accountTotals(account, ref = null, { from, to, refType, refIds, w
  * within [from, to], with a running balance. Used for party ledgers and the
  * cash/bank book. Returns paisa; the controller converts to rupees.
  */
-async function accountStatement(account, ref = null, { from, to } = {}) {
+async function accountStatement(account, ref = null, { from, to, store } = {}) {
   // Opening balance = everything strictly before `from`.
   let opening = 0;
   if (from) {
-    const before = await accountTotals(account, ref, { to: new Date(from.getTime() - 1) });
+    const before = await accountTotals(account, ref, {
+      to: new Date(from.getTime() - 1),
+      store,
+    });
     opening = naturalBalance(account, before.debit, before.credit);
   }
 
-  const where = {};
+  const entryMatch = { ...accountMatch(account, ref) };
   if (from || to) {
-    where.date = {};
-    if (from) where.date[Op.gte] = from;
-    if (to) where.date[Op.lte] = to;
+    entryMatch.date = {};
+    if (from) entryMatch.date.$gte = from;
+    if (to) entryMatch.date.$lte = to;
   }
+  if (store) entryMatch.store = store;
 
-  const entries = await JournalEntry.findAll({
-    where,
-    include: [
-      {
-        model: JournalLine,
-        as: 'lines',
-        required: true,
-        where: {
-          account,
-          ref: ref || null,
-        },
-      },
-    ],
-    order: [
-      ['date', 'ASC'],
-      ['createdAt', 'ASC'],
-    ],
-  });
+  const entries = await JournalEntry.find(entryMatch).sort({ date: 1, createdAt: 1 }).lean();
 
   let running = opening;
   const rows = entries.map((e) => {
@@ -189,23 +165,47 @@ async function accountStatement(account, ref = null, { from, to } = {}) {
 }
 
 /**
+ * Natural balance (paisa) for one `ref` as of a specific instant — everything
+ * posted up to and including `at`. Used to snapshot a customer's receivable
+ * balance at the moment of a given sale (invoice "previous balance" / "total
+ * remaining"), rather than the live current balance.
+ */
+async function balanceAsOf(account, ref, at, { store } = {}) {
+  const totals = await accountTotals(account, ref, { to: at, store });
+  return naturalBalance(account, totals.debit, totals.credit);
+}
+
+/**
  * Natural balances (paisa) for every `ref` under an account kind, in one
  * aggregation. Used to list all customer receivables / vendor payables at once
  * without a query per party. Returns Map<refIdString, balancePaisa>.
+ * Optionally scoped to one store's transactions with each party.
  */
-async function balancesByRef(account) {
-  const rows = await getPostgres().query(
-    `SELECT ref_id, SUM(debit) AS debit, SUM(credit) AS credit
-       FROM journal_lines
-      WHERE account = :account
-      GROUP BY ref_id`,
-    { replacements: { account }, type: QueryTypes.SELECT },
-  );
+async function balancesByRef(account, { store } = {}) {
+  const validStore = store && mongoose.isValidObjectId(store) ? store : null;
+  // Entries from before store-tracking existed (or genuinely business-wide
+  // ones) carry no store at all — always include those alongside the
+  // selected store's own, rather than making that debt disappear entirely.
+  const storeMatch = validStore
+    ? [{ $match: { $or: [{ store: null }, { store: new mongoose.Types.ObjectId(validStore) }] } }]
+    : [];
+  const rows = await JournalEntry.aggregate([
+    ...storeMatch,
+    { $unwind: '$lines' },
+    { $match: { 'lines.account': account } },
+    {
+      $group: {
+        _id: '$lines.ref',
+        debit: { $sum: '$lines.debit' },
+        credit: { $sum: '$lines.credit' },
+      },
+    },
+  ]);
 
   const map = new Map();
   for (const r of rows) {
-    if (!r.ref_id) continue;
-    map.set(String(r.ref_id), naturalBalance(account, Number(r.debit), Number(r.credit)));
+    if (!r._id) continue;
+    map.set(String(r._id), naturalBalance(account, r.debit, r.credit));
   }
   return map;
 }
@@ -216,5 +216,6 @@ module.exports = {
   accountBalance,
   accountTotals,
   accountStatement,
+  balanceAsOf,
   balancesByRef,
 };

@@ -1,11 +1,12 @@
-const { Op } = require('sequelize');
-const { initializeModels } = require('../db/models');
+const mongoose = require('mongoose');
+const Customer = require('../models/customerModel');
+const Store = require('../models/storeModel');
 const ApiError = require('../utils/ApiError');
 const journalService = require('./journalService');
 const { ACCOUNT } = require('../utils/finance');
 const { toRupees } = require('../utils/money');
-const { parsePagination } = require('../utils/query');
-const { Customer } = initializeModels();
+const { parsePagination, escapeRegex } = require('../utils/query');
+const { actorStoreId, assertStoreAccess } = require('../utils/storeScope');
 
 /**
  * Customer management. Authorization is enforced by route middleware; here we
@@ -25,39 +26,52 @@ async function listCustomers(query = {}) {
   // The POS customer picker and the Customers page consume the full list (no
   // pagination UI), so allow a far larger page size than the default cap.
   const { page, limit, skip } = parsePagination(query, { defaultLimit: 1000, maxLimit: 100000 });
-  const where = {};
+  const filter = {};
   if (query.search) {
-    const term = `%${query.search}%`;
-    where[Op.or] = [
-      { name: { [Op.iLike]: term } },
-      { phone: { [Op.iLike]: term } },
-      { email: { [Op.iLike]: term } },
+    const term = escapeRegex(query.search);
+    filter.$or = [
+      { name: { $regex: term, $options: 'i' } },
+      { phone: { $regex: term, $options: 'i' } },
+      { email: { $regex: term, $options: 'i' } },
+      { address: { $regex: term, $options: 'i' } },
     ];
   }
 
   const [docs, total, balances] = await Promise.all([
-    Customer.findAll({ where, order: [['createdAt', 'DESC']], offset: skip, limit }),
-    Customer.count({ where }),
-    journalService.balancesByRef(ACCOUNT.AR),
+    Customer.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
+    Customer.countDocuments(filter),
+    journalService.balancesByRef(ACCOUNT.AR, { store: query.store }),
   ]);
 
   // Show the live receivable from the ledger (rupees) as outstanding.
-  const customers = docs.map((customer) => ({
-    ...customer.toJSON(),
-    outstanding: toRupees(balances.get(String(customer.id)) || 0),
+  const customers = docs.map((c) => ({
+    ...c,
+    outstanding: toRupees(balances.get(String(c._id)) || 0),
   }));
 
   return { customers, total, page, limit };
 }
 
 async function getCustomerById(id) {
-  const customer = await Customer.findByPk(id);
+  const customer = await Customer.findById(id);
   if (!customer) throw ApiError.notFound('Customer not found');
   return customer;
 }
 
-async function createCustomer(data) {
-  return Customer.create(pickWritable(data));
+async function createCustomer(actor, data) {
+  // Every customer belongs to the store it was added from — a store-
+  // restricted user (cashier, manager, ...) always gets their own store
+  // regardless of what (if anything) they sent; an unrestricted actor
+  // (super admin) must pick one explicitly, from the header's store switcher.
+  const restricted = actorStoreId(actor);
+  const storeId = restricted || data.store;
+  if (!storeId) throw ApiError.badRequest('A store is required');
+  if (!mongoose.isValidObjectId(storeId)) throw ApiError.badRequest('Invalid store');
+  const storeDoc = await Store.findById(storeId);
+  if (!storeDoc) throw ApiError.badRequest('Store not found');
+  assertStoreAccess(actor, storeDoc._id);
+
+  return Customer.create({ ...pickWritable(data), store: storeDoc._id });
 }
 
 async function updateCustomer(id, data) {
@@ -69,10 +83,10 @@ async function updateCustomer(id, data) {
 
 async function deleteCustomer(id) {
   const customer = await getCustomerById(id);
-  if ((await journalService.accountBalance(ACCOUNT.AR, customer.id)) > 0) {
+  if (customer.outstanding > 0) {
     throw ApiError.badRequest('Customer has an outstanding balance and cannot be deleted');
   }
-  await customer.destroy();
+  await customer.deleteOne();
 }
 
 module.exports = {

@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { Copy, Download, ExternalLink } from 'lucide-react';
+import { Copy, Download, ExternalLink, Printer } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   Dialog,
@@ -11,22 +11,20 @@ import {
 import { Button } from '@/components/ui/button';
 import { api } from '@/lib/api';
 import { buildGatePassScanQr } from '@/lib/gatePass';
-import { formatQuantity } from '@/lib/utils';
+import { useLanguage } from '@/components/language-provider';
 
 interface GatePassDetail {
   id: string;
   number: string;
-  sourceType?: 'SALE' | 'PURCHASE';
+  sourceType?: 'SALE' | 'PURCHASE' | 'RETURN';
   direction?: 'IN' | 'OUT';
   saleNumber: string;
   saleDate: string;
-  items: {
-    name: string;
-    quantity: number | string;
-    loadedQuantity?: number | string;
-  }[];
+  items: { name: string; quantity: number; loadedQuantity?: number; returnedQuantity?: number }[];
   status: 'PENDING' | 'PROCESSED' | 'CANCELLED';
   processedAt?: string;
+  processedBy?: { name?: string };
+  scannedBy?: { name?: string };
 }
 
 const STATUS_STYLE: Record<string, string> = {
@@ -42,14 +40,17 @@ const STATUS_STYLE: Record<string, string> = {
 export function GatePassDialog({
   gatePassId,
   gatePassQrUrl,
+  title = 'Gate Pass',
   open,
   onOpenChange,
 }: {
   gatePassId?: string;
   gatePassQrUrl?: string;
+  title?: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
+  const { t } = useLanguage();
   const { data, isLoading, isError } = useQuery<GatePassDetail>({
     queryKey: ['gate-pass', gatePassId],
     queryFn: async () => (await api.get(`/gate-passes/${gatePassId}`)).data,
@@ -76,15 +77,63 @@ export function GatePassDialog({
     a.click();
   };
 
+  const printGatePass = () => {
+    if (!data) return;
+    const win = window.open('', '_blank', 'width=320,height=640');
+    if (!win) return;
+    const itemRows = data.items
+      .map(
+        (it) =>
+          `<tr><td>${it.name}${it.returnedQuantity ? ` (${it.returnedQuantity} returned)` : ''}</td><td style="text-align:right">${it.quantity}</td></tr>`,
+      )
+      .join('');
+    win.document.write(`<!doctype html><html><head><title>${data.number}</title>
+      <style>
+        @page { size: 80mm auto; margin: 3mm; }
+        * { font-family: 'Courier New', monospace; }
+        html { background: #e5e7eb; }
+        body { width: 74mm; margin: 0 auto; padding: 3mm; color: #000; font-size: 12px; background: #fff; }
+        h1 { font-size: 14px; text-align: center; margin: 0 0 2mm; }
+        p { margin: 1mm 0; text-align: center; }
+        .line { border-top: 1px dashed #000; margin: 2mm 0; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { padding: 1mm 0; text-align: left; font-size: 11px; }
+        img { display: block; margin: 2mm auto; }
+        .center { text-align: center; word-break: break-all; }
+        @media print { html { background: #fff; } body { padding: 0; } }
+      </style>
+      </head><body>
+        <h1>GATE PASS</h1>
+        <p>${data.number}</p>
+        <div class="line"></div>
+        <p>${docLabel} ${data.saleNumber}</p>
+        <p>Status: ${data.status}</p>
+        <div class="line"></div>
+        <table><thead><tr><th>${t('Product')}</th><th style="text-align:right">${t('Qty')}</th></tr></thead>
+          <tbody>${itemRows}</tbody>
+        </table>
+        <div class="line"></div>
+        ${qr ? `<img src="${qr.qrDataUrl}" width="120" height="120" />` : ''}
+      </body></html>`);
+    win.document.close();
+    win.focus();
+    win.print();
+  };
+
   const isPurchase = data?.sourceType === 'PURCHASE';
-  const docLabel = isPurchase ? 'Purchase #' : 'Sale #';
-  const directionLabel = isPurchase ? 'goods coming in' : 'goods going out';
+  const isReturn = data?.sourceType === 'RETURN';
+  const docLabel = isPurchase ? 'Purchase #' : isReturn ? 'Return #' : 'Sale #';
+  const directionLabel = isReturn
+    ? 'goods coming back in'
+    : isPurchase
+      ? 'goods coming in'
+      : 'goods going out';
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>Gate Pass</DialogTitle>
+          <DialogTitle>{title}</DialogTitle>
           <DialogDescription>
             Tracks {directionLabel}. A signed-in gate user verifies quantities, records the driver
             and vehicle, signs, and processes the pass.
@@ -117,13 +166,28 @@ export function GatePassDialog({
                     : ''}
                 </span>
               </div>
+              {(data.scannedBy?.name || data.processedBy?.name) && (
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Scanned by</span>
+                  <span className="font-medium">
+                    {data.scannedBy?.name ?? data.processedBy?.name}
+                  </span>
+                </div>
+              )}
             </div>
 
             <div className="max-h-40 space-y-1 overflow-y-auto rounded-lg border p-2 text-sm">
               {data.items.map((it, idx) => (
                 <div key={idx} className="flex justify-between">
-                  <span>{it.name}</span>
-                  <span className="tabular-nums">Qty {formatQuantity(it.quantity)}</span>
+                  <span>
+                    {it.name}
+                    {it.returnedQuantity ? (
+                      <span className="ml-1.5 text-xs text-destructive">
+                        ({it.returnedQuantity} returned)
+                      </span>
+                    ) : null}
+                  </span>
+                  <span className="tabular-nums">Qty {it.quantity}</span>
                 </div>
               ))}
             </div>
@@ -131,10 +195,10 @@ export function GatePassDialog({
             {qr && (
               <div className="flex flex-col items-center gap-2">
                 <img src={qr.qrDataUrl} alt="Gate pass QR" className="h-40 w-40" />
-                <p className="max-w-full break-all text-center text-xs text-muted-foreground">
-                  {qr.publicUrl}
-                </p>
-                <div className="flex gap-2">
+                <div className="flex flex-wrap justify-center gap-2">
+                  <Button size="sm" variant="outline" onClick={printGatePass}>
+                    <Printer className="h-4 w-4" /> Print
+                  </Button>
                   <Button size="sm" variant="outline" onClick={downloadQr}>
                     <Download className="h-4 w-4" /> Download
                   </Button>

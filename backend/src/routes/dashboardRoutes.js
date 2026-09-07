@@ -7,7 +7,7 @@ const { PERMISSIONS } = require('../utils/permissions');
 const router = express.Router();
 router.use(protect);
 
-// GET /api/dashboard?warehouse=
+// GET /api/dashboard?warehouse=&store=
 // Headline figures + 30-day sales trend + top products for the home screen.
 // Guarded by reports:read since it surfaces revenue / payables / receivables.
 router.get('/', requirePermission(PERMISSIONS.REPORTS_READ), dashboardController.getSummary);

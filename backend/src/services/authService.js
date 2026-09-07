@@ -1,11 +1,9 @@
 const crypto = require('crypto');
-const { Op } = require('sequelize');
-const { initializeModels } = require('../db/models');
+const User = require('../models/userModel');
 const ApiError = require('../utils/ApiError');
 const env = require('../config/env');
 const tokenService = require('./tokenService');
 const { sendPasswordResetEmail } = require('./emailService');
-const { User } = initializeModels();
 
 /**
  * Business logic for authentication. Controllers stay thin and just
@@ -14,14 +12,12 @@ const { User } = initializeModels();
 
 async function login({ email, password }) {
   // Password is select:false, so request it explicitly.
-  const user = await User.scope('withPassword').findOne({
-    where: { email: email.trim().toLowerCase() },
-  });
+  const user = await User.findOne({ email }).select('+password +tokenVersion');
   if (!user || !(await user.comparePassword(password))) {
     throw ApiError.unauthorized('Invalid email or password');
   }
   if (!user.isActive) {
-    throw ApiError.forbidden('Account is deactivated');
+    throw ApiError.forbidden('Your account has been deactivated by the Super Admin');
   }
 
   const tokens = tokenService.generateAuthTokens(user);
@@ -40,19 +36,41 @@ async function refresh(refreshToken) {
     throw ApiError.unauthorized('Invalid or expired refresh token');
   }
 
-  const user = await User.scope('withPassword').findByPk(payload.sub);
+  const user = await User.findById(payload.sub).select('+passwordChangedAt +tokenVersion');
   if (!user || !user.isActive) {
     throw ApiError.unauthorized('User no longer exists or is inactive');
   }
   if (user.passwordChangedAfter(payload.iat)) {
     throw ApiError.unauthorized('Password changed, please log in again');
   }
+  if (Number(payload.tv || 0) !== Number(user.tokenVersion || 0)) {
+    throw ApiError.unauthorized('Session has ended, please log in again');
+  }
 
   return tokenService.generateAuthTokens(user);
 }
 
+async function logout({ accessToken, refreshToken }) {
+  let payload = null;
+  try {
+    if (accessToken) payload = tokenService.verifyAccessToken(accessToken);
+  } catch {
+    // An expired access token can still be paired with a valid refresh cookie.
+  }
+  if (!payload) {
+    try {
+      if (refreshToken) payload = tokenService.verifyRefreshToken(refreshToken);
+    } catch {
+      // Logout remains idempotent when the session has already expired.
+    }
+  }
+  if (payload?.sub) {
+    await User.updateOne({ _id: payload.sub }, { $inc: { tokenVersion: 1 } });
+  }
+}
+
 async function forgotPassword(email) {
-  const user = await User.findOne({ where: { email: email.trim().toLowerCase() } });
+  const user = await User.findOne({ email });
 
   // Always behave the same way whether or not the email exists, so we
   // don't leak which addresses are registered.
@@ -67,9 +85,9 @@ async function forgotPassword(email) {
     await sendPasswordResetEmail(user.email, resetUrl);
   } catch (err) {
     // Roll back the token so a failed send doesn't leave a dangling reset.
-    user.passwordResetToken = null;
-    user.passwordResetExpires = null;
-    await user.save({ hooks: false });
+    user.passwordResetToken = undefined;
+    user.passwordResetExpires = undefined;
+    await user.save({ validateBeforeSave: false });
     throw ApiError.badRequest('Failed to send reset email, try again later');
   }
 }
@@ -77,20 +95,18 @@ async function forgotPassword(email) {
 async function resetPassword(rawToken, newPassword) {
   const hashed = crypto.createHash('sha256').update(rawToken).digest('hex');
 
-  const user = await User.scope('withPassword').findOne({
-    where: {
-      passwordResetToken: hashed,
-      passwordResetExpires: { [Op.gt]: new Date() },
-    },
-  });
+  const user = await User.findOne({
+    passwordResetToken: hashed,
+    passwordResetExpires: { $gt: new Date() },
+  }).select('+password +tokenVersion');
 
   if (!user) {
     throw ApiError.badRequest('Token is invalid or has expired');
   }
 
   user.password = newPassword;
-  user.passwordResetToken = null;
-  user.passwordResetExpires = null;
+  user.passwordResetToken = undefined;
+  user.passwordResetExpires = undefined;
   await user.save();
 
   // Issue fresh tokens so the user is logged in after resetting.
@@ -98,7 +114,7 @@ async function resetPassword(rawToken, newPassword) {
 }
 
 async function changePassword(userId, currentPassword, newPassword) {
-  const user = await User.scope('withPassword').findByPk(userId);
+  const user = await User.findById(userId).select('+password +tokenVersion');
   if (!user) throw ApiError.notFound('User not found');
 
   if (!(await user.comparePassword(currentPassword))) {
@@ -114,6 +130,7 @@ async function changePassword(userId, currentPassword, newPassword) {
 module.exports = {
   login,
   refresh,
+  logout,
   forgotPassword,
   resetPassword,
   changePassword,

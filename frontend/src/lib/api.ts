@@ -16,8 +16,6 @@ import {
   type Product,
   type Sale,
   type SaleItem,
-  type Purchase,
-  type PurchaseItem,
 } from './mock-data';
 import { renderTemplate } from './printing';
 import { http } from './http';
@@ -114,13 +112,6 @@ function listSales() {
       ...s,
       customer: s.customerId ? { name: customerName(s.customerId) } : undefined,
     }));
-}
-
-function listInvoices() {
-  return db.invoices
-    .slice()
-    .sort((a, b) => +new Date(b.issueDate) - +new Date(a.issueDate))
-    .map((i) => ({ ...i, customer: { name: customerName(i.customerId) ?? 'Walk-in Customer' } }));
 }
 
 function cashLedger() {
@@ -247,34 +238,6 @@ function buildReport(type: string, from?: unknown, to?: unknown) {
       },
     };
   }
-  if (type === 'purchases') {
-    const rows = db.purchases
-      .filter((p) => inRange(p.date, from, to))
-      .sort((a, b) => +new Date(b.date) - +new Date(a.date))
-      .map((p) => ({
-        gpNumber: p.gpNumber,
-        date: dayKey(p.date),
-        vendor: vendorName(p.vendorId) ?? '—',
-        paid: p.paidAmount,
-        total: p.grandTotal,
-      }));
-    return {
-      title: 'Purchase Report',
-      columns: [
-        { key: 'gpNumber', label: 'GP #' },
-        { key: 'date', label: 'Date' },
-        { key: 'vendor', label: 'Vendor' },
-        { key: 'paid', label: 'Paid', numeric: true },
-        { key: 'total', label: 'Total', numeric: true },
-      ],
-      rows,
-      summary: {
-        count: rows.length,
-        paid: rows.reduce((s, r) => s + r.paid, 0),
-        total: rows.reduce((s, r) => s + r.total, 0),
-      },
-    };
-  }
   if (type === 'stock') {
     const rows = db.products
       .filter((p) => p.isActive)
@@ -340,34 +303,6 @@ function buildReport(type: string, from?: unknown, to?: unknown) {
     ],
     summary: { revenue, cogs, grossProfit, expenses, netProfit },
   };
-}
-
-function invoicePdfBlob(id: string): Blob {
-  const inv = db.invoices.find((i) => i.id === id);
-  const sale = inv ? db.sales.find((s) => s.id === inv.saleId) : undefined;
-  const items = (sale?.items ?? []).map((i) => ({
-    name: i.name,
-    qty: i.quantity,
-    price: i.unitPrice,
-    amount: i.amount,
-  }));
-  const html = renderTemplate('INVOICE_A4', {
-    company: {
-      name: db.settings.companyName,
-      address: db.settings.address,
-      phone: db.settings.phone,
-    },
-    number: inv?.invoiceNumber ?? 'INV',
-    date: inv ? new Date(inv.issueDate).toLocaleDateString() : '',
-    partyName: inv ? (customerName(inv.customerId) ?? 'Walk-in Customer') : '',
-    items,
-    subtotal: inv?.subtotal ?? 0,
-    tax: inv?.taxTotal ?? 0,
-    discount: inv?.discountTotal ?? 0,
-    total: inv?.grandTotal ?? 0,
-  });
-  // Served as HTML so it opens in a new tab (demo stand-in for a rendered PDF).
-  return new Blob([html], { type: 'text/html' });
 }
 
 /* ─────────────────── mutations ─────────────────── */
@@ -447,80 +382,6 @@ function createSale(body: any) {
   };
 }
 
-function createPurchase(body: any) {
-  const warehouseId =
-    body.warehouseId || db.warehouses.find((w) => w.isDefault)?.id || db.warehouses[0].id;
-  let subtotal = 0;
-  let taxTotal = 0;
-  const items: PurchaseItem[] = (body.items ?? []).map((it: any) => {
-    const product = findProduct(it.productId);
-    const gross = it.quantity * it.rate;
-    const discount = it.discount ?? 0;
-    const taxable = gross - discount;
-    const taxRate = it.taxRate ?? 0;
-    const tax = (taxable * taxRate) / 100;
-    subtotal += gross;
-    taxTotal += tax;
-    if (product) product.purchasePrice = it.rate;
-    return {
-      productId: it.productId,
-      name: product?.name ?? 'Item',
-      quantity: it.quantity,
-      rate: it.rate,
-      taxRate,
-      discount,
-      amount: taxable + tax,
-    };
-  });
-  const discountTotal = body.discountTotal ?? 0;
-  const grandTotal = subtotal - discountTotal + taxTotal;
-  const paidAmount = Math.min(body.paidAmount ?? 0, grandTotal);
-  const gp: Purchase = {
-    id: uid('gp'),
-    gpNumber: `GP-${new Date().getFullYear()}-${String(db.seq.GP++).padStart(4, '0')}`,
-    vendorId: body.vendorId,
-    warehouseId,
-    invoiceNumber: body.invoiceNumber,
-    date: body.date ? new Date(body.date).toISOString() : new Date().toISOString(),
-    status: 'RECEIVED',
-    subtotal,
-    taxTotal,
-    discountTotal,
-    grandTotal,
-    paidAmount,
-    note: body.notes || undefined,
-    items,
-  };
-  db.purchases.push(gp);
-  for (const it of items) {
-    db.stock[it.productId] = db.stock[it.productId] || {};
-    db.stock[it.productId][warehouseId] = (db.stock[it.productId][warehouseId] ?? 0) + it.quantity;
-  }
-  const owed = grandTotal - paidAmount;
-  if (owed > 0.01)
-    db.ledger.push({
-      accountKind: 'vendors',
-      accountId: body.vendorId,
-      date: gp.date,
-      description: `Goods purchase ${gp.gpNumber}`,
-      debit: 0,
-      credit: owed,
-    });
-  if (paidAmount > 0)
-    db.cashTxns.push({
-      id: uid('cash'),
-      type: 'CASH_OUT',
-      amount: paidAmount,
-      description: `Payment for ${gp.gpNumber}`,
-      date: gp.date,
-    });
-  return {
-    ...gp,
-    vendor: { name: vendorName(body.vendorId) },
-    items: items.map((i) => ({ ...i, product: { name: i.name } })),
-  };
-}
-
 function adjustStock(body: any) {
   const { productId, warehouseId, type, quantity } = body;
   db.stock[productId] = db.stock[productId] || {};
@@ -535,29 +396,6 @@ function adjustStock(body: any) {
   return { newQty };
 }
 
-function createInvoice(body: any) {
-  const sale = db.sales.find((s) => s.id === body.saleId);
-  if (!sale) return fail(404, 'Sale not found');
-  const existing = db.invoices.find((i) => i.saleId === sale.id);
-  if (existing) return existing;
-  const paid = sale.paidCash + sale.paidCard + sale.paidBank;
-  const inv = {
-    id: uid('inv'),
-    invoiceNumber: `INV-${new Date().getFullYear()}-${String(db.seq.INV++).padStart(6, '0')}`,
-    saleId: sale.id,
-    customerId: sale.customerId ?? 'walk-in',
-    status: paid >= sale.grandTotal ? 'PAID' : 'ISSUED',
-    issueDate: new Date().toISOString(),
-    subtotal: sale.subtotal,
-    taxTotal: sale.taxTotal,
-    discountTotal: sale.discountTotal,
-    grandTotal: sale.grandTotal,
-    paidAmount: paid,
-  };
-  db.invoices.push(inv);
-  return { ...inv, customer: { name: customerName(inv.customerId) ?? 'Walk-in Customer' } };
-}
-
 /* ─────────────────── router ─────────────────── */
 async function handle(
   method: string,
@@ -566,7 +404,7 @@ async function handle(
   config?: ReqConfig,
 ): Promise<{ data: any }> {
   const params = config?.params ?? {};
-  const seg = url.split('/').filter(Boolean); // e.g. ['invoices','abc','pdf']
+  const seg = url.split('/').filter(Boolean); // e.g. ['sales','abc','payments']
 
   /* GET */
   if (method === 'get') {
@@ -580,7 +418,6 @@ async function handle(
     if (url === '/customers') return ok(listCustomers(params.search));
     if (url === '/vendors') return ok(listVendors(params.search));
     if (url === '/sales') return ok(listSales());
-    if (url === '/invoices') return ok(listInvoices());
     if (url === '/cash') return ok(cashLedger());
     if (url === '/bank/accounts') return ok(db.bankAccounts);
     if (url === '/settings') return ok(db.settings);
@@ -588,7 +425,6 @@ async function handle(
     if (url === '/dashboard/sales-trend') return ok(salesTrend(Number(params.days) || 30));
     if (url === '/dashboard/top-products') return ok(topProducts(Number(params.limit) || 5));
     if (seg[0] === 'reports' && seg[1]) return ok(buildReport(seg[1], params.from, params.to));
-    if (seg[0] === 'invoices' && seg[2] === 'pdf') return ok(invoicePdfBlob(seg[1]));
     if ((seg[0] === 'customers' || seg[0] === 'vendors') && seg[2] === 'ledger')
       return ok(partyLedger(seg[0] as 'customers' | 'vendors', seg[1]));
   }
@@ -596,9 +432,7 @@ async function handle(
   /* POST */
   if (method === 'post') {
     if (url === '/sales') return ok(createSale(body));
-    if (url === '/purchases') return ok(createPurchase(body));
     if (url === '/stock/adjust') return ok(await adjustStock(body));
-    if (url === '/invoices') return ok(await createInvoice(body));
     if (url === '/uploads') {
       const file = body instanceof FormData ? (body.get('file') as File | null) : null;
       return ok({
@@ -663,25 +497,6 @@ async function handle(
     if (seg[0] === 'warehouses' && seg[2] === 'set-default') {
       db.warehouses.forEach((w) => (w.isDefault = w.id === seg[1]));
       return ok({ success: true });
-    }
-    if (seg[0] === 'invoices' && seg[2] === 'send-email') {
-      const inv = db.invoices.find((i) => i.id === seg[1]);
-      const email = inv && db.customers.find((c) => c.id === inv.customerId)?.email;
-      return ok({
-        sent: false,
-        message: email
-          ? `Demo mode: email to ${email} is simulated (no SMTP configured).`
-          : 'Customer has no email address.',
-      });
-    }
-    if (seg[0] === 'invoices' && seg[2] === 'send-whatsapp') {
-      const inv = db.invoices.find((i) => i.id === seg[1]);
-      const phone = (inv && db.customers.find((c) => c.id === inv.customerId)?.phone) || '';
-      const digits = phone.replace(/[^0-9]/g, '');
-      const text = encodeURIComponent(
-        `Hello, here is your invoice ${inv?.invoiceNumber ?? ''} from ${db.settings.companyName}.`,
-      );
-      return ok({ url: `https://wa.me/${digits}?text=${text}`, hasPhone: digits.length > 0 });
     }
     if (url === '/products') {
       const p: Product = {
@@ -773,6 +588,53 @@ async function realDeleteWarehouse(id: string) {
   return { success: true };
 }
 
+/* ── Stores (storefronts — group one or more warehouses) ── */
+function mapStore(s: any) {
+  return {
+    id: String(s._id ?? s.id),
+    name: s.name,
+    code: s.code || '',
+    address: s.address || '',
+    warehouseIds: (s.warehouses ?? []).map((w: any) => String(w._id ?? w)),
+    warehouseNames: (s.warehouses ?? []).map((w: any) => w.name).filter(Boolean) as string[],
+    isDefault: !!s.isDefault,
+    isActive: s.isActive !== false,
+  };
+}
+async function realListStores() {
+  const res = await http.get('/stores');
+  return (res.data.stores as any[]).map(mapStore);
+}
+async function realCreateStore(body: any) {
+  const res = await http.post('/stores', {
+    name: body.name,
+    code: body.code || undefined,
+    address: body.address || undefined,
+    warehouses: body.warehouseIds ?? [],
+    isDefault: !!body.isDefault,
+  });
+  return mapStore(res.data.store);
+}
+async function realUpdateStore(id: string, body: any) {
+  const res = await http.patch(`/stores/${id}`, {
+    name: body.name,
+    code: body.code,
+    address: body.address,
+    warehouses: body.warehouseIds,
+    isDefault: body.isDefault,
+  });
+  return mapStore(res.data.store);
+}
+async function realDeleteStore(id: string) {
+  await http.delete(`/stores/${id}`);
+  return { success: true };
+}
+async function realSetDefaultStore(id: string) {
+  // No /set-default route on the backend — PATCH with isDefault=true does it.
+  await http.patch(`/stores/${id}`, { isDefault: true });
+  return { success: true };
+}
+
 /* ── Products ── */
 function mapProduct(p: any) {
   return {
@@ -801,12 +663,21 @@ function mapProduct(p: any) {
       : null,
   };
 }
-async function realFetchProducts(params: { search?: unknown; warehouse?: unknown }) {
+async function realFetchProducts(params: {
+  search?: unknown;
+  warehouse?: unknown;
+  store?: unknown;
+  category?: unknown;
+  perWarehouse?: unknown;
+}) {
   const res = await http.get('/products', {
     params: {
       search: params.search || undefined,
       warehouse: params.warehouse || undefined,
-      limit: 100,
+      store: params.store || undefined,
+      category: params.category || undefined,
+      perWarehouse: params.perWarehouse || undefined,
+      limit: 1000,
     },
   });
   return res.data.products as any[];
@@ -814,7 +685,13 @@ async function realFetchProducts(params: { search?: unknown; warehouse?: unknown
 async function realProductsList(params: any) {
   const products = await realFetchProducts({
     search: params.search,
-    warehouse: params.warehouseId,
+    warehouse: params.warehouse || params.warehouseId,
+    store: params.store,
+    category: params.category,
+    // The POS product search asks for one row per warehouse actually
+    // stocking the product, instead of one row totalled across all of them,
+    // so it can offer a per-line warehouse picker with real availability.
+    perWarehouse: params.perWarehouse,
   });
   return products.map(mapProduct);
 }
@@ -843,6 +720,10 @@ async function realCreateProduct(body: any) {
 async function realUpdateProduct(id: string, body: any) {
   const res = await http.patch(`/products/${id}`, productPayload(body));
   return mapProduct(res.data.product);
+}
+async function realDeleteProduct(id: string) {
+  await http.delete(`/products/${id}`);
+  return { success: true };
 }
 
 /* ── Catalog: real Category/Brand/Unit entities from the backend ── */
@@ -911,7 +792,12 @@ async function realDeleteUnit(id: string) {
 
 /* ── Labour (a standalone /labour master, not nested under /catalog) ── */
 function mapLabour(l: any) {
-  return { id: String(l._id ?? l.id), name: l.name, phoneNumber: l.phoneNumber };
+  return {
+    id: String(l._id ?? l.id),
+    name: l.name,
+    phoneNumber: l.phoneNumber,
+    outstanding: l.outstanding ?? 0, // backend serializes to rupees (live AP_LABOUR)
+  };
 }
 async function realLabourList() {
   const res = await http.get('/labour');
@@ -920,6 +806,10 @@ async function realLabourList() {
 async function realCreateLabour(body: any) {
   const res = await http.post('/labour', { name: body.name, phoneNumber: body.phoneNumber });
   return mapLabour(res.data.labour);
+}
+async function realCreateRole(body: any) {
+  const res = await http.post('/roles', { name: body.name, description: body.description });
+  return mapRole(res.data.role);
 }
 async function realUpdateLabour(id: string, body: any) {
   const res = await http.patch(`/labour/${id}`, {
@@ -975,7 +865,7 @@ function mapCustomer(c: any) {
 }
 async function realCustomers(params: any) {
   const res = await http.get('/customers', {
-    params: { search: params.search || undefined, limit: 100 },
+    params: { search: params.search || undefined, store: params.store || undefined, limit: 1000 },
   });
   return (res.data.customers as any[]).map(mapCustomer);
 }
@@ -986,6 +876,7 @@ async function realCreateCustomer(body: any) {
     email: body.email,
     address: body.address,
     creditLimit: body.creditLimit,
+    store: body.storeId,
   });
   return mapCustomer(res.data.customer);
 }
@@ -1018,7 +909,7 @@ function mapVendor(v: any) {
 }
 async function realVendors(params: any) {
   const res = await http.get('/vendors', {
-    params: { search: params.search || undefined, limit: 100 },
+    params: { search: params.search || undefined, store: params.store || undefined, limit: 1000 },
   });
   return (res.data.vendors as any[]).map(mapVendor);
 }
@@ -1029,6 +920,13 @@ async function realCreateVendor(body: any) {
     email: body.email,
     address: body.address,
     ntn: body.ntn,
+    // Pre-existing balance, create only — see vendorService.createVendor.
+    // Two separate directions (not one signed figure): both can be true at
+    // once, e.g. we owe the vendor for one thing while they owe us for
+    // another.
+    weOweAmount: body.weOweAmount || undefined,
+    theyOweAmount: body.theyOweAmount || undefined,
+    store: body.store || undefined,
   });
   return mapVendor(res.data.vendor);
 }
@@ -1039,12 +937,124 @@ async function realUpdateVendor(id: string, body: any) {
     email: body.email,
     address: body.address,
     ntn: body.ntn,
+    // Balance adjustment, edit form only — see vendorService.updateVendor.
+    weOweAmount: body.weOweAmount || undefined,
+    theyOweAmount: body.theyOweAmount || undefined,
+    store: body.store || undefined,
   });
   return mapVendor(res.data.vendor);
 }
 async function realDeleteVendor(id: string) {
   await http.delete(`/vendors/${id}`);
   return { success: true };
+}
+
+/* ── Suppliers ── */
+function mapSupplier(s: any) {
+  return {
+    id: String(s._id ?? s.id),
+    name: s.name,
+    phone: s.phone || undefined,
+    email: s.email || undefined,
+    address: s.address || undefined,
+    ntn: s.ntn || undefined,
+    outstanding: s.outstanding ?? 0, // backend serializes to rupees (live AP_SUPPLIER)
+  };
+}
+async function realSuppliers(params: any) {
+  const res = await http.get('/suppliers', {
+    params: { search: params.search || undefined, store: params.store || undefined, limit: 1000 },
+  });
+  return (res.data.suppliers as any[]).map(mapSupplier);
+}
+async function realCreateSupplier(body: any) {
+  const res = await http.post('/suppliers', {
+    name: body.name,
+    phone: body.phone,
+    email: body.email,
+    address: body.address,
+    ntn: body.ntn,
+  });
+  return mapSupplier(res.data.supplier);
+}
+async function realUpdateSupplier(id: string, body: any) {
+  const res = await http.patch(`/suppliers/${id}`, {
+    name: body.name,
+    phone: body.phone,
+    email: body.email,
+    address: body.address,
+    ntn: body.ntn,
+  });
+  return mapSupplier(res.data.supplier);
+}
+async function realDeleteSupplier(id: string) {
+  await http.delete(`/suppliers/${id}`);
+  return { success: true };
+}
+
+async function realDeleteRoles(id: string) {
+  await http.delete(`/roles/${id}`);
+  return { success: true };
+}
+
+/* ── Transporters ── */
+function mapTransporter(tr: any) {
+  return {
+    id: String(tr._id ?? tr.id),
+    name: tr.name,
+    phone: tr.phone || undefined,
+    vehicleNumber: tr.vehicleNumber || undefined,
+    address: tr.address || undefined,
+    outstanding: tr.outstanding ?? 0, // backend serializes to rupees (live AP_TRANSPORT)
+  };
+}
+async function realTransporters(params: any) {
+  const res = await http.get('/transporters', {
+    params: { search: params.search || undefined, store: params.store || undefined, limit: 1000 },
+  });
+  return (res.data.transporters as any[]).map(mapTransporter);
+}
+async function realCreateTransporter(body: any) {
+  const res = await http.post('/transporters', {
+    name: body.name,
+    phone: body.phone,
+    vehicleNumber: body.vehicleNumber,
+    address: body.address,
+  });
+  return mapTransporter(res.data.transporter);
+}
+async function realUpdateTransporter(id: string, body: any) {
+  const res = await http.patch(`/transporters/${id}`, {
+    name: body.name,
+    phone: body.phone,
+    vehicleNumber: body.vehicleNumber,
+    address: body.address,
+  });
+  return mapTransporter(res.data.transporter);
+}
+async function realDeleteTransporter(id: string) {
+  await http.delete(`/transporters/${id}`);
+  return { success: true };
+}
+async function realChargeTransport(id: string, body: any) {
+  const res = await http.post(`/transporters/${id}/charges`, {
+    store: body.store,
+    amount: body.amount,
+    date: body.date || undefined,
+    note: body.note || undefined,
+  });
+  return res.data;
+}
+async function realPayTransport(body: any) {
+  const res = await http.post('/finance/payments/transport', {
+    transporter: body.transporter,
+    store: body.store,
+    amount: body.amount,
+    method: body.method || undefined,
+    bankAccount: body.bankAccount || undefined,
+    note: body.note || undefined,
+  });
+  return res.data;
 }
 
 /* ── Sales / POS ── */
@@ -1057,18 +1067,46 @@ function mapSale(s: any) {
     id: String(s._id ?? s.id),
     saleNumber: s.number,
     customerId: s.customer ? String(s.customer._id ?? s.customer) : undefined,
+    storeId: s.store ? String(s.store._id ?? s.store) : undefined,
+    storeName: s.store && typeof s.store === 'object' ? s.store.name : undefined,
+    storeAddress: s.store && typeof s.store === 'object' ? s.store.address : undefined,
     warehouseId: s.warehouse ? String(s.warehouse._id ?? s.warehouse) : undefined,
     date: s.date,
     status: 'COMPLETED',
     subtotal: s.subtotal,
     discountTotal: s.discount,
     taxTotal: s.tax,
-    grandTotal: s.total,
+    taxPercent: s.taxPercent ?? 0,
+    transportFare: s.transportFare ?? 0,
+    labourRentTotal: s.labourRent ?? 0,
+    transport: s.transport
+      ? {
+          driverName: s.transport.driverName || '',
+          driverPhone: s.transport.driverPhone || '',
+          vehicleNumber: s.transport.vehicleNumber || '',
+        }
+      : undefined,
+    transporterId: s.transporter ? String(s.transporter._id ?? s.transporter) : undefined,
+    transporterName:
+      s.transporter && typeof s.transporter === 'object' ? s.transporter.name : undefined,
+    // Net of returns — mirrors balanceDue below, which the backend already
+    // computes as total minus returnedTotal minus payments.
+    grandTotal: (s.total ?? 0) - (s.returnedTotal ?? 0),
     paymentMethod: s.paymentMethod,
     paidCash: s.cashAmount ?? 0,
     paidCard: 0,
     paidBank: s.onlineAmount ?? 0,
     changeDue: 0,
+    // Advance/Remaining for the sales listing — paidAmount includes anything
+    // settled later via "Record Payment"; balanceDue accounts for returns too.
+    paidAmount: s.paidAmount ?? 0,
+    balanceDue: s.balanceDue ?? 0,
+    // Customer's receivable balance snapshotted at this sale's moment — null
+    // for walk-in sales (no customer to carry a running balance).
+    previousBalance: s.previousBalance ?? null,
+    totalRemaining: s.totalRemaining ?? null,
+    additionalPaidAmount: s.additionalPaidAmount ?? 0,
+    returnedTotal: s.returnedTotal ?? 0,
     items: (s.items ?? []).map((it: any) => ({
       productId: String(it.product?._id ?? it.product),
       name: it.name,
@@ -1077,11 +1115,35 @@ function mapSale(s: any) {
       discount: 0,
       taxRate: s.taxPercent ?? 0,
       amount: it.lineTotal,
+      source: it.source,
+      vendorId: it.vendor ? String(it.vendor?._id ?? it.vendor) : undefined,
+      vendorName: it.vendorName || '',
+      warehouseId: it.warehouse ? String(it.warehouse?._id ?? it.warehouse) : undefined,
     })),
-    customer: cname ? { name: cname } : undefined,
+    customer: cname ? { name: cname, phone: s.customer?.phone || undefined } : undefined,
+    labour: Array.isArray(s.labour)
+      ? s.labour.map((l: any) => ({
+          id: String(l.labour?._id ?? l.labour),
+          name: l.name,
+          phone: l.phoneNumber || undefined,
+          rent: Number(l.rent) || 0,
+        }))
+      : undefined,
     gatePassId: s.gatePassId,
     gatePassUrl: s.gatePassUrl,
     gatePassQrUrl: s.gatePassQrUrl,
+    // One entry per warehouse the sale actually drew stock from — a sale
+    // spanning several warehouses gets a separate gate pass for each.
+    warehouseGatePasses: Array.isArray(s.warehouseGatePasses)
+      ? s.warehouseGatePasses.map((g: any) => ({
+          warehouseId: g.warehouseId,
+          gatePassId: g.gatePassId,
+          gatePassQrUrl: g.gatePassQrUrl,
+        }))
+      : [],
+    vendorGatePassId: s.vendorGatePassId,
+    vendorGatePassUrl: s.vendorGatePassUrl,
+    vendorGatePassQrUrl: s.vendorGatePassQrUrl,
   };
 }
 async function realSales(params: any = {}) {
@@ -1092,6 +1154,10 @@ async function realSales(params: any = {}) {
       from: params.from || undefined,
       to: params.to || undefined,
       paymentMethod: params.paymentMethod || undefined,
+      store: params.store || undefined,
+      vendor: params.vendorId || undefined,
+      labour: params.labourId || undefined,
+      transporter: params.transporterId || undefined,
     },
   });
   return {
@@ -1101,6 +1167,10 @@ async function realSales(params: any = {}) {
     limit: res.data.limit ?? 20,
   };
 }
+async function realGetSale(id: string) {
+  const res = await http.get(`/sales/${id}`);
+  return mapSale(res.data.sale);
+}
 async function realCreateSale(body: any) {
   // POS (flat) → backend (nested payment). The POS sends one tax rate per line;
   // the backend applies a single order-level taxPercent on the net.
@@ -1108,13 +1178,24 @@ async function realCreateSale(body: any) {
     product: l.productId,
     quantity: l.quantity,
     unitPrice: l.unitPrice,
+    source: l.source || undefined,
+    vendor: l.vendor || undefined,
+    warehouse: l.warehouseId || undefined,
   }));
   const res = await http.post('/sales', {
+    store: body.storeId || undefined,
     customer: body.customerId || undefined,
     warehouse: body.warehouseId || undefined,
     discount: body.discountTotal || 0,
     taxPercent: body.items?.[0]?.taxRate ?? 0,
+    transportFare: body.transportFare || 0,
+    transport: body.transport || undefined,
+    transporter: body.transporterId || undefined,
+    transportFareMethod: body.transportFareMethod || undefined,
+    transportFareBankAccount: body.transportFareBankAccountId || undefined,
     items,
+    labour: body.labour || undefined,
+    estimate: body.estimateId || undefined,
     payment: {
       method: body.paymentMethod,
       cash: body.paidCash,
@@ -1123,6 +1204,636 @@ async function realCreateSale(body: any) {
     },
   });
   return mapSale(res.data.sale);
+}
+async function realUpdateSale(id: string, body: any) {
+  // Same item shape as realCreateSale — a full invoice edit resolves lines
+  // the same way a fresh checkout does, minus the payment-method fields.
+  const items = (body.items ?? []).map((l: any) => ({
+    product: l.productId,
+    quantity: l.quantity,
+    unitPrice: l.unitPrice,
+    source: l.source || undefined,
+    vendor: l.vendor || undefined,
+    warehouse: l.warehouseId || undefined,
+  }));
+  const res = await http.patch(`/sales/${id}`, {
+    warehouse: body.warehouseId || undefined,
+    discount: body.discountTotal || 0,
+    taxPercent: body.taxPercent ?? 0,
+    transportFare: body.transportFare || 0,
+    transport: body.transport || undefined,
+    transporter: body.transporterId || undefined,
+    transportFareMethod: body.transportFareMethod || undefined,
+    transportFareBankAccount: body.transportFareBankAccountId || undefined,
+    items,
+    labour: body.labour || undefined,
+  });
+  return mapSale(res.data.sale);
+}
+async function realRecordSalePayment(id: string, body: any) {
+  const res = await http.post(`/sales/${id}/payments`, {
+    amount: body.amount,
+    method: body.method,
+    bankAccount: body.bankAccount || undefined,
+    note: body.note || undefined,
+  });
+  return mapSale(res.data.sale);
+}
+function mapSaleReturn(r: any) {
+  return {
+    id: String(r._id ?? r.id),
+    number: r.number,
+    saleId: String(r.sale?._id ?? r.sale),
+    saleNumber: r.saleNumber,
+    customerName: r.customerName || '',
+    date: r.date,
+    items: (r.items ?? []).map((it: any) => ({
+      productId: String(it.product?._id ?? it.product),
+      name: it.name,
+      quantity: it.quantity,
+      unitPrice: it.unitPrice,
+      lineTotal: it.lineTotal,
+    })),
+    subtotal: r.subtotal,
+    discount: r.discount,
+    tax: r.tax,
+    total: r.total,
+    note: r.note,
+    warehouseGatePasses: Array.isArray(r.warehouseGatePasses)
+      ? r.warehouseGatePasses.map((g: any) => ({
+          warehouseId: g.warehouseId,
+          gatePassId: g.gatePassId,
+          gatePassQrUrl: g.gatePassQrUrl,
+        }))
+      : [],
+  };
+}
+async function realCreateSaleReturn(saleId: string, body: any) {
+  const res = await http.post(`/sales/${saleId}/returns`, {
+    items: (body.items ?? []).map((it: any) => ({ product: it.productId, quantity: it.quantity })),
+    note: body.note || undefined,
+  });
+  return mapSaleReturn(res.data.saleReturn);
+}
+async function realListSaleReturns(saleId: string) {
+  const res = await http.get(`/sales/${saleId}/returns`);
+  return (res.data.returns ?? []).map(mapSaleReturn);
+}
+async function realListAllSaleReturns(params: any = {}) {
+  const res = await http.get('/sales/returns', {
+    params: {
+      page: params.page || undefined,
+      limit: params.limit || 20,
+      from: params.from || undefined,
+      to: params.to || undefined,
+      search: params.search || undefined,
+    },
+  });
+  return {
+    returns: (res.data.returns as any[]).map(mapSaleReturn),
+    total: res.data.total ?? res.data.returns.length,
+    page: res.data.page ?? 1,
+    limit: res.data.limit ?? 20,
+  };
+}
+async function realReceiveCustomerPayment(body: any) {
+  const res = await http.post('/finance/payments/customer', {
+    customer: body.customer,
+    amount: body.amount,
+    method: body.method || undefined,
+    bankAccount: body.bankAccount || undefined,
+    note: body.note || undefined,
+  });
+  return res.data;
+}
+async function realPayVendor(body: any) {
+  const res = await http.post('/finance/payments/vendor', {
+    vendor: body.vendor,
+    store: body.store,
+    amount: body.amount,
+    method: body.method || undefined,
+    bankAccount: body.bankAccount || undefined,
+    note: body.note || undefined,
+  });
+  return res.data;
+}
+async function realPaySupplier(body: any) {
+  const res = await http.post('/finance/payments/supplier', {
+    supplier: body.supplier,
+    store: body.store,
+    amount: body.amount,
+    method: body.method || undefined,
+    bankAccount: body.bankAccount || undefined,
+    note: body.note || undefined,
+  });
+  return res.data;
+}
+async function realPayLabour(body: any) {
+  const res = await http.post('/finance/payments/labour', {
+    labour: body.labour,
+    store: body.store,
+    amount: body.amount,
+    method: body.method || undefined,
+    bankAccount: body.bankAccount || undefined,
+    note: body.note || undefined,
+  });
+  return res.data;
+}
+
+/* ── Stock receipts (truck deliveries from a supplier) ── */
+function mapStockReceipt(r: any) {
+  return {
+    id: String(r._id ?? r.id),
+    number: r.number,
+    supplierId: String(r.supplier?._id ?? r.supplier),
+    supplierName: r.supplierName || '',
+    storeId: r.store ? String(r.store._id ?? r.store) : undefined,
+    storeName: r.store && typeof r.store === 'object' ? r.store.name : undefined,
+    warehouseId: String(r.warehouse?._id ?? r.warehouse),
+    warehouseName: r.warehouse?.name || '',
+    date: r.date,
+    // Stock already in the warehouse (taken on credit before this system was
+    // set up) rather than a real truck delivery — fixed at creation, see
+    // stockReceiptModel.js.
+    isOpeningStock: !!r.isOpeningStock,
+    truck: {
+      vehicleNumber: r.truck?.vehicleNumber || '',
+      driverName: r.truck?.driverName || '',
+      driverPhone: r.truck?.driverPhone || '',
+    },
+    items: (r.items ?? []).map((it: any) => ({
+      productId: String(it.product?._id ?? it.product),
+      name: it.name,
+      receivedQuantity: it.receivedQuantity,
+      damagedQuantity: it.damagedQuantity,
+      pricingStatus: it.pricingStatus as 'PENDING' | 'PRICED' | undefined,
+      purchasePrice: it.purchasePrice ?? undefined,
+      lineTotal: it.lineTotal ?? undefined,
+    })),
+    // Supplier-payable info derived from Pending Entities — see
+    // pendingEntityService.pricedTotalsByStockReceipt on the backend.
+    pricedTotal: r.pricedTotal ?? 0,
+    paidAmount: r.paidAmount ?? 0,
+    balanceDue: r.balanceDue ?? 0,
+    // What the truck delivery cost, and who covered it — see
+    // stockReceiptService.resolveTruckFarePayment on the backend.
+    truckFare: r.truckFare ?? 0,
+    truckFarePaidBy: (r.truckFarePaidBy || 'SUPPLIER') as 'SUPPLIER' | 'US',
+    truckFareMethod: r.truckFareMethod || undefined,
+    truckFareBankAccountId: r.truckFareBankAccount
+      ? String(r.truckFareBankAccount?._id ?? r.truckFareBankAccount)
+      : undefined,
+    transporterId: r.transporter ? String(r.transporter._id ?? r.transporter) : undefined,
+    transporterName:
+      r.transporter && typeof r.transporter === 'object' ? r.transporter.name : undefined,
+    labour: (r.labour ?? []).map((l: any) => ({
+      labourId: String(l.labour?._id ?? l.labour),
+      name: l.name,
+      phoneNumber: l.phoneNumber || '',
+      rent: l.rent ?? 0,
+    })),
+    labourRent: r.labourRent ?? 0,
+    note: r.note || '',
+    gatePassId: r.gatePassId,
+    gatePassQrUrl: r.gatePassQrUrl,
+  };
+}
+async function realListStockReceipts(params: any = {}) {
+  const res = await http.get('/stock-receipts', {
+    params: {
+      page: params.page || undefined,
+      limit: params.limit || 20,
+      from: params.from || undefined,
+      to: params.to || undefined,
+      search: params.search || undefined,
+      warehouse: params.warehouseId || undefined,
+      store: params.store || undefined,
+      supplier: params.supplierId || undefined,
+      labour: params.labourId || undefined,
+      transporter: params.transporterId || undefined,
+    },
+  });
+  return {
+    receipts: (res.data.receipts as any[]).map(mapStockReceipt),
+    total: res.data.total ?? res.data.receipts.length,
+    page: res.data.page ?? 1,
+    limit: res.data.limit ?? 20,
+  };
+}
+async function realCreateStockReceipt(body: any) {
+  const res = await http.post('/stock-receipts', {
+    store: body.storeId,
+    supplier: body.supplierId,
+    warehouse: body.warehouseId,
+    date: body.date || undefined,
+    isOpeningStock: !!body.isOpeningStock,
+    truck: body.truck
+      ? {
+          vehicleNumber: body.truck.vehicleNumber,
+          driverName: body.truck.driverName || undefined,
+          driverPhone: body.truck.driverPhone || undefined,
+        }
+      : undefined,
+    items: (body.items ?? []).map((it: any) => ({
+      product: it.productId,
+      receivedQuantity: it.receivedQuantity || 0,
+      damagedQuantity: it.damagedQuantity || 0,
+      unitCost: it.unitCost || undefined,
+    })),
+    truckFare: body.truckFare || undefined,
+    truckFarePaidBy: body.truckFarePaidBy || undefined,
+    truckFareMethod: body.truckFarePaidBy === 'US' ? body.truckFareMethod : undefined,
+    truckFareBankAccount:
+      body.truckFarePaidBy === 'US' ? body.truckFareBankAccountId || undefined : undefined,
+    transporter: body.transporterId || undefined,
+    labour: (body.labour ?? []).map((l: any) => ({ labour: l.labourId, rent: l.rent || 0 })),
+    note: body.note || undefined,
+  });
+  return mapStockReceipt(res.data.receipt);
+}
+async function realUpdateStockReceipt(id: string, body: any) {
+  const res = await http.patch(`/stock-receipts/${id}`, {
+    supplier: body.supplierId,
+    warehouse: body.warehouseId,
+    date: body.date || undefined,
+    // Fixed at creation (see the model) — sent through so the validator's
+    // truck.vehicleNumber requirement matches the receipt's actual type; the
+    // backend service itself always trusts the stored value, never this.
+    isOpeningStock: !!body.isOpeningStock,
+    truck: body.truck
+      ? {
+          vehicleNumber: body.truck.vehicleNumber,
+          driverName: body.truck.driverName || undefined,
+          driverPhone: body.truck.driverPhone || undefined,
+        }
+      : undefined,
+    items: (body.items ?? []).map((it: any) => ({
+      product: it.productId,
+      receivedQuantity: it.receivedQuantity || 0,
+      damagedQuantity: it.damagedQuantity || 0,
+      unitCost: it.unitCost || undefined,
+    })),
+    truckFare: body.truckFare || undefined,
+    truckFarePaidBy: body.truckFarePaidBy || undefined,
+    truckFareMethod: body.truckFarePaidBy === 'US' ? body.truckFareMethod : undefined,
+    truckFareBankAccount:
+      body.truckFarePaidBy === 'US' ? body.truckFareBankAccountId || undefined : undefined,
+    transporter: body.transporterId || undefined,
+    labour: (body.labour ?? []).map((l: any) => ({ labour: l.labourId, rent: l.rent || 0 })),
+    note: body.note || undefined,
+  });
+  return mapStockReceipt(res.data.receipt);
+}
+async function realDeleteStockReceipt(id: string) {
+  await http.delete(`/stock-receipts/${id}`);
+  return { success: true };
+}
+async function realRecordStockReceiptPayment(id: string, body: any) {
+  const res = await http.post(`/stock-receipts/${id}/payments`, {
+    amount: body.amount,
+    method: body.method,
+    bankAccount: body.bankAccount || undefined,
+    note: body.note || undefined,
+  });
+  return mapStockReceipt(res.data.receipt);
+}
+
+/* ── Pending entities (unpriced vendor-sourced sale lines, or supplier-
+   sourced stock-receipt lines) ── */
+function mapPendingEntity(e: any) {
+  return {
+    id: String(e._id ?? e.id),
+    sourceType: e.sourceType as 'SALE_ITEM' | 'STOCK_RECEIPT_ITEM',
+    sourceNo: e.sourceNo || '',
+    vendorId: e.vendor ? String(e.vendor?._id ?? e.vendor) : undefined,
+    vendorName: e.vendorName || '',
+    supplierId: e.supplier ? String(e.supplier?._id ?? e.supplier) : undefined,
+    supplierName: e.supplierName || '',
+    productName: e.productName || '',
+    quantity: e.quantity,
+    storeName: e.store && typeof e.store === 'object' ? e.store.name : undefined,
+    warehouseName: e.warehouse && typeof e.warehouse === 'object' ? e.warehouse.name : undefined,
+    date: e.date,
+    status: e.status as 'PENDING' | 'PRICED',
+    purchasePrice: e.purchasePrice ?? undefined,
+    lineTotal: e.lineTotal ?? undefined,
+  };
+}
+async function realListPendingEntities(params: any = {}) {
+  const res = await http.get('/pending-entities', {
+    params: {
+      page: params.page || undefined,
+      limit: params.limit || 20,
+      status: params.status || undefined,
+      vendor: params.vendorId || undefined,
+      supplier: params.supplierId || undefined,
+      sourceType: params.sourceType || undefined,
+      search: params.search || undefined,
+    },
+  });
+  return {
+    entities: (res.data.entities as any[]).map(mapPendingEntity),
+    total: res.data.total ?? res.data.entities.length,
+    page: res.data.page ?? 1,
+    limit: res.data.limit ?? 20,
+  };
+}
+async function realSetPendingEntityPrice(id: string, body: any) {
+  const res = await http.patch(`/pending-entities/${id}/price`, {
+    purchasePrice: body.purchasePrice,
+  });
+  return mapPendingEntity(res.data.entity);
+}
+
+/* ── POS sale drafts ("parked sales") — private to the cashier ── */
+function mapSaleDraft(d: any) {
+  return {
+    id: String(d._id ?? d.id),
+    savedAt: d.updatedAt || d.createdAt,
+    step: d.step ?? 1,
+    customer: {
+      id: String(d.customer?.id ?? ''),
+      name: d.customer?.name ?? '',
+      phone: d.customer?.phone || undefined,
+    },
+    cart: (d.items ?? []).map((it: any) => {
+      const product = {
+        id: String(it.productId),
+        name: it.name,
+        sku: it.sku || '',
+        salePrice: String(it.salePrice),
+        currentStock: it.currentStock ?? 0,
+        taxRate: String(it.taxRate ?? 0),
+        warehouseId: it.warehouseId ? String(it.warehouseId) : undefined,
+      };
+      return {
+        key: (it.sku || it.name || it.productId).toLowerCase(),
+        variants: [product],
+        product,
+        vendorId: it.vendorId ? String(it.vendorId) : null,
+        vendorName: it.vendorName || '',
+        price: Number(it.salePrice),
+        qty: it.qty,
+      };
+    }),
+    selectedLabour: (d.labour ?? []).map((l: any) => ({
+      id: String(l.id),
+      name: l.name,
+      phoneNumber: l.phoneNumber || '',
+      rent: l.rent ?? 0,
+    })),
+    driver: {
+      name: d.driver?.name || '',
+      phone: d.driver?.phone || '',
+      vehicleNumber: d.driver?.vehicleNumber || '',
+    },
+    transportFare: d.transportFare ?? 0,
+    discountValue: d.discountValue ?? 0,
+    discountType: d.discountType ?? 'amount',
+    taxPct: d.taxPct ?? 0,
+    advanceAmount: d.advanceAmount ?? 0,
+  };
+}
+function draftPayload(body: any) {
+  return {
+    store: body.storeId || undefined,
+    step: body.step,
+    customer: body.customer
+      ? { id: body.customer.id || undefined, name: body.customer.name, phone: body.customer.phone }
+      : undefined,
+    items: (body.cart ?? []).map((l: any) => ({
+      productId: l.product.id,
+      name: l.product.name,
+      sku: l.product.sku,
+      salePrice: Number(l.price ?? l.product.salePrice),
+      currentStock: l.product.currentStock,
+      taxRate: Number(l.product.taxRate) || 0,
+      warehouseId: l.product.warehouseId || undefined,
+      qty: l.qty,
+      source: l.vendorId ? 'VENDOR' : 'WAREHOUSE',
+      vendorId: l.vendorId || undefined,
+      vendorName: l.vendorName || undefined,
+    })),
+    labour: (body.selectedLabour ?? []).map((l: any) => ({
+      id: l.id,
+      name: l.name,
+      phoneNumber: l.phoneNumber,
+      rent: l.rent || 0,
+    })),
+    driver: body.driver,
+    transportFare: body.transportFare,
+    discountValue: body.discountValue,
+    discountType: body.discountType,
+    taxPct: body.taxPct,
+    advanceAmount: body.advanceAmount,
+  };
+}
+async function realListSaleDrafts(store?: string) {
+  const res = await http.get('/sale-drafts', { params: { store: store || undefined } });
+  return (res.data.drafts as any[]).map(mapSaleDraft);
+}
+async function realCreateSaleDraft(body: any) {
+  const res = await http.post('/sale-drafts', draftPayload(body));
+  return mapSaleDraft(res.data.draft);
+}
+async function realUpdateSaleDraft(id: string, body: any) {
+  const res = await http.patch(`/sale-drafts/${id}`, draftPayload(body));
+  return mapSaleDraft(res.data.draft);
+}
+async function realDeleteSaleDraft(id: string) {
+  await http.delete(`/sale-drafts/${id}`);
+  return { success: true };
+}
+/* ── Estimates (quotes) — no stock/ledger effect until converted to a sale ── */
+function mapEstimate(e: any) {
+  return {
+    id: String(e._id ?? e.id),
+    number: e.number,
+    customerId: e.customer ? String(e.customer._id ?? e.customer) : undefined,
+    customerName: e.customerName || '',
+    customerPhone: e.customerPhone || '',
+    customerAddress: e.customerAddress || '',
+    storeId: e.store ? String(e.store._id ?? e.store) : undefined,
+    storeName: e.store && typeof e.store === 'object' ? e.store.name : undefined,
+    date: e.date,
+    items: (e.items ?? []).map((it: any) => ({
+      productId: String(it.product?._id ?? it.product),
+      name: it.name,
+      quantity: it.quantity,
+      unitPrice: it.unitPrice,
+      amount: it.lineTotal,
+    })),
+    subtotal: e.subtotal,
+    discountTotal: e.discount,
+    taxPercent: e.taxPercent ?? 0,
+    taxTotal: e.tax,
+    grandTotal: e.total,
+    notes: e.notes || '',
+    status: e.status as 'PENDING' | 'FOLLOWED_UP' | 'CONVERTED' | 'LOST',
+    followUps: (e.followUps ?? []).map((f: any) => ({
+      date: f.date,
+      note: f.note,
+      byName: f.by?.name,
+    })),
+    nextFollowUpDate: e.nextFollowUpDate || undefined,
+    lostReason: e.lostReason || '',
+    convertedSaleId: e.convertedSale ? String(e.convertedSale._id ?? e.convertedSale) : undefined,
+    convertedAt: e.convertedAt || undefined,
+  };
+}
+async function realEstimates(params: any = {}) {
+  const res = await http.get('/estimates', {
+    params: {
+      page: params.page || undefined,
+      limit: params.limit || 100,
+      status: params.status || undefined,
+      search: params.search || undefined,
+      from: params.from || undefined,
+      to: params.to || undefined,
+      store: params.store || undefined,
+      dueForFollowUp: params.dueForFollowUp || undefined,
+    },
+  });
+  return {
+    estimates: (res.data.estimates as any[]).map(mapEstimate),
+    total: res.data.total ?? res.data.estimates.length,
+    page: res.data.page ?? 1,
+    limit: res.data.limit ?? 100,
+  };
+}
+function estimatePayload(body: any) {
+  return {
+    customer: body.customerId || undefined,
+    customerName: body.customerName || undefined,
+    customerPhone: body.customerPhone || undefined,
+    customerAddress: body.customerAddress || undefined,
+    store: body.storeId || undefined,
+    date: body.date || undefined,
+    items: (body.items ?? []).map((it: any) => ({
+      product: it.productId,
+      quantity: it.quantity,
+      unitPrice: it.unitPrice,
+    })),
+    discount: body.discountTotal || 0,
+    taxPercent: body.taxPercent || 0,
+    notes: body.notes || undefined,
+  };
+}
+async function realCreateEstimate(body: any) {
+  const res = await http.post('/estimates', estimatePayload(body));
+  return mapEstimate(res.data.estimate);
+}
+async function realGetEstimate(id: string) {
+  const res = await http.get(`/estimates/${id}`);
+  return mapEstimate(res.data.estimate);
+}
+async function realUpdateEstimate(id: string, body: any) {
+  const res = await http.patch(`/estimates/${id}`, estimatePayload(body));
+  return mapEstimate(res.data.estimate);
+}
+async function realAddEstimateFollowUp(id: string, body: any) {
+  const res = await http.post(`/estimates/${id}/follow-up`, {
+    note: body.note,
+    nextFollowUpDate: body.nextFollowUpDate || undefined,
+  });
+  return mapEstimate(res.data.estimate);
+}
+async function realMarkEstimateLost(id: string, body: any) {
+  const res = await http.post(`/estimates/${id}/lost`, { reason: body.reason || undefined });
+  return mapEstimate(res.data.estimate);
+}
+async function realDeleteEstimate(id: string) {
+  await http.delete(`/estimates/${id}`);
+  return { success: true };
+}
+/* ── Expenses — day-to-day operating spend (food, utilities, repairs, ...),
+   each backed by a balanced journal entry so the books stay in sync ── */
+function mapExpenseCategory(c: any) {
+  return { id: String(c._id ?? c.id), name: c.name, description: c.description || '' };
+}
+function mapExpense(e: any) {
+  return {
+    id: String(e._id ?? e.id),
+    number: e.number,
+    categoryId: e.category ? String(e.category._id ?? e.category) : '',
+    categoryName:
+      e.categoryName || (e.category && typeof e.category === 'object' ? e.category.name : ''),
+    amount: e.amount,
+    method: e.method,
+    bankAccountId: e.bankAccount ? String(e.bankAccount._id ?? e.bankAccount) : undefined,
+    storeId: e.store ? String(e.store._id ?? e.store) : undefined,
+    storeName: e.store && typeof e.store === 'object' ? e.store.name : undefined,
+    warehouseId: e.warehouse ? String(e.warehouse._id ?? e.warehouse) : undefined,
+    date: e.date,
+    note: e.note || '',
+    status: e.status as 'PENDING' | 'APPROVED' | 'REJECTED',
+    rejectionReason: e.rejectionReason || '',
+  };
+}
+async function realExpenseCategories() {
+  const res = await http.get('/expenses/categories');
+  return (res.data.categories as any[]).map(mapExpenseCategory);
+}
+async function realCreateExpenseCategory(body: any) {
+  const res = await http.post('/expenses/categories', {
+    name: body.name,
+    description: body.description || undefined,
+  });
+  return mapExpenseCategory(res.data.category);
+}
+async function realExpenses(params: any = {}) {
+  const res = await http.get('/expenses', {
+    params: {
+      page: params.page || undefined,
+      limit: params.limit || 100,
+      category: params.category || undefined,
+      store: params.store || undefined,
+      status: params.status || undefined,
+      from: params.from || undefined,
+      to: params.to || undefined,
+      search: params.search || undefined,
+    },
+  });
+  return {
+    expenses: (res.data.expenses as any[]).map(mapExpense),
+    total: res.data.total ?? res.data.expenses.length,
+    page: res.data.page ?? 1,
+    limit: res.data.limit ?? 100,
+    totalAmount: res.data.totalAmount ?? 0,
+  };
+}
+function expensePayload(body: any) {
+  return {
+    category: body.categoryId || undefined,
+    categoryName: body.categoryId ? undefined : body.categoryName || undefined,
+    amount: body.amount,
+    method: body.method,
+    bankAccount: body.bankAccountId || undefined,
+    store: body.storeId || undefined,
+    warehouse: body.warehouseId || undefined,
+    date: body.date || undefined,
+    note: body.note || undefined,
+  };
+}
+async function realCreateExpense(body: any) {
+  const res = await http.post('/expenses', expensePayload(body));
+  return mapExpense(res.data.expense);
+}
+async function realUpdateExpense(id: string, body: any) {
+  const res = await http.patch(`/expenses/${id}`, expensePayload(body));
+  return mapExpense(res.data.expense);
+}
+async function realDeleteExpense(id: string) {
+  await http.delete(`/expenses/${id}`);
+  return { success: true };
+}
+async function realApproveExpense(id: string) {
+  const res = await http.post(`/expenses/${id}/approve`);
+  return mapExpense(res.data.expense);
+}
+async function realRejectExpense(id: string, reason?: string) {
+  const res = await http.post(`/expenses/${id}/reject`, { reason: reason || undefined });
+  return mapExpense(res.data.expense);
 }
 async function realGatePassQr(id: string) {
   const res = await http.get(`/gate-passes/${id}/qr`, { responseType: 'blob' });
@@ -1143,80 +1854,17 @@ async function realProcessGatePass(token: string, body: any) {
 async function realUpdateGatePass(id: string, body: any) {
   return (await http.patch(`/gate-passes/${id}`, body)).data.gatePass;
 }
-
-/* ── Purchases (GP) ── */
-function mapPurchaseItem(it: any) {
-  return {
-    productId: String(it.product?._id ?? it.product),
-    name: it.name,
-    product: { name: it.name }, // the print template reads item.product.name
-    quantity: it.quantity,
-    rate: it.unitCost,
-    taxRate: it.taxPercent,
-    discount: 0,
-    amount: (it.lineTotal ?? 0) + (it.tax ?? 0),
-  };
-}
-function mapPurchase(p: any, vendorName?: string) {
-  return {
-    id: String(p._id ?? p.id),
-    gpNumber: p.number,
-    vendorId: String(p.vendor?._id ?? p.vendor),
-    warehouseId: String(p.warehouse?._id ?? p.warehouse),
-    date: p.date,
-    status: 'RECEIVED',
-    subtotal: p.subtotal,
-    taxTotal: p.tax,
-    discountTotal: p.discount,
-    grandTotal: p.total,
-    paidAmount: p.paid,
-    note: p.notes || undefined,
-    items: (p.items ?? []).map(mapPurchaseItem),
-    vendor: { name: vendorName ?? p.vendor?.name },
-  };
-}
-async function realCreatePurchase(body: any) {
-  // FE has per-line discounts; the backend takes one order-level discount and
-  // allocates it across lines, so we pass the sum.
-  const discount = (body.items ?? []).reduce(
-    (s: number, l: any) => s + (Number(l.discount) || 0),
-    0,
-  );
-  const items = (body.items ?? []).map((l: any) => ({
-    product: l.productId,
-    quantity: l.quantity,
-    unitCost: l.rate,
-    taxPercent: l.taxRate,
-  }));
-  const paid = body.paidAmount || 0;
-  const res = await http.post('/purchases', {
-    vendor: body.vendorId,
-    warehouse: body.warehouseId || undefined,
-    vendorInvoiceNo: body.invoiceNumber || undefined,
-    date: body.date || undefined,
-    discount,
-    paid,
-    // FE captures no payment method; default to cash when something is paid.
-    paymentMethod: paid > 0 ? 'CASH' : undefined,
-    items,
-    notes: body.notes || undefined,
-  });
-  // The create response doesn't populate the vendor name (the print needs it).
-  let vendorName: string | undefined;
-  try {
-    vendorName = (await http.get(`/vendors/${body.vendorId}`)).data.vendor?.name;
-  } catch {
-    vendorName = undefined;
-  }
-  return mapPurchase(res.data.purchase, vendorName);
+async function realDeleteGatePass(id: string) {
+  await http.delete(`/gate-passes/${id}`);
+  return { success: true };
 }
 
 /* ── Dashboard (one backend /dashboard call → three FE endpoints) ── */
-async function realDashboard() {
-  return (await http.get('/dashboard')).data; // { cards, salesTrend, topProducts }
+async function realDashboard(store?: string) {
+  return (await http.get('/dashboard', { params: { store: store || undefined } })).data; // { cards, salesTrend, topProducts }
 }
-async function realDashKpis() {
-  const c = (await realDashboard()).cards;
+async function realDashKpis(store?: string) {
+  const c = (await realDashboard(store)).cards;
   return {
     todaySales: c.todaySales ?? 0,
     monthSales: c.monthSales ?? 0,
@@ -1227,11 +1875,11 @@ async function realDashKpis() {
     outstandingPayables: c.payables ?? 0,
   };
 }
-async function realDashTrend() {
-  return (await realDashboard()).salesTrend ?? [];
+async function realDashTrend(store?: string) {
+  return (await realDashboard(store)).salesTrend ?? [];
 }
-async function realDashTop() {
-  return ((await realDashboard()).topProducts ?? []).map((p: any) => ({
+async function realDashTop(store?: string) {
+  return ((await realDashboard(store)).topProducts ?? []).map((p: any) => ({
     productId: String(p.product ?? ''),
     name: p.name,
     quantity: p.quantity,
@@ -1243,7 +1891,7 @@ async function realDashTop() {
 async function realReport(type: string, params: any) {
   const beType = ({ stock: 'stock-valuation', pnl: 'profit-loss' } as any)[type] ?? type;
   const res = await http.get(`/reports/${beType}`, {
-    params: { from: params.from, to: params.to },
+    params: { from: params.from, to: params.to, store: params.store },
   });
   const report = res.data.report;
 
@@ -1277,31 +1925,6 @@ async function realReport(type: string, params: any) {
       },
     };
   }
-  if (type === 'purchases') {
-    const rows = (report.rows as any[]).map((r) => ({
-      gpNumber: r.number,
-      date: dayKey(r.date),
-      vendor: r.vendor,
-      paid: r.paid,
-      total: r.total,
-    }));
-    return {
-      title: 'Purchase Report',
-      columns: [
-        { key: 'gpNumber', label: 'GP #' },
-        { key: 'date', label: 'Date' },
-        { key: 'vendor', label: 'Vendor' },
-        { key: 'paid', label: 'Paid', numeric: true },
-        { key: 'total', label: 'Total', numeric: true },
-      ],
-      rows,
-      summary: {
-        count: report.summary.count,
-        paid: report.summary.paid,
-        total: report.summary.total,
-      },
-    };
-  }
   if (type === 'stock') {
     const rows = (report.rows as any[]).map((r) => ({
       name: r.product,
@@ -1331,6 +1954,22 @@ async function realReport(type: string, params: any) {
       },
     };
   }
+  if (type === 'day-book') {
+    return {
+      title: 'Day Book',
+      rows: (report.rows as any[]).map((r) => ({
+        id: r.id,
+        date: r.date,
+        voucherType: r.voucherType,
+        voucherLabel: r.voucherLabel,
+        voucherNo: r.voucherNo,
+        description: r.description,
+        warehouse: r.warehouse,
+        amount: r.amount,
+      })),
+      summary: report.summary,
+    };
+  }
   // pnl
   const rev = report.revenue ?? 0;
   const cogs = report.costOfGoodsSold ?? 0;
@@ -1354,8 +1993,9 @@ async function realReport(type: string, params: any) {
 }
 
 /* ── Cash book ── */
-async function realCashLedger() {
-  const stmt = (await http.get('/finance/cash-ledger')).data; // { opening, closing, rows }
+async function realCashLedger(store?: string) {
+  const stmt = (await http.get('/finance/cash-ledger', { params: { store: store || undefined } }))
+    .data; // { opening, closing, rows }
   const rows = (stmt.rows as any[]).map((r, i) => ({
     id: String(i),
     date: r.date,
@@ -1371,19 +2011,46 @@ async function realCashLedger() {
 async function realCashEntry(body: any) {
   const res = await http.post('/finance/cash-entry', {
     direction: body.type === 'CASH_IN' ? 'IN' : 'OUT',
+    store: body.storeId,
     amount: body.amount,
     note: body.description,
   });
   return res.data;
 }
 
+/* ── Day End (per-store business-day lock) ── */
+function mapDayEndStatus(s: any) {
+  return {
+    isOpen: !!s.isOpen,
+    closedByName: s.closedBy?.name || undefined,
+    closedAt: s.closedAt || undefined,
+    reopenedByName: s.reopenedBy?.name || undefined,
+    reopenedAt: s.reopenedAt || undefined,
+  };
+}
+async function realDayEndStatus(params: any = {}) {
+  const res = await http.get('/day-end', { params: { store: params.store, date: params.date } });
+  return mapDayEndStatus(res.data);
+}
+async function realCloseDay(body: any) {
+  const res = await http.post('/day-end/close', { store: body.store, date: body.date });
+  return res.data;
+}
+async function realReopenDay(body: any) {
+  const res = await http.post('/day-end/reopen', { store: body.store, date: body.date });
+  return res.data;
+}
+
 /* ── Bank accounts ── */
-async function realBankAccounts() {
-  const res = await http.get('/finance/bank-accounts');
+async function realBankAccounts(store?: string) {
+  const res = await http.get('/finance/bank-accounts', { params: store ? { store } : undefined });
   return (res.data.accounts as any[]).map((a) => ({
     id: String(a._id ?? a.id),
     name: a.name,
     bankName: a.bankName || undefined,
+    accountNumber: a.accountNumber || undefined,
+    storeId: a.store ? String(a.store) : undefined,
+    isActive: a.isActive ?? true,
     balance: a.balance ?? 0,
   }));
 }
@@ -1391,90 +2058,38 @@ async function realCreateBankAccount(body: any) {
   const res = await http.post('/finance/bank-accounts', {
     name: body.name,
     bankName: body.bankName,
+    accountNumber: body.accountNumber,
+    store: body.storeId,
+    openingBalance: body.openingBalance,
   });
   const a = res.data.account;
-  return { id: String(a._id ?? a.id), name: a.name, bankName: a.bankName || undefined, balance: 0 };
-}
-
-/* ── Invoices ── */
-function mapInvoice(i: any) {
-  // Backend already serializes to the FE field names (invoiceNumber, issueDate,
-  // grandTotal, paidAmount, status); `customer` is the backend's compatibility
-  // alias for the vendor these purchase invoices actually belong to.
   return {
-    id: String(i._id ?? i.id),
-    invoiceNumber: i.invoiceNumber,
-    issueDate: i.issueDate,
-    status: i.status,
-    grandTotal: i.grandTotal,
-    paidAmount: i.paidAmount,
-    vendor: i.customer ? { name: i.customer.name } : undefined,
-    gatePassId: i.gatePassId,
-    gatePassUrl: i.gatePassUrl,
-    gatePassQrUrl: i.gatePassQrUrl,
+    id: String(a._id ?? a.id),
+    name: a.name,
+    bankName: a.bankName || undefined,
+    accountNumber: a.accountNumber || undefined,
+    storeId: a.store ? String(a.store) : undefined,
+    isActive: a.isActive ?? true,
+    balance: 0,
   };
 }
-// The backend filters `?status=` against the invoice's raw stored enum
-// (UNPAID/PARTIAL/PAID), but the response's `status` field is a different,
-// serializer-computed display vocabulary (ISSUED/PARTIALLY_PAID/PAID) — so a
-// filter built from what the UI shows has to be translated back before it's sent.
-const INVOICE_STATUS_TO_RAW: Record<string, string> = {
-  ISSUED: 'UNPAID',
-  PARTIALLY_PAID: 'PARTIAL',
-  PAID: 'PAID',
-};
-async function realInvoices(params: any = {}) {
-  const res = await http.get('/invoices', {
-    params: {
-      page: params.page || undefined,
-      limit: params.limit || 20,
-      status: params.status ? INVOICE_STATUS_TO_RAW[params.status] : undefined,
-      from: params.from || undefined,
-      to: params.to || undefined,
-    },
+async function realUpdateBankAccount(id: string, body: any) {
+  const res = await http.patch(`/finance/bank-accounts/${id}`, {
+    name: body.name,
+    bankName: body.bankName,
+    accountNumber: body.accountNumber,
+    store: body.storeId,
+    isActive: body.isActive,
   });
+  const a = res.data.account;
   return {
-    invoices: (res.data.invoices as any[]).map(mapInvoice),
-    total: res.data.total ?? res.data.invoices.length,
-    page: res.data.page ?? 1,
-    limit: res.data.limit ?? 20,
+    id: String(a._id ?? a.id),
+    name: a.name,
+    bankName: a.bankName || undefined,
+    accountNumber: a.accountNumber || undefined,
+    storeId: a.store ? String(a.store) : undefined,
+    isActive: a.isActive ?? true,
   };
-}
-async function realCreateInvoice(body: any) {
-  const res = await http.post('/invoices', { saleId: body.saleId });
-  return mapInvoice(res.data.invoice);
-}
-async function realPayInvoice(id: string, body: any) {
-  const res = await http.post(`/invoices/${id}/pay`, {
-    amount: body.amount,
-    method: body.method || undefined,
-  });
-  return mapInvoice(res.data.invoice);
-}
-async function realInvoicePdf(id: string) {
-  const res = await http.get(`/invoices/${id}/pdf`, { responseType: 'blob' });
-  return res.data as Blob;
-}
-async function realFetchInvoice(id: string) {
-  return (await http.get(`/invoices/${id}`)).data.invoice;
-}
-// Email/WhatsApp have no backend endpoint; run them client-side off the real
-// invoice so the buttons keep working against live data.
-async function realSendInvoiceEmail(id: string) {
-  const inv = await realFetchInvoice(id);
-  const email = inv.customer?.email;
-  return {
-    sent: false,
-    message: email
-      ? `Email delivery isn't configured on the server yet (would send to ${email}).`
-      : 'Customer has no email address.',
-  };
-}
-async function realSendInvoiceWhatsapp(id: string) {
-  const inv = await realFetchInvoice(id);
-  const digits = String(inv.customer?.phone || '').replace(/[^0-9]/g, '');
-  const text = encodeURIComponent(`Hello, here is your invoice ${inv.invoiceNumber}.`);
-  return { url: `https://wa.me/${digits}?text=${text}`, hasPhone: digits.length > 0 };
 }
 
 /* ── Uploads (multipart receipt; field name `file`) ── */
@@ -1497,6 +2112,7 @@ async function realUpdateSettings(body: any) {
       email: body.email,
       taxNumber: body.taxNumber,
       currency: body.currency,
+      invoiceNote: body.invoiceNote,
     })
   ).data;
 }
@@ -1506,6 +2122,7 @@ function mapRole(r: any) {
   return {
     id: String(r._id ?? r.id),
     name: r.name as string, // backend role names are lowercase (e.g. 'cashier')
+    description: (r.description as string) ?? '',
     permissions: (r.permissions as string[]) ?? [],
   };
 }
@@ -1514,16 +2131,33 @@ async function realRoles() {
   return (res.data.roles as any[]).map(mapRole);
 }
 async function realUpdateRole(id: string, body: any) {
-  const res = await http.patch(`/roles/${id}`, { permissions: body.permissions });
+  // `name` is immutable server-side once a role is created, so it's never sent here.
+  const res = await http.patch(`/roles/${id}`, {
+    description: body.description,
+    permissions: body.permissions,
+  });
   return mapRole(res.data.role);
 }
 
-/* ── Party ledger (customer/vendor statement) ── */
+/* ── Party ledger (customer/vendor/supplier/labour/transporter statement) ── */
 async function realPartyLedger(kindPlural: string, id: string, params: any = {}) {
-  const kind = kindPlural === 'customers' ? 'customer' : 'vendor';
+  const kind =
+    kindPlural === 'customers'
+      ? 'customer'
+      : kindPlural === 'suppliers'
+        ? 'supplier'
+        : kindPlural === 'labour'
+          ? 'labour'
+          : kindPlural === 'transporters'
+            ? 'transport'
+            : 'vendor';
   const stmt = (
     await http.get(`/finance/ledgers/${kind}/${id}`, {
-      params: { from: params.from || undefined, to: params.to || undefined },
+      params: {
+        from: params.from || undefined,
+        to: params.to || undefined,
+        store: params.store || undefined,
+      },
     })
   ).data; // { party, opening, closing, rows }
   return {
@@ -1548,6 +2182,7 @@ function mapManagedUser(u: any) {
     role: String(u.role).toUpperCase(), // backend lowercase → FE uppercase
     active: u.isActive !== false,
     createdAt: u.createdAt ? String(u.createdAt).slice(0, 10) : '',
+    storeName: u.store && typeof u.store === 'object' ? u.store.name : undefined,
   };
 }
 async function realUsers() {
@@ -1560,6 +2195,7 @@ async function realCreateUser(body: any) {
     email: body.email,
     password: body.password,
     role: String(body.role).toLowerCase(),
+    store: body.store || undefined,
   });
   return mapManagedUser(res.data.user);
 }
@@ -1574,6 +2210,10 @@ async function realUpdateUserRole(id: string, body: any) {
 async function realSetUserActive(id: string, body: any) {
   const res = await http.patch(`/users/${id}/active`, { isActive: body.active });
   return mapManagedUser(res.data.user);
+}
+async function realSetUserPassword(id: string, body: any) {
+  await http.patch(`/users/${id}/password`, { password: body.password });
+  return { success: true };
 }
 async function realDeleteUser(id: string) {
   await http.delete(`/users/${id}`);
@@ -1595,6 +2235,7 @@ async function tryReal(
 
   if (method === 'get') {
     if (url === '/warehouses') return wrap(await realWarehouses());
+    if (url === '/stores') return wrap(await realListStores());
     if (url === '/products') return wrap(await realProductsList(params));
     if (url === '/catalog') return wrap(await realCatalog());
     if (url === '/categories') return wrap(await realCategories());
@@ -1602,60 +2243,112 @@ async function tryReal(
     if (url === '/labour') return wrap(await realLabourList());
     if (url === '/customers') return wrap(await realCustomers(params));
     if (url === '/vendors') return wrap(await realVendors(params));
+    if (url === '/suppliers') return wrap(await realSuppliers(params));
+    if (url === '/transporters') return wrap(await realTransporters(params));
     if (url === '/sales') return wrap(await realSales(params));
-    if (url === '/cash') return wrap(await realCashLedger());
-    if (url === '/bank/accounts') return wrap(await realBankAccounts());
+    if (url === '/stock-receipts') return wrap(await realListStockReceipts(params));
+    if (url === '/pending-entities') return wrap(await realListPendingEntities(params));
+    if (url === '/sales/returns') return wrap(await realListAllSaleReturns(params));
+    if (seg[0] === 'sales' && seg[1] && seg[2] === 'returns')
+      return wrap(await realListSaleReturns(seg[1]));
+    if (seg[0] === 'sales' && seg[1] && !seg[2]) return wrap(await realGetSale(seg[1]));
+    if (url === '/estimates') return wrap(await realEstimates(params));
+    if (seg[0] === 'estimates' && seg[1] && !seg[2]) return wrap(await realGetEstimate(seg[1]));
+    if (url === '/expenses/categories') return wrap(await realExpenseCategories());
+    if (url === '/expenses') return wrap(await realExpenses(params));
+    if (url === '/sale-drafts') return wrap(await realListSaleDrafts(params.store as string));
+    if (url === '/cash') return wrap(await realCashLedger(params.store as string));
+    if (url === '/day-end') return wrap(await realDayEndStatus(params));
+    if (url === '/bank/accounts') return wrap(await realBankAccounts(params.store as string));
     if (url === '/users') return wrap(await realUsers());
     if (url === '/roles') return wrap(await realRoles());
-    if (url === '/invoices') return wrap(await realInvoices(params));
-    if (seg[0] === 'invoices' && seg[2] === 'pdf') return wrap(await realInvoicePdf(seg[1]));
     if (seg[0] === 'gate-passes' && seg[2] === 'qr') return wrap(await realGatePassQr(seg[1]));
     if (url === '/gate-passes') return wrap(await realGatePassList(params));
     if (seg[0] === 'gate-passes' && seg[1] === 'public' && seg.length === 3)
       return wrap(await realPublicGatePass(seg[2]));
     if (seg[0] === 'gate-passes' && seg.length === 2) return wrap(await realGatePassDetail(seg[1]));
     if (url === '/settings') return wrap(await realSettings());
-    if (url === '/dashboard/kpis') return wrap(await realDashKpis());
-    if (url === '/dashboard/sales-trend') return wrap(await realDashTrend());
-    if (url === '/dashboard/top-products') return wrap(await realDashTop());
+    if (url === '/dashboard/kpis') return wrap(await realDashKpis(params.store as string));
+    if (url === '/dashboard/sales-trend') return wrap(await realDashTrend(params.store as string));
+    if (url === '/dashboard/top-products') return wrap(await realDashTop(params.store as string));
     if (seg[0] === 'reports' && seg[1]) return wrap(await realReport(seg[1], params));
-    if ((seg[0] === 'customers' || seg[0] === 'vendors') && seg[2] === 'ledger')
+    if (
+      (seg[0] === 'customers' ||
+        seg[0] === 'vendors' ||
+        seg[0] === 'suppliers' ||
+        seg[0] === 'labour' ||
+        seg[0] === 'transporters') &&
+      seg[2] === 'ledger'
+    )
       return wrap(await realPartyLedger(seg[0], seg[1], params));
   }
   if (method === 'post') {
     if (url === '/warehouses') return wrap(await realCreateWarehouse(body));
+    if (url === '/stores') return wrap(await realCreateStore(body));
     if (url === '/products') return wrap(await realCreateProduct(body));
     if (url === '/categories') return wrap(await realCreateCategory(body));
     if (url === '/units') return wrap(await realCreateUnit(body));
     if (url === '/labour') return wrap(await realCreateLabour(body));
+    if (url === '/roles') return wrap(await realCreateRole(body));
     if (url === '/stock/adjust') return wrap(await realAdjustStock(body));
     if (url === '/customers') return wrap(await realCreateCustomer(body));
     if (url === '/vendors') return wrap(await realCreateVendor(body));
+    if (url === '/suppliers') return wrap(await realCreateSupplier(body));
+    if (url === '/transporters') return wrap(await realCreateTransporter(body));
+    if (seg[0] === 'transporters' && seg[1] && seg[2] === 'charges')
+      return wrap(await realChargeTransport(seg[1], body));
+    if (url === '/stock-receipts') return wrap(await realCreateStockReceipt(body));
     if (url === '/sales') return wrap(await realCreateSale(body));
-    if (url === '/purchases') return wrap(await realCreatePurchase(body));
+    if (seg[0] === 'sales' && seg[1] && seg[2] === 'payments')
+      return wrap(await realRecordSalePayment(seg[1], body));
+    if (seg[0] === 'sales' && seg[1] && seg[2] === 'returns')
+      return wrap(await realCreateSaleReturn(seg[1], body));
+    if (url === '/finance/payments/customer') return wrap(await realReceiveCustomerPayment(body));
+    if (url === '/finance/payments/vendor') return wrap(await realPayVendor(body));
+    if (url === '/finance/payments/supplier') return wrap(await realPaySupplier(body));
+    if (url === '/finance/payments/labour') return wrap(await realPayLabour(body));
+    if (url === '/finance/payments/transport') return wrap(await realPayTransport(body));
+    if (url === '/estimates') return wrap(await realCreateEstimate(body));
+    if (seg[0] === 'estimates' && seg[1] && seg[2] === 'follow-up')
+      return wrap(await realAddEstimateFollowUp(seg[1], body));
+    if (seg[0] === 'estimates' && seg[1] && seg[2] === 'lost')
+      return wrap(await realMarkEstimateLost(seg[1], body));
+    if (url === '/expenses/categories') return wrap(await realCreateExpenseCategory(body));
+    if (url === '/expenses') return wrap(await realCreateExpense(body));
+    if (seg[0] === 'expenses' && seg[1] && seg[2] === 'approve')
+      return wrap(await realApproveExpense(seg[1]));
+    if (seg[0] === 'expenses' && seg[1] && seg[2] === 'reject')
+      return wrap(await realRejectExpense(seg[1], body?.reason));
+    if (url === '/sale-drafts') return wrap(await realCreateSaleDraft(body));
     if (url === '/cash') return wrap(await realCashEntry(body));
+    if (url === '/day-end/close') return wrap(await realCloseDay(body));
+    if (url === '/day-end/reopen') return wrap(await realReopenDay(body));
     if (url === '/bank/accounts') return wrap(await realCreateBankAccount(body));
     if (url === '/users') return wrap(await realCreateUser(body));
-    if (url === '/invoices') return wrap(await realCreateInvoice(body));
-    if (seg[0] === 'invoices' && seg[2] === 'pay') return wrap(await realPayInvoice(seg[1], body));
     if (url === '/uploads') return wrap(await realUpload(body));
-    if (seg[0] === 'invoices' && seg[2] === 'send-email')
-      return wrap(await realSendInvoiceEmail(seg[1]));
-    if (seg[0] === 'invoices' && seg[2] === 'send-whatsapp')
-      return wrap(await realSendInvoiceWhatsapp(seg[1]));
     if (seg[0] === 'warehouses' && seg[2] === 'set-default')
       return wrap(await realSetDefaultWarehouse(seg[1]));
+    if (seg[0] === 'stores' && seg[2] === 'set-default')
+      return wrap(await realSetDefaultStore(seg[1]));
     if (seg[0] === 'gate-passes' && seg[1] === 'public' && seg[3] === 'process')
       return wrap(await realProcessGatePass(seg[2], body));
+    if (seg[0] === 'stock-receipts' && seg[1] && seg[2] === 'payments')
+      return wrap(await realRecordStockReceiptPayment(seg[1], body));
   }
   if (method === 'patch') {
+    if (seg[0] === 'sales' && seg[1] && !seg[2]) return wrap(await realUpdateSale(seg[1], body));
     if (seg[0] === 'products' && seg[1]) return wrap(await realUpdateProduct(seg[1], body));
     if (seg[0] === 'vendors' && seg[1] && !seg[2])
       return wrap(await realUpdateVendor(seg[1], body));
+    if (seg[0] === 'suppliers' && seg[1] && !seg[2])
+      return wrap(await realUpdateSupplier(seg[1], body));
+    if (seg[0] === 'transporters' && seg[1] && !seg[2])
+      return wrap(await realUpdateTransporter(seg[1], body));
     if (seg[0] === 'customers' && seg[1] && !seg[2])
       return wrap(await realUpdateCustomer(seg[1], body));
     if (seg[0] === 'warehouses' && seg[1] && !seg[2])
       return wrap(await realUpdateWarehouse(seg[1], body));
+    if (seg[0] === 'stores' && seg[1] && !seg[2]) return wrap(await realUpdateStore(seg[1], body));
     if (seg[0] === 'categories' && seg[1]) return wrap(await realUpdateCategory(seg[1], body));
     if (seg[0] === 'units' && seg[1]) return wrap(await realUpdateUnit(seg[1], body));
     if (seg[0] === 'labour' && seg[1]) return wrap(await realUpdateLabour(seg[1], body));
@@ -1664,22 +2357,47 @@ async function tryReal(
       return wrap(await realUpdateUserRole(seg[1], body));
     if (seg[0] === 'users' && seg[2] === 'active')
       return wrap(await realSetUserActive(seg[1], body));
+    if (seg[0] === 'users' && seg[2] === 'password')
+      return wrap(await realSetUserPassword(seg[1], body));
     if (seg[0] === 'roles' && seg[1] && !seg[2]) return wrap(await realUpdateRole(seg[1], body));
     if (seg[0] === 'gate-passes' && seg[1] && !seg[2])
       return wrap(await realUpdateGatePass(seg[1], body));
+    if (seg[0] === 'sale-drafts' && seg[1]) return wrap(await realUpdateSaleDraft(seg[1], body));
+    if (seg[0] === 'estimates' && seg[1] && !seg[2])
+      return wrap(await realUpdateEstimate(seg[1], body));
+    if (seg[0] === 'expenses' && seg[1] && !seg[2])
+      return wrap(await realUpdateExpense(seg[1], body));
+    if (seg[0] === 'stock-receipts' && seg[1])
+      return wrap(await realUpdateStockReceipt(seg[1], body));
+    if (seg[0] === 'pending-entities' && seg[1] && seg[2] === 'price')
+      return wrap(await realSetPendingEntityPrice(seg[1], body));
+    if (seg[0] === 'bank' && seg[1] === 'accounts' && seg[2])
+      return wrap(await realUpdateBankAccount(seg[2], body));
   }
   if (method === 'put') {
     if (url === '/settings') return wrap(await realUpdateSettings(body));
   }
   if (method === 'delete') {
+    if (seg[0] === 'products' && seg[1] && !seg[2]) return wrap(await realDeleteProduct(seg[1]));
     if (seg[0] === 'users' && seg[1] && !seg[2]) return wrap(await realDeleteUser(seg[1]));
     if (seg[0] === 'vendors' && seg[1] && !seg[2]) return wrap(await realDeleteVendor(seg[1]));
+    if (seg[0] === 'suppliers' && seg[1] && !seg[2]) return wrap(await realDeleteSupplier(seg[1]));
+    if (seg[0] === 'transporters' && seg[1] && !seg[2])
+      return wrap(await realDeleteTransporter(seg[1]));
+    if (seg[0] === 'roles' && seg[1] && !seg[2]) return wrap(await realDeleteRoles(seg[1]));
     if (seg[0] === 'customers' && seg[1] && !seg[2]) return wrap(await realDeleteCustomer(seg[1]));
     if (seg[0] === 'warehouses' && seg[1] && !seg[2])
       return wrap(await realDeleteWarehouse(seg[1]));
+    if (seg[0] === 'stores' && seg[1] && !seg[2]) return wrap(await realDeleteStore(seg[1]));
     if (seg[0] === 'categories' && seg[1]) return wrap(await realDeleteCategory(seg[1]));
     if (seg[0] === 'units' && seg[1]) return wrap(await realDeleteUnit(seg[1]));
     if (seg[0] === 'labour' && seg[1]) return wrap(await realDeleteLabour(seg[1]));
+    if (seg[0] === 'sale-drafts' && seg[1]) return wrap(await realDeleteSaleDraft(seg[1]));
+    if (seg[0] === 'stock-receipts' && seg[1]) return wrap(await realDeleteStockReceipt(seg[1]));
+    if (seg[0] === 'estimates' && seg[1]) return wrap(await realDeleteEstimate(seg[1]));
+    if (seg[0] === 'expenses' && seg[1]) return wrap(await realDeleteExpense(seg[1]));
+    if (seg[0] === 'gate-passes' && seg[1] && !seg[2])
+      return wrap(await realDeleteGatePass(seg[1]));
   }
   return undefined;
 }

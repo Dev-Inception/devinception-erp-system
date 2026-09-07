@@ -29,29 +29,6 @@ const REPORT_COLUMNS = {
     ['Balance', 'balance', 'money'],
     ['Total', 'total', 'money'],
   ],
-  purchases: [
-    ['Purchase Number', 'number'],
-    ['Vendor Invoice', 'vendorInvoiceNo'],
-    ['Date', 'date', 'date'],
-    ['Warehouse', 'warehouse'],
-    ['Warehouse Location', 'warehouseLocation'],
-    ['Warehouse Address', 'warehouseAddress'],
-    ['Vendor', 'vendor'],
-    ['Vendor Phone', 'vendorPhone'],
-    ['Vendor Email', 'vendorEmail'],
-    ['Vendor NTN', 'vendorNtn'],
-    ['Vendor Address', 'vendorAddress'],
-    ['Items', 'itemCount'],
-    ['Quantity', 'quantity'],
-    ['Payment Method', 'paymentMethod'],
-    ['Subtotal', 'subtotal', 'money'],
-    ['Discount', 'discount', 'money'],
-    ['Taxable Amount', 'taxableAmount', 'money'],
-    ['Tax', 'tax', 'money'],
-    ['Total', 'total', 'money'],
-    ['Paid', 'paid', 'money'],
-    ['Balance', 'balance', 'money'],
-  ],
   'stock-valuation': [
     ['Product', 'product'],
     ['SKU', 'sku'],
@@ -67,6 +44,14 @@ const REPORT_COLUMNS = {
   ],
   'profit-loss': [
     ['Item', 'item'],
+    ['Amount', 'amount', 'money'],
+  ],
+  'day-book': [
+    ['Date', 'date', 'datetime'],
+    ['Type', 'voucherLabel'],
+    ['Voucher #', 'voucherNo'],
+    ['Description', 'description'],
+    ['Warehouse', 'warehouse'],
     ['Amount', 'amount', 'money'],
   ],
 };
@@ -87,18 +72,6 @@ const SUMMARY_COLUMNS = {
     ['Outstanding Balance', 'balance', 'money'],
     ['Grand Total', 'total', 'money'],
   ],
-  purchases: [
-    ['Record Count', 'count'],
-    ['Item Lines', 'itemCount'],
-    ['Quantity Purchased', 'quantity'],
-    ['Subtotal', 'subtotal', 'money'],
-    ['Discount', 'discount', 'money'],
-    ['Taxable Amount', 'taxableAmount', 'money'],
-    ['Tax', 'tax', 'money'],
-    ['Purchase Total', 'total', 'money'],
-    ['Paid Total', 'paid', 'money'],
-    ['Balance Total', 'balance', 'money'],
-  ],
   'stock-valuation': [
     ['Record Count', 'count'],
     ['Unique Products', 'productCount'],
@@ -113,6 +86,21 @@ const SUMMARY_COLUMNS = {
     ['Operating Expenses', 'expenses', 'money'],
     ['Net Profit', 'netProfit', 'money'],
   ],
+  'day-book': [
+    ['Transactions', 'transactionCount'],
+    ['Total Sales', 'totalSales', 'money'],
+    ['Total COGS', 'totalCOGS', 'money'],
+    ['Total Purchases', 'totalPurchases', 'money'],
+    ['Total Expenses', 'totalExpenses', 'money'],
+    ['Vendor Payments', 'totalVendorPayments', 'money'],
+    ['Customer Receipts', 'totalCustomerReceipts', 'money'],
+    ['Cash In', 'cashIn', 'money'],
+    ['Cash Out', 'cashOut', 'money'],
+    ['Net Cash', 'netCash', 'money'],
+    ['Bank In', 'bankIn', 'money'],
+    ['Bank Out', 'bankOut', 'money'],
+    ['Net Bank', 'netBank', 'money'],
+  ],
 };
 
 function formatValue(value, type) {
@@ -122,6 +110,10 @@ function formatValue(value, type) {
   if (type === 'date') {
     const date = new Date(value);
     return Number.isNaN(date.getTime()) ? '' : formatReportDate(date);
+  }
+  if (type === 'datetime') {
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? '' : date.toISOString().replace('T', ' ').slice(0, 19);
   }
   return String(value);
 }
