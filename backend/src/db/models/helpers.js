@@ -16,7 +16,7 @@ const money = (options = {}) => ({
 });
 
 const quantity = (options = {}) => ({
-  type: DataTypes.INTEGER,
+  type: DataTypes.DECIMAL(20, 6),
   allowNull: false,
   defaultValue: 0,
   ...options,

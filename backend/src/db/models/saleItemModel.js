@@ -14,6 +14,14 @@ module.exports = (db) =>
       unitPrice: money({ defaultValue: undefined }),
       lineTotal: money({ defaultValue: undefined }),
       cost: money(),
+      source: {
+        type: DataTypes.STRING(12),
+        allowNull: false,
+        defaultValue: 'WAREHOUSE',
+      },
+      warehouse: { type: DataTypes.STRING(24), field: 'warehouse_id' },
+      vendor: { type: DataTypes.STRING(24), field: 'vendor_id' },
+      vendorName: { type: DataTypes.STRING(120), allowNull: false, defaultValue: '' },
     },
     { tableName: 'sale_items', timestamps: false },
   );

@@ -9,6 +9,7 @@ module.exports = (db) =>
       name: { type: DataTypes.STRING(120), allowNull: false },
       bankName: { type: DataTypes.STRING(120), allowNull: false, defaultValue: '' },
       accountNumber: { type: DataTypes.STRING(60), allowNull: false, defaultValue: '' },
+      store: { type: DataTypes.STRING(24), field: 'store_id' },
       isActive: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: true },
     },
     { tableName: 'bank_accounts' },

@@ -1,6 +1,8 @@
 const { body, param } = require('express-validator');
 
-const idParam = param('id').isMongoId().withMessage('Invalid transporter id');
+const idParam = param('id')
+  .matches(/^[a-f\d]{24}$/i)
+  .withMessage('Invalid transporter id');
 
 // Optional contact/identifier fields shared by create and update.
 const optionalFields = [
@@ -30,7 +32,9 @@ const idParamValidator = [idParam];
 const chargeTransportValidator = [
   idParam,
   body('amount').isFloat({ gt: 0 }).withMessage('Amount must be positive'),
-  body('store').isMongoId().withMessage('A store is required'),
+  body('store')
+    .matches(/^[a-f\d]{24}$/i)
+    .withMessage('A store is required'),
   body('date').optional({ values: 'falsy' }).isISO8601().withMessage('Invalid date'),
   body('note').optional({ values: 'falsy' }).trim().isLength({ max: 200 }),
 ];

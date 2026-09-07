@@ -1,4 +1,4 @@
-const { DataTypes, defineModel } = require('./helpers');
+const { DataTypes, money, defineModel } = require('./helpers');
 
 module.exports = (db) =>
   defineModel(
@@ -11,6 +11,7 @@ module.exports = (db) =>
       labour: { type: DataTypes.STRING(24), allowNull: false, field: 'labour_id' },
       name: { type: DataTypes.STRING(100), allowNull: false },
       phoneNumber: { type: DataTypes.STRING(30), allowNull: false, defaultValue: '' },
+      rent: money(),
     },
     { tableName: 'sale_labour', timestamps: false },
   );

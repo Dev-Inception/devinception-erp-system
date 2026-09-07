@@ -15,7 +15,10 @@ const createUserValidator = [
   roleRule('role'),
   // Required unless the role is super_admin — the service enforces that
   // rule once it knows the role actually exists; this only checks shape.
-  body('store').optional({ values: 'falsy' }).isMongoId().withMessage('Invalid store'),
+  body('store')
+    .optional({ values: 'falsy' })
+    .matches(/^[a-f\d]{24}$/i)
+    .withMessage('Invalid store'),
 ];
 
 const updateRoleValidator = [idParam, roleRule('role')];

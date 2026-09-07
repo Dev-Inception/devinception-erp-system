@@ -17,6 +17,7 @@ module.exports = (db) =>
       refId: DataTypes.STRING(24),
       refNo: { type: DataTypes.STRING(100), allowNull: false, defaultValue: '' },
       warehouse: { type: DataTypes.STRING(24), field: 'warehouse_id' },
+      store: { type: DataTypes.STRING(24), field: 'store_id' },
       createdBy: { type: DataTypes.STRING(24), field: 'created_by_id' },
     },
     { tableName: 'journal_entries' },

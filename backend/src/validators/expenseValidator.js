@@ -1,10 +1,16 @@
 const { body, param, query } = require('express-validator');
-const { EXPENSE_METHODS } = require('../models/expenseModel');
+const { PAYMENT_METHOD, BANK_METHODS } = require('../utils/finance');
+const EXPENSE_METHODS = [PAYMENT_METHOD.CASH, ...BANK_METHODS];
 
-const idParam = param('id').isMongoId().withMessage('Invalid expense id');
+const idParam = param('id')
+  .matches(/^[a-f\d]{24}$/i)
+  .withMessage('Invalid expense id');
 
 const expenseFieldsValidator = [
-  body('category').optional({ values: 'falsy' }).isMongoId().withMessage('Invalid category'),
+  body('category')
+    .optional({ values: 'falsy' })
+    .matches(/^[a-f\d]{24}$/i)
+    .withMessage('Invalid category'),
   body('categoryName')
     .if(body('category').not().exists({ values: 'falsy' }))
     .trim()
@@ -13,14 +19,23 @@ const expenseFieldsValidator = [
     .isLength({ max: 80 }),
   body('amount').isFloat({ gt: 0 }).withMessage('Amount must be positive'),
   body('method').isIn(EXPENSE_METHODS).withMessage('Invalid payment method'),
-  body('bankAccount').optional({ values: 'falsy' }).isMongoId().withMessage('Invalid bank account'),
-  body('warehouse').optional({ values: 'falsy' }).isMongoId().withMessage('Invalid warehouse'),
+  body('bankAccount')
+    .optional({ values: 'falsy' })
+    .matches(/^[a-f\d]{24}$/i)
+    .withMessage('Invalid bank account'),
+  body('warehouse')
+    .optional({ values: 'falsy' })
+    .matches(/^[a-f\d]{24}$/i)
+    .withMessage('Invalid warehouse'),
   body('date').optional({ values: 'falsy' }).isISO8601().withMessage('Invalid date'),
   body('note').optional({ values: 'falsy' }).trim().isLength({ max: 500 }),
 ];
 
 const createExpenseValidator = [
-  body('store').optional({ values: 'falsy' }).isMongoId().withMessage('Invalid store'),
+  body('store')
+    .optional({ values: 'falsy' })
+    .matches(/^[a-f\d]{24}$/i)
+    .withMessage('Invalid store'),
   ...expenseFieldsValidator,
 ];
 
@@ -32,8 +47,14 @@ const createCategoryValidator = [
 ];
 
 const listExpensesValidator = [
-  query('category').optional({ values: 'falsy' }).isMongoId().withMessage('Invalid category'),
-  query('store').optional({ values: 'falsy' }).isMongoId().withMessage('Invalid store'),
+  query('category')
+    .optional({ values: 'falsy' })
+    .matches(/^[a-f\d]{24}$/i)
+    .withMessage('Invalid category'),
+  query('store')
+    .optional({ values: 'falsy' })
+    .matches(/^[a-f\d]{24}$/i)
+    .withMessage('Invalid store'),
   query('from').optional({ values: 'falsy' }).isISO8601().withMessage('Invalid from date'),
   query('to').optional({ values: 'falsy' }).isISO8601().withMessage('Invalid to date'),
 ];

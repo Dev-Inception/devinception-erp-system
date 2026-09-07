@@ -1,80 +1,53 @@
-const Store = require('../models/storeModel');
-const Warehouse = require('../models/warehouseModel');
+const { Op } = require('sequelize');
+const { initializeModels } = require('../db/models');
+const { getPostgres } = require('../db/postgres');
 const ApiError = require('../utils/ApiError');
-
-/**
- * Store CRUD. Exactly one store carries isDefault=true; setting it on one
- * clears it on the others. A store only references warehouses (it doesn't
- * own data directly), so deleting one never orphans anything besides the
- * grouping itself.
- */
-
+const { Store, Warehouse } = initializeModels();
+const includeWarehouses = { model: Warehouse, as: 'warehouses', through: { attributes: [] } };
 async function listStores() {
-  return Store.find().sort({ createdAt: 1 }).populate('warehouses', 'name location');
+  return Store.findAll({ include: [includeWarehouses], order: [['createdAt', 'ASC']] });
 }
-
 async function getStoreById(id) {
-  const store = await Store.findById(id).populate('warehouses', 'name location');
-  if (!store) throw ApiError.notFound('Store not found');
-  return store;
+  const row = await Store.findByPk(id, { include: [includeWarehouses] });
+  if (!row) throw ApiError.notFound('Store not found');
+  return row;
 }
-
-async function assertWarehousesExist(ids) {
-  if (!Array.isArray(ids) || ids.length === 0) return [];
-  const count = await Warehouse.countDocuments({ _id: { $in: ids } });
-  if (count !== new Set(ids.map(String)).size) {
+async function validateWarehouses(ids = []) {
+  if (!ids.length) return [];
+  const unique = [...new Set(ids)];
+  if ((await Warehouse.count({ where: { id: { [Op.in]: unique } } })) !== unique.length)
     throw ApiError.badRequest('One or more warehouses are invalid');
-  }
-  return ids;
+  return unique;
 }
-
-async function createStore({ name, code, address, warehouses, isDefault, isActive }) {
-  const warehouseIds = await assertWarehousesExist(warehouses);
-  const store = await Store.create({
-    name,
-    code,
-    address,
-    warehouses: warehouseIds,
-    isDefault: !!isDefault,
-    isActive,
+async function createStore(data) {
+  const warehouses = await validateWarehouses(data.warehouses);
+  return getPostgres().transaction(async (transaction) => {
+    const isDefault = Boolean(data.isDefault || (await Store.count({ transaction })) === 0);
+    if (isDefault) await Store.update({ isDefault: false }, { where: {}, transaction });
+    const row = await Store.create({ ...data, warehouses: undefined, isDefault }, { transaction });
+    await row.setWarehouses(warehouses, { transaction });
+    return getStoreById(row.id);
   });
-  if (store.isDefault) {
-    await Store.updateMany({ _id: { $ne: store._id } }, { isDefault: false });
-  } else if ((await Store.countDocuments()) === 1) {
-    // First store is always the default.
-    store.isDefault = true;
-    await store.save();
-  }
-  return getStoreById(store._id);
 }
-
-async function updateStore(id, { name, code, address, warehouses, isDefault, isActive }) {
-  const store = await Store.findById(id);
-  if (!store) throw ApiError.notFound('Store not found');
-  if (name !== undefined) store.name = name;
-  if (code !== undefined) store.code = code;
-  if (address !== undefined) store.address = address;
-  if (warehouses !== undefined) store.warehouses = await assertWarehousesExist(warehouses);
-  if (isActive !== undefined) store.isActive = isActive;
-  if (isDefault === true) {
-    store.isDefault = true;
-    await Store.updateMany({ _id: { $ne: store._id } }, { isDefault: false });
-  }
-  await store.save();
-  return getStoreById(store._id);
+async function updateStore(id, data) {
+  const row = await Store.findByPk(id);
+  if (!row) throw ApiError.notFound('Store not found');
+  const warehouses =
+    data.warehouses === undefined ? null : await validateWarehouses(data.warehouses);
+  return getPostgres().transaction(async (transaction) => {
+    if (data.isDefault === true)
+      await Store.update({ isDefault: false }, { where: { id: { [Op.ne]: id } }, transaction });
+    for (const key of ['name', 'code', 'address', 'isDefault', 'isActive'])
+      if (data[key] !== undefined) row[key] = data[key];
+    await row.save({ transaction });
+    if (warehouses) await row.setWarehouses(warehouses, { transaction });
+    return getStoreById(id);
+  });
 }
-
 async function deleteStore(id) {
-  const store = await Store.findById(id);
-  if (!store) throw ApiError.notFound('Store not found');
-  if (store.isDefault) throw ApiError.badRequest('The default store cannot be deleted');
-  await store.deleteOne();
+  const row = await Store.findByPk(id);
+  if (!row) throw ApiError.notFound('Store not found');
+  if (row.isDefault) throw ApiError.badRequest('The default store cannot be deleted');
+  await row.destroy();
 }
-
-module.exports = {
-  listStores,
-  getStoreById,
-  createStore,
-  updateStore,
-  deleteStore,
-};
+module.exports = { listStores, getStoreById, createStore, updateStore, deleteStore };

@@ -1,14 +1,33 @@
-const mongoose = require('mongoose');
-const Product = require('../models/productModel');
-const StockLevel = require('../models/stockLevelModel');
+const { Op, QueryTypes } = require('sequelize');
+const { initializeModels } = require('../db/models');
+const { isValidId } = require('../db/id');
+const { getPostgres } = require('../db/postgres');
 const ApiError = require('../utils/ApiError');
 const stockService = require('./stockService');
 const journalService = require('./journalService');
 const catalogService = require('./catalogService');
 const { ACCOUNT, REF } = require('../utils/finance');
-const { parsePagination, escapeRegex } = require('../utils/query');
-const { QUANTITY_DECIMALS, normalizeQuantity } = require('../utils/quantity');
-const { resolveWarehouseScope, warehouseMongoFilter } = require('../utils/storeScope');
+const { parsePagination } = require('../utils/query');
+const { normalizeQuantity } = require('../utils/quantity');
+const { assertProductWarehouse } = require('../utils/productWarehouse');
+const { Product, StockLevel, Category, Brand, Unit } = initializeModels();
+
+const catalogIncludes = [
+  { model: Category, as: 'categoryInfo' },
+  { model: Brand, as: 'brandInfo' },
+  { model: Unit, as: 'unitInfo' },
+];
+
+function serializeProduct(product) {
+  const value = product.toJSON();
+  value.category = product.categoryInfo ? product.categoryInfo.toJSON() : null;
+  value.brand = product.brandInfo ? product.brandInfo.toJSON() : null;
+  value.unit = product.unitInfo ? product.unitInfo.toJSON() : null;
+  delete value.categoryInfo;
+  delete value.brandInfo;
+  delete value.unitInfo;
+  return value;
+}
 
 /**
  * Product catalog CRUD plus stock visibility. Prices/costs are paisa. Stock
@@ -16,155 +35,97 @@ const { resolveWarehouseScope, warehouseMongoFilter } = require('../utils/storeS
  * value on the books always equals quantity × average cost.
  */
 
-// Attach on-hand stock + value to products. With `warehouseIds` the figures
-// are for those locations; otherwise they are summed across all warehouses.
-// Also flags low stock (on-hand at or below the product's minStock).
-async function attachStock(products, warehouseIds) {
-  const ids = products.map((p) => p._id);
-  // Always re-derive the match here (rather than trusting the caller) so a
-  // warehouse/store-scoped response can never mix stock levels from other
-  // locations.
-  const match = { product: { $in: ids }, ...warehouseMongoFilter(warehouseIds) };
-
-  const levels = await StockLevel.aggregate([
-    { $match: match },
+// Attach on-hand stock + value to products. With `warehouse` the figures are
+// for that location; otherwise they are summed across all warehouses. Also
+// flags low stock (on-hand at or below the product's minStock).
+async function attachStock(products, warehouse) {
+  const ids = products.map((p) => p.id);
+  if (!ids.length) return [];
+  const clauses = ['product_id IN (:ids)'];
+  if (warehouse) clauses.push('warehouse_id = :warehouse');
+  const levels = await getPostgres().query(
+    `SELECT product_id, SUM(quantity) AS quantity,
+            SUM(ROUND(ROUND(quantity, 6) * avg_cost)) AS value
+       FROM stock_levels
+      WHERE ${clauses.join(' AND ')}
+      GROUP BY product_id`,
     {
-      $group: {
-        _id: '$product',
-        quantity: { $sum: '$quantity' },
-        value: {
-          $sum: {
-            $round: [{ $multiply: [{ $round: ['$quantity', QUANTITY_DECIMALS] }, '$avgCost'] }, 0],
-          },
-        },
-      },
+      replacements: { ids, warehouse },
+      type: QueryTypes.SELECT,
     },
-  ]);
-  const byId = new Map(levels.map((l) => [String(l._id), l]));
+  );
+  const byId = new Map(levels.map((level) => [String(level.product_id), level]));
   return products.map((p) => {
-    const s = byId.get(String(p._id));
+    const s = byId.get(String(p.id));
     const stock = s ? normalizeQuantity(s.quantity) : 0;
     return {
-      ...p,
+      ...serializeProduct(p),
       stock,
-      stockValue: s ? s.value : 0,
+      stockValue: s ? Number(s.value) : 0,
       lowStock: stock <= (p.minStock || 0),
     };
   });
 }
 
-// Like attachStock, but expands each product into one row per warehouse that
-// actually has a StockLevel record for it (instead of one row with the
-// total summed across every warehouse). Used by the POS product search,
-// which needs to know per-warehouse availability to offer a per-line
-// warehouse picker — a plain product listing has no use for this shape.
-// Falls back to a single row on the product's own owning warehouse (0 stock)
-// for a product that has never been stocked anywhere, so it still shows up
-// in search results (the cashier can still source it from a vendor).
-async function attachStockByWarehouse(products, warehouseIds) {
-  const ids = products.map((p) => p._id);
-  const levels = await StockLevel.find({
-    product: { $in: ids },
-    ...warehouseMongoFilter(warehouseIds),
-    $expr: { $gt: [{ $round: ['$quantity', QUANTITY_DECIMALS] }, 0] },
-  }).lean();
-
-  const levelsByProduct = new Map();
-  for (const l of levels) {
-    const key = String(l.product);
-    if (!levelsByProduct.has(key)) levelsByProduct.set(key, []);
-    levelsByProduct.get(key).push(l);
-  }
-
-  const rows = [];
-  for (const p of products) {
-    const productLevels = levelsByProduct.get(String(p._id));
-    if (!productLevels || productLevels.length === 0) {
-      rows.push({
-        ...p,
-        stock: 0,
-        stockValue: 0,
-        lowStock: true,
-        warehouseId: p.warehouse ? String(p.warehouse) : null,
-      });
-      continue;
-    }
-    for (const l of productLevels) {
-      const stock = normalizeQuantity(l.quantity);
-      rows.push({
-        ...p,
-        stock,
-        stockValue: Math.round(stock * (l.avgCost || 0)),
-        lowStock: stock <= (p.minStock || 0),
-        warehouseId: String(l.warehouse),
-      });
-    }
-  }
-  return rows;
-}
-
-async function listProducts({
-  search,
-  warehouse,
-  store,
-  category,
-  includeInactive = false,
-  perWarehouse = false,
-  actor,
-  ...query
-} = {}) {
+async function listProducts({ search, warehouse, includeInactive = false, ...query } = {}) {
   // The inventory list and product pickers have no pagination UI, so this
   // endpoint allows a far larger page size than the default 100-row cap.
   const { page, limit, skip } = parsePagination(query, { defaultLimit: 1000, maxLimit: 100000 });
-  const filter = {};
+  const where = {};
   // Hide deactivated products from the catalog unless explicitly requested.
-  if (!includeInactive) filter.isActive = true;
+  if (!includeInactive) where.isActive = true;
   if (search) {
-    const term = escapeRegex(search);
-    filter.$or = [
-      { name: { $regex: term, $options: 'i' } },
-      { sku: { $regex: term, $options: 'i' } },
-      { barcode: { $regex: term, $options: 'i' } },
+    const term = `%${search}%`;
+    where[Op.or] = [
+      { name: { [Op.iLike]: term } },
+      { sku: { [Op.iLike]: term } },
+      { barcode: { [Op.iLike]: term } },
     ];
   }
-  if (category && mongoose.isValidObjectId(category)) filter.category = category;
 
-  // The unfiltered inventory is the complete product catalog. A warehouse/
-  // store filter has a narrower meaning: only products *owned by* that
-  // location (or one of the store's locations) — the same single `warehouse`
-  // field the response already serializes as `warehouseId`. Filtering by
-  // StockLevel presence instead would surface a product under a warehouse
-  // other than the one shown in its own response (e.g. a stray manual stock
-  // adjustment posted to the wrong location), which reads as "the same
-  // inventory item is in two warehouses" even though it only has one owner.
-  const { warehouseIds } = await resolveWarehouseScope({ warehouse, store, actor });
-  if (warehouseIds) {
-    Object.assign(filter, warehouseMongoFilter(warehouseIds));
+  // The unfiltered inventory is the complete product catalog. A warehouse
+  // filter has a narrower meaning: only products currently in stock at that
+  // location. This also keeps legacy products with stock rows in more than one
+  // warehouse accurate until their ownership is migrated.
+  if (warehouse && !isValidId(warehouse)) {
+    throw ApiError.badRequest('Invalid warehouse');
+  }
+  if (warehouse) {
+    const levels = await StockLevel.findAll({
+      attributes: ['product'],
+      where: {
+        warehouse,
+        quantity: { [Op.gt]: 0 },
+      },
+      group: ['product'],
+      raw: true,
+    });
+    where.id = { [Op.in]: levels.map((level) => level.product) };
   }
 
   const [docs, total] = await Promise.all([
-    Product.find(filter)
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(limit)
-      .populate('category brand unit')
-      .lean(),
-    Product.countDocuments(filter),
+    Product.findAll({
+      where,
+      order: [['createdAt', 'DESC']],
+      offset: skip,
+      limit,
+      include: catalogIncludes,
+    }),
+    Product.count({ where }),
   ]);
 
-  const products = perWarehouse
-    ? await attachStockByWarehouse(docs, warehouseIds)
-    : await attachStock(docs, warehouseIds);
-  // A per-warehouse expansion can turn N products into more than N rows
-  // (one per stocked warehouse) — `total` stays the product count, matching
-  // what the search UI actually cares about ("N products matched").
+  const products = await attachStock(docs, warehouse);
   return { products, total, page, limit };
 }
 
-async function getProductById(id) {
-  const product = await Product.findById(id).populate('category brand unit');
+async function findProductById(id) {
+  const product = await Product.findByPk(id, { include: catalogIncludes });
   if (!product) throw ApiError.notFound('Product not found');
   return product;
+}
+
+async function getProductById(id) {
+  return serializeProduct(await findProductById(id));
 }
 
 // `category`/`brand`/`unit` are resolved from the payload by catalogService, so
@@ -181,12 +142,12 @@ const WRITABLE = [
 ];
 
 async function createProduct(data) {
-  if (!mongoose.isValidObjectId(data.warehouse)) {
+  if (!isValidId(data.warehouse)) {
     throw ApiError.badRequest('A valid warehouse is required');
   }
   const warehouse = await require('./warehouseService').getWarehouseById(data.warehouse);
   if (data.sku) {
-    const existing = await Product.findOne({ sku: data.sku.toUpperCase() });
+    const existing = await Product.findOne({ where: { sku: data.sku.toUpperCase() } });
     if (existing) throw ApiError.conflict('A product with that SKU already exists');
   }
   const fields = {};
@@ -195,52 +156,41 @@ async function createProduct(data) {
   // Resolve category/brand/unit to catalog ids (from an id or a free-text name).
   Object.assign(fields, await catalogService.resolveProductRefs(data));
   const product = await Product.create(fields);
-  return getProductById(product._id);
+  return getProductById(product.id);
 }
 
 async function updateProduct(id, data) {
-  const product = await getProductById(id);
+  const product = await findProductById(id);
   if (data.sku !== undefined && data.sku && data.sku.toUpperCase() !== product.sku) {
-    const existing = await Product.findOne({ sku: data.sku.toUpperCase() });
+    const existing = await Product.findOne({ where: { sku: data.sku.toUpperCase() } });
     if (existing) throw ApiError.conflict('A product with that SKU already exists');
   }
   for (const k of WRITABLE) if (data[k] !== undefined) product[k] = data[k];
   const refs = await catalogService.resolveProductRefs(data);
   for (const [k, v] of Object.entries(refs)) product[k] = v;
-  // Re-homing a product to a different warehouse only changes which location
-  // it's labeled/defaulted to — existing StockLevel rows (wherever they are)
-  // are untouched, same as a legacy product that already had stock in more
-  // than one warehouse.
-  if (data.warehouse) {
-    const warehouse = await require('./warehouseService').getWarehouseById(data.warehouse);
-    product.warehouse = warehouse._id;
-  }
   await product.save();
   return getProductById(id);
 }
 
 async function deleteProduct(id) {
-  const product = await getProductById(id);
-  const hasStock = await StockLevel.exists({ product: id, quantity: { $ne: 0 } });
+  const product = await findProductById(id);
+  const hasStock = await StockLevel.count({
+    where: { product: id, quantity: { [Op.ne]: 0 } },
+  });
   if (hasStock) throw ApiError.badRequest('Product still has stock and cannot be deleted');
   // Remove the leftover zero-quantity stock rows so no orphans linger.
-  await StockLevel.deleteMany({ product: id });
-  await product.deleteOne();
+  await StockLevel.destroy({ where: { product: id } });
+  await product.destroy();
 }
 
 // Current on-hand quantity for a product at a warehouse (summed across all
 // warehouses when none is given). A cheap lookup the stock-adjust screen uses.
 async function getStock(id, warehouse) {
   await getProductById(id); // 404 if the product doesn't exist
-  const match = { product: new mongoose.Types.ObjectId(id) };
-  if (warehouse && mongoose.isValidObjectId(warehouse)) {
-    match.warehouse = new mongoose.Types.ObjectId(warehouse);
-  }
-  const rows = await StockLevel.aggregate([
-    { $match: match },
-    { $group: { _id: null, quantity: { $sum: '$quantity' } } },
-  ]);
-  return rows[0] ? normalizeQuantity(rows[0].quantity) : 0;
+  const where = { product: id };
+  if (warehouse && isValidId(warehouse)) where.warehouse = warehouse;
+  const value = await StockLevel.sum('quantity', { where });
+  return normalizeQuantity(value || 0);
 }
 
 // How each first-class adjustment type maps to the sign of the change. An
@@ -260,16 +210,17 @@ async function adjustStock(
   id,
   { warehouse, type, quantity, delta, unitCost, note = '', createdBy },
 ) {
-  const product = await getProductById(id);
+  const product = await findProductById(id);
 
   // The id is shape-validated by the route, but a well-formed id that points at
   // no warehouse would still create stock + a journal entry against a ghost
-  // location. Confirm it actually exists (throws 404 otherwise). A product
-  // can hold stock in more than one warehouse (via StockLevel), so any real
-  // warehouse is a valid adjustment target, not just the product's own.
+  // location. Confirm it actually exists (throws 404 otherwise).
   const wh = await require('./warehouseService').getWarehouseById(warehouse);
+  assertProductWarehouse(product, wh);
 
-  const level = await StockLevel.findOne({ product: product._id, warehouse: wh._id });
+  const level = await StockLevel.findOne({
+    where: { product: product.id, warehouse: wh.id },
+  });
   const currentQty = level ? normalizeQuantity(level.quantity) : 0;
 
   // Resolve the signed change from either a typed quantity or an explicit delta.
@@ -300,29 +251,39 @@ async function adjustStock(
         : product.purchasePrice || 0
       : 0;
 
-  const valueDelta = await stockService.adjustStock(product._id, wh._id, signedDelta, cost, {
-    refType: 'ADJUST',
-    refNo: `ADJ-${product.sku || product._id}`,
-  });
+  await getPostgres().transaction(async (transaction) => {
+    const valueDelta = await stockService.adjustStock(
+      product.id,
+      wh.id,
+      signedDelta,
+      cost,
+      {
+        refType: 'ADJUST',
+        refNo: `ADJ-${product.sku || product.id}`,
+      },
+      transaction,
+    );
 
-  if (valueDelta !== 0) {
-    const lines =
-      valueDelta > 0
-        ? [
-            journalService.line(ACCOUNT.INVENTORY, { debit: valueDelta }),
-            journalService.line(ACCOUNT.EQUITY, { credit: valueDelta }),
-          ]
-        : [
-            journalService.line(ACCOUNT.EQUITY, { debit: -valueDelta }),
-            journalService.line(ACCOUNT.INVENTORY, { credit: -valueDelta }),
-          ];
-    await journalService.post({
-      refType: REF.OPENING,
-      description: note || `Stock adjustment: ${product.name}`,
-      lines,
-      createdBy,
-    });
-  }
+    if (valueDelta !== 0) {
+      const lines =
+        valueDelta > 0
+          ? [
+              journalService.line(ACCOUNT.INVENTORY, { debit: valueDelta }),
+              journalService.line(ACCOUNT.EQUITY, { credit: valueDelta }),
+            ]
+          : [
+              journalService.line(ACCOUNT.EQUITY, { debit: -valueDelta }),
+              journalService.line(ACCOUNT.INVENTORY, { credit: -valueDelta }),
+            ];
+      await journalService.post({
+        refType: REF.OPENING,
+        description: note || `Stock adjustment: ${product.name}`,
+        lines,
+        createdBy,
+        transaction,
+      });
+    }
+  });
 
   return {
     product: await getProductById(id),

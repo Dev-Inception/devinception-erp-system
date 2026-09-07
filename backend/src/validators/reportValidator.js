@@ -13,8 +13,14 @@ const reportRequestValidator = [
     .optional({ values: 'falsy' })
     .matches(DATE_PATTERN)
     .withMessage("'to' must use YYYY-MM-DD"),
-  query('warehouse').optional({ values: 'falsy' }).isMongoId().withMessage('Invalid warehouse'),
-  query('store').optional({ values: 'falsy' }).isMongoId().withMessage('Invalid store'),
+  query('warehouse')
+    .optional({ values: 'falsy' })
+    .matches(/^[a-f\d]{24}$/i)
+    .withMessage('Invalid warehouse'),
+  query('store')
+    .optional({ values: 'falsy' })
+    .matches(/^[a-f\d]{24}$/i)
+    .withMessage('Invalid store'),
 ];
 
 module.exports = { REPORT_TYPES, reportRequestValidator };

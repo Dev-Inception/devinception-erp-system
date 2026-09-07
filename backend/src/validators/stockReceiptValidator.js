@@ -1,7 +1,9 @@
 const { body, query, param } = require('express-validator');
 const { PAYMENT_METHOD } = require('../utils/finance');
 
-const idParam = param('id').isMongoId().withMessage('Invalid stock receipt id');
+const idParam = param('id')
+  .matches(/^[a-f\d]{24}$/i)
+  .withMessage('Invalid stock receipt id');
 
 // A payment to the supplier settles in cash or into a bank/online account —
 // it can't be CREDIT or MIXED (those only make sense at a POS checkout).
@@ -16,8 +18,12 @@ const PAYOUT_METHODS = [
 // required on create only (updateReceipt never changes which storefront a
 // delivery was received for).
 const receiptFieldsValidator = [
-  body('supplier').isMongoId().withMessage('A valid supplier is required'),
-  body('warehouse').isMongoId().withMessage('A valid warehouse is required'),
+  body('supplier')
+    .matches(/^[a-f\d]{24}$/i)
+    .withMessage('A valid supplier is required'),
+  body('warehouse')
+    .matches(/^[a-f\d]{24}$/i)
+    .withMessage('A valid warehouse is required'),
   body('date').optional({ values: 'falsy' }).isISO8601().withMessage('Invalid date'),
   body('isOpeningStock').optional({ values: 'falsy' }).isBoolean().toBoolean(),
   // Only a real truck delivery needs a vehicle number — an opening-stock
@@ -31,7 +37,9 @@ const receiptFieldsValidator = [
   body('truck.driverName').optional({ values: 'falsy' }).trim().isLength({ max: 120 }),
   body('truck.driverPhone').optional({ values: 'falsy' }).trim().isLength({ max: 40 }),
   body('items').isArray({ min: 1 }).withMessage('At least one product line is required'),
-  body('items.*.product').isMongoId().withMessage('Each line needs a valid product'),
+  body('items.*.product')
+    .matches(/^[a-f\d]{24}$/i)
+    .withMessage('Each line needs a valid product'),
   body('items.*.receivedQuantity')
     .optional({ values: 'falsy' })
     .isFloat({ min: 0 })
@@ -76,11 +84,16 @@ const receiptFieldsValidator = [
   }),
   body('truckFareBankAccount')
     .optional({ values: 'falsy' })
-    .isMongoId()
+    .matches(/^[a-f\d]{24}$/i)
     .withMessage('Invalid bank account'),
-  body('transporter').optional({ values: 'falsy' }).isMongoId().withMessage('Invalid transporter'),
+  body('transporter')
+    .optional({ values: 'falsy' })
+    .matches(/^[a-f\d]{24}$/i)
+    .withMessage('Invalid transporter'),
   body('labour').optional({ values: 'falsy' }).isArray().withMessage('Labour must be an array'),
-  body('labour.*.labour').isMongoId().withMessage('Each labour entry must be a valid labour id'),
+  body('labour.*.labour')
+    .matches(/^[a-f\d]{24}$/i)
+    .withMessage('Each labour entry must be a valid labour id'),
   body('labour.*.rent')
     .optional({ values: 'falsy' })
     .isFloat({ min: 0 })
@@ -88,7 +101,9 @@ const receiptFieldsValidator = [
 ];
 
 const createReceiptValidator = [
-  body('store').isMongoId().withMessage('A store is required'),
+  body('store')
+    .matches(/^[a-f\d]{24}$/i)
+    .withMessage('A store is required'),
   ...receiptFieldsValidator,
 ];
 
@@ -100,16 +115,34 @@ const recordPaymentValidator = [
   idParam,
   body('amount').isFloat({ gt: 0 }).withMessage('Amount must be positive'),
   body('method').isIn(PAYOUT_METHODS).withMessage('Invalid payment method'),
-  body('bankAccount').optional({ values: 'falsy' }).isMongoId().withMessage('Invalid bank account'),
+  body('bankAccount')
+    .optional({ values: 'falsy' })
+    .matches(/^[a-f\d]{24}$/i)
+    .withMessage('Invalid bank account'),
   body('note').optional({ values: 'falsy' }).isString().trim().isLength({ max: 500 }),
 ];
 
 const listReceiptsValidator = [
-  query('supplier').optional({ values: 'falsy' }).isMongoId().withMessage('Invalid supplier'),
-  query('labour').optional({ values: 'falsy' }).isMongoId().withMessage('Invalid labour'),
-  query('transporter').optional({ values: 'falsy' }).isMongoId().withMessage('Invalid transporter'),
-  query('warehouse').optional({ values: 'falsy' }).isMongoId().withMessage('Invalid warehouse'),
-  query('store').optional({ values: 'falsy' }).isMongoId().withMessage('Invalid store'),
+  query('supplier')
+    .optional({ values: 'falsy' })
+    .matches(/^[a-f\d]{24}$/i)
+    .withMessage('Invalid supplier'),
+  query('labour')
+    .optional({ values: 'falsy' })
+    .matches(/^[a-f\d]{24}$/i)
+    .withMessage('Invalid labour'),
+  query('transporter')
+    .optional({ values: 'falsy' })
+    .matches(/^[a-f\d]{24}$/i)
+    .withMessage('Invalid transporter'),
+  query('warehouse')
+    .optional({ values: 'falsy' })
+    .matches(/^[a-f\d]{24}$/i)
+    .withMessage('Invalid warehouse'),
+  query('store')
+    .optional({ values: 'falsy' })
+    .matches(/^[a-f\d]{24}$/i)
+    .withMessage('Invalid store'),
 ];
 
 module.exports = {

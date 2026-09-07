@@ -38,9 +38,8 @@ const optionalFields = [
     .withMessage('Tax % must be 0–100'),
   body('minStock')
     .optional({ values: 'falsy' })
-    .isInt({ min: 0 })
-    .toInt()
-    .withMessage('Min stock must be a non-negative whole number'),
+    .isFloat({ min: 0 })
+    .withMessage('Min stock must be non-negative'),
 ];
 
 const createProductValidator = [
@@ -66,8 +65,14 @@ const updateProductValidator = [
     .isLength({ max: 160 }),
   body('sku').optional().trim().notEmpty().withMessage('SKU cannot be empty').isLength({ max: 60 }),
   body('isActive').optional().isBoolean(),
-  body('warehouse').optional({ values: 'falsy' }).isMongoId().withMessage('Invalid warehouse'),
-  body('warehouseId').optional({ values: 'falsy' }).isMongoId().withMessage('Invalid warehouse'),
+  body('warehouse')
+    .optional({ values: 'falsy' })
+    .matches(/^[a-f\d]{24}$/i)
+    .withMessage('Invalid warehouse'),
+  body('warehouseId')
+    .optional({ values: 'falsy' })
+    .matches(/^[a-f\d]{24}$/i)
+    .withMessage('Invalid warehouse'),
   ...optionalFields,
 ];
 
@@ -87,14 +92,9 @@ const adjustStockValidator = [
     .withMessage('Invalid adjustment type'),
   body('quantity')
     .optional({ values: 'falsy' })
-    .isInt({ min: 0 })
-    .toInt()
-    .withMessage('quantity must be a non-negative whole number'),
-  body('delta')
-    .optional({ values: 'falsy' })
-    .isInt()
-    .toInt()
-    .withMessage('delta must be a whole number'),
+    .isFloat({ min: 0 })
+    .withMessage('quantity must be non-negative'),
+  body('delta').optional({ values: 'falsy' }).isFloat().withMessage('delta must be a number'),
   body('unitCost')
     .optional({ values: 'falsy' })
     .isFloat({ min: 0 })

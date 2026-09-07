@@ -35,7 +35,7 @@ function balanceFields(storeMessage) {
       .if(
         (_value, { req }) => Number(req.body.weOweAmount) > 0 || Number(req.body.theyOweAmount) > 0,
       )
-      .isMongoId()
+      .matches(/^[a-f\d]{24}$/i)
       .withMessage(storeMessage),
   ];
 }

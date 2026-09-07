@@ -1,139 +1,83 @@
-const Labour = require('../models/labourModel');
+const { Op } = require('sequelize');
+const { initializeModels } = require('../db/models');
 const ApiError = require('../utils/ApiError');
 const journalService = require('./journalService');
 const { ACCOUNT } = require('../utils/finance');
 const { toPaisa } = require('../utils/money');
-
-// Overlays each labourer's live payable balance (rent charged on sales that
-// hasn't been paid out yet) — same pattern as vendorService.listVendors.
+const { Labour } = initializeModels();
 async function listLabour() {
-  const [docs, balances] = await Promise.all([
-    Labour.find().sort({ createdAt: -1 }).lean(),
+  const [rows, balances] = await Promise.all([
+    Labour.findAll({ order: [['createdAt', 'DESC']] }),
     journalService.balancesByRef(ACCOUNT.AP_LABOUR),
   ]);
-  return docs.map((l) => ({ ...l, outstanding: balances.get(String(l._id)) || 0 }));
+  return rows.map((r) => ({ ...r.toJSON(), outstanding: balances.get(r.id) || 0 }));
 }
-
 async function getLabourById(id) {
-  const labour = await Labour.findById(id);
-  if (!labour) throw ApiError.notFound('Labour not found');
-  return labour;
+  const row = await Labour.findByPk(id);
+  if (!row) throw ApiError.notFound('Labour not found');
+  return row;
 }
-
-async function createLabour({ name, phoneNumber }) {
-  // Check for duplicate phone number
-  const existing = await Labour.findOne({ phoneNumber });
-  if (existing) throw ApiError.conflict('Labour with this phone number already exists');
-
-  const labour = await Labour.create({ name, phoneNumber });
-  return labour;
+async function createLabour(data) {
+  if (await Labour.findOne({ where: { phoneNumber: data.phoneNumber } }))
+    throw ApiError.conflict('Labour with this phone number already exists');
+  return Labour.create(data);
 }
-
-async function updateLabour(id, { name, phoneNumber }) {
-  const labour = await getLabourById(id);
-
-  // Check if phone number is being changed and already exists
-  if (phoneNumber && phoneNumber !== labour.phoneNumber) {
-    const existing = await Labour.findOne({ phoneNumber });
-    if (existing) throw ApiError.conflict('Labour with this phone number already exists');
-    labour.phoneNumber = phoneNumber;
-  }
-
-  if (name) labour.name = name;
-
-  await labour.save();
-  return labour;
+async function updateLabour(id, data) {
+  const row = await getLabourById(id);
+  if (
+    data.phoneNumber &&
+    data.phoneNumber !== row.phoneNumber &&
+    (await Labour.findOne({ where: { phoneNumber: data.phoneNumber } }))
+  )
+    throw ApiError.conflict('Labour with this phone number already exists');
+  return row.update(Object.fromEntries(Object.entries(data).filter(([, v]) => v !== undefined)));
 }
-
 async function deleteLabour(id) {
-  const labour = await getLabourById(id);
-  await labour.deleteOne();
-  return labour;
+  const row = await getLabourById(id);
+  await row.destroy();
+  return row;
 }
-
-/**
- * Resolves a raw `labour` input — either a plain array of labour ids, or
- * `{ labour, rent }` objects when each labourer has a per-job charge
- * attached — into snapshot line items `{ labour, name, phoneNumber, rent }`
- * (rent in paisa). Shared by any flow that charges labour on a document
- * (POS sales, stock receiving).
- */
-async function resolveLabourLines(labourInput) {
-  const input = Array.isArray(labourInput) ? labourInput : [];
-  const ids = Array.from(
-    new Set(
-      input
-        .map((l) => (l && typeof l === 'object' ? l.labour : l))
-        .filter(Boolean)
-        .map(String),
-    ),
-  );
-  const docs = ids.length ? await Labour.find({ _id: { $in: ids } }) : [];
-  if (docs.length !== ids.length) {
+async function resolveLabourLines(input = []) {
+  const ids = [
+    ...new Set(input.map((l) => String(typeof l === 'object' ? l.labour : l)).filter(Boolean)),
+  ];
+  const rows = ids.length ? await Labour.findAll({ where: { id: { [Op.in]: ids } } }) : [];
+  if (rows.length !== ids.length)
     throw ApiError.badRequest('One or more labour entries are invalid');
-  }
-  const rentById = new Map(
-    input
-      .filter((l) => l && typeof l === 'object' && l.labour)
-      .map((l) => [String(l.labour), toPaisa(l.rent || 0)]),
+  const rent = new Map(
+    input.filter((l) => typeof l === 'object').map((l) => [String(l.labour), toPaisa(l.rent || 0)]),
   );
-  return docs.map((doc) => ({
-    labour: doc._id,
-    name: doc.name,
-    phoneNumber: doc.phoneNumber,
-    rent: rentById.get(String(doc._id)) || 0,
+  return rows.map((r) => ({
+    labour: r.id,
+    name: r.name,
+    phoneNumber: r.phoneNumber,
+    rent: rent.get(r.id) || 0,
   }));
 }
-
-/**
- * Posts the labour payable for a document's labour lines: Dr Operating
- * Expense (summed rent) / Cr AP_LABOUR per labourer with rent > 0. One
- * balanced entry covering every labourer on the document. `label` names the
- * source document in the entry's description (e.g. "sale", "stock receipt").
- */
-async function postLabourPayable(labourLines, { when, refType, refNo, store, actor, label }) {
-  const withRent = (labourLines || []).filter((l) => l.rent > 0);
-  if (withRent.length === 0) return;
-  const total = withRent.reduce((s, l) => s + l.rent, 0);
-  await journalService.post({
-    date: when,
-    description: `Labour charges for ${label} ${refNo}`,
-    refType,
-    refNo,
-    store,
-    createdBy: actor ? actor._id : null,
-    lines: [
-      journalService.line(ACCOUNT.OPERATING_EXPENSE, { debit: total }),
-      ...withRent.map((l) =>
-        journalService.line(ACCOUNT.AP_LABOUR, { credit: l.rent, ref: l.labour }),
-      ),
-    ],
+async function labourPost(lines, options, reverse) {
+  const charged = lines.filter((l) => l.rent > 0);
+  if (!charged.length) return;
+  const total = charged.reduce((sum, l) => sum + l.rent, 0);
+  const payable = charged.map((l) =>
+    journalService.line(ACCOUNT.AP_LABOUR, {
+      [reverse ? 'debit' : 'credit']: l.rent,
+      ref: l.labour,
+    }),
+  );
+  return journalService.post({
+    date: options.when,
+    description: `${reverse ? 'Reversal of labour charges for edited' : 'Labour charges for'} ${options.label} ${options.refNo}`,
+    refType: options.refType,
+    refNo: options.refNo,
+    store: options.store,
+    createdBy: options.actor && (options.actor.id || options.actor._id),
+    lines: reverse
+      ? [...payable, journalService.line(ACCOUNT.OPERATING_EXPENSE, { credit: total })]
+      : [journalService.line(ACCOUNT.OPERATING_EXPENSE, { debit: total }), ...payable],
   });
 }
-
-// Mirror of postLabourPayable with debit/credit swapped — used to undo a
-// document's original labour payable before an edit (or delete) posts a
-// fresh one (or nothing).
-async function reverseLabourPayable(labourLines, { when, refType, refNo, store, actor, label }) {
-  const withRent = (labourLines || []).filter((l) => l.rent > 0);
-  if (withRent.length === 0) return;
-  const total = withRent.reduce((s, l) => s + l.rent, 0);
-  await journalService.post({
-    date: when,
-    description: `Reversal of labour charges for edited ${label} ${refNo}`,
-    refType,
-    refNo,
-    store,
-    createdBy: actor ? actor._id : null,
-    lines: [
-      ...withRent.map((l) =>
-        journalService.line(ACCOUNT.AP_LABOUR, { debit: l.rent, ref: l.labour }),
-      ),
-      journalService.line(ACCOUNT.OPERATING_EXPENSE, { credit: total }),
-    ],
-  });
-}
-
+const postLabourPayable = (lines, options) => labourPost(lines, options, false);
+const reverseLabourPayable = (lines, options) => labourPost(lines, options, true);
 module.exports = {
   listLabour,
   getLabourById,

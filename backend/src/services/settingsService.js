@@ -18,7 +18,6 @@ function defaults() {
     email: '',
     taxNumber: '',
     currency: 'PKR',
-    invoiceNote: '',
   };
 }
 
@@ -37,15 +36,7 @@ async function getSettings() {
   }
 }
 
-const WRITABLE = [
-  'companyName',
-  'address',
-  'phone',
-  'email',
-  'taxNumber',
-  'currency',
-  'invoiceNote',
-];
+const WRITABLE = ['companyName', 'address', 'phone', 'email', 'taxNumber', 'currency'];
 
 async function updateSettings(data = {}) {
   const settings = await getSettings();

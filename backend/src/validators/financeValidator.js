@@ -1,14 +1,18 @@
 const { body, param } = require('express-validator');
 const { PAYMENT_METHODS } = require('../utils/finance');
 
-const idParam = param('id').isMongoId().withMessage('Invalid id');
+const idParam = param('id')
+  .matches(/^[a-f\d]{24}$/i)
+  .withMessage('Invalid id');
 
 /* Bank accounts */
 const createBankAccountValidator = [
   body('name').trim().notEmpty().withMessage('Name is required').isLength({ max: 120 }),
   body('bankName').optional({ values: 'falsy' }).trim().isLength({ max: 120 }),
   body('accountNumber').optional({ values: 'falsy' }).trim().isLength({ max: 60 }),
-  body('store').isMongoId().withMessage('A store is required'),
+  body('store')
+    .matches(/^[a-f\d]{24}$/i)
+    .withMessage('A store is required'),
   body('openingBalance')
     .optional({ values: 'falsy' })
     .isFloat({ min: 0 })
@@ -25,93 +29,141 @@ const updateBankAccountValidator = [
     .isLength({ max: 120 }),
   body('bankName').optional({ values: 'falsy' }).trim().isLength({ max: 120 }),
   body('accountNumber').optional({ values: 'falsy' }).trim().isLength({ max: 60 }),
-  body('store').optional().isMongoId().withMessage('Invalid store'),
+  body('store')
+    .optional()
+    .matches(/^[a-f\d]{24}$/i)
+    .withMessage('Invalid store'),
   body('isActive').optional().isBoolean(),
 ];
 
 /* Payments */
 const payVendorValidator = [
-  body('vendor').isMongoId().withMessage('A valid vendor is required'),
-  body('store').isMongoId().withMessage('A store is required'),
+  body('vendor')
+    .matches(/^[a-f\d]{24}$/i)
+    .withMessage('A valid vendor is required'),
+  body('store')
+    .matches(/^[a-f\d]{24}$/i)
+    .withMessage('A store is required'),
   body('amount').isFloat({ gt: 0 }).withMessage('Amount must be positive'),
   body('method')
     .optional({ values: 'falsy' })
     .isIn(PAYMENT_METHODS)
     .withMessage('Invalid payment method'),
-  body('bankAccount').optional({ values: 'falsy' }).isMongoId().withMessage('Invalid bank account'),
+  body('bankAccount')
+    .optional({ values: 'falsy' })
+    .matches(/^[a-f\d]{24}$/i)
+    .withMessage('Invalid bank account'),
   body('date').optional({ values: 'falsy' }).isISO8601().withMessage('Invalid date'),
   body('note').optional({ values: 'falsy' }).trim().isLength({ max: 200 }),
 ];
 
 const paySupplierValidator = [
-  body('supplier').isMongoId().withMessage('A valid supplier is required'),
-  body('store').isMongoId().withMessage('A store is required'),
+  body('supplier')
+    .matches(/^[a-f\d]{24}$/i)
+    .withMessage('A valid supplier is required'),
+  body('store')
+    .matches(/^[a-f\d]{24}$/i)
+    .withMessage('A store is required'),
   body('amount').isFloat({ gt: 0 }).withMessage('Amount must be positive'),
   body('method')
     .optional({ values: 'falsy' })
     .isIn(PAYMENT_METHODS)
     .withMessage('Invalid payment method'),
-  body('bankAccount').optional({ values: 'falsy' }).isMongoId().withMessage('Invalid bank account'),
+  body('bankAccount')
+    .optional({ values: 'falsy' })
+    .matches(/^[a-f\d]{24}$/i)
+    .withMessage('Invalid bank account'),
   body('date').optional({ values: 'falsy' }).isISO8601().withMessage('Invalid date'),
   body('note').optional({ values: 'falsy' }).trim().isLength({ max: 200 }),
 ];
 
 const payLabourValidator = [
-  body('labour').isMongoId().withMessage('A valid labourer is required'),
-  body('store').isMongoId().withMessage('A store is required'),
+  body('labour')
+    .matches(/^[a-f\d]{24}$/i)
+    .withMessage('A valid labourer is required'),
+  body('store')
+    .matches(/^[a-f\d]{24}$/i)
+    .withMessage('A store is required'),
   body('amount').isFloat({ gt: 0 }).withMessage('Amount must be positive'),
   body('method')
     .optional({ values: 'falsy' })
     .isIn(PAYMENT_METHODS)
     .withMessage('Invalid payment method'),
-  body('bankAccount').optional({ values: 'falsy' }).isMongoId().withMessage('Invalid bank account'),
+  body('bankAccount')
+    .optional({ values: 'falsy' })
+    .matches(/^[a-f\d]{24}$/i)
+    .withMessage('Invalid bank account'),
   body('date').optional({ values: 'falsy' }).isISO8601().withMessage('Invalid date'),
   body('note').optional({ values: 'falsy' }).trim().isLength({ max: 200 }),
 ];
 
 const payTransportValidator = [
-  body('transporter').isMongoId().withMessage('A valid transporter is required'),
-  body('store').isMongoId().withMessage('A store is required'),
+  body('transporter')
+    .matches(/^[a-f\d]{24}$/i)
+    .withMessage('A valid transporter is required'),
+  body('store')
+    .matches(/^[a-f\d]{24}$/i)
+    .withMessage('A store is required'),
   body('amount').isFloat({ gt: 0 }).withMessage('Amount must be positive'),
   body('method')
     .optional({ values: 'falsy' })
     .isIn(PAYMENT_METHODS)
     .withMessage('Invalid payment method'),
-  body('bankAccount').optional({ values: 'falsy' }).isMongoId().withMessage('Invalid bank account'),
+  body('bankAccount')
+    .optional({ values: 'falsy' })
+    .matches(/^[a-f\d]{24}$/i)
+    .withMessage('Invalid bank account'),
   body('date').optional({ values: 'falsy' }).isISO8601().withMessage('Invalid date'),
   body('note').optional({ values: 'falsy' }).trim().isLength({ max: 200 }),
 ];
 
 const receiveCustomerValidator = [
-  body('customer').isMongoId().withMessage('A valid customer is required'),
-  body('store').isMongoId().withMessage('A store is required'),
+  body('customer')
+    .matches(/^[a-f\d]{24}$/i)
+    .withMessage('A valid customer is required'),
+  body('store')
+    .matches(/^[a-f\d]{24}$/i)
+    .withMessage('A store is required'),
   body('amount').isFloat({ gt: 0 }).withMessage('Amount must be positive'),
   body('method')
     .optional({ values: 'falsy' })
     .isIn(PAYMENT_METHODS)
     .withMessage('Invalid payment method'),
-  body('bankAccount').optional({ values: 'falsy' }).isMongoId().withMessage('Invalid bank account'),
+  body('bankAccount')
+    .optional({ values: 'falsy' })
+    .matches(/^[a-f\d]{24}$/i)
+    .withMessage('Invalid bank account'),
   body('date').optional({ values: 'falsy' }).isISO8601().withMessage('Invalid date'),
   body('note').optional({ values: 'falsy' }).trim().isLength({ max: 200 }),
 ];
 
 const cashEntryValidator = [
   body('direction').isIn(['IN', 'OUT']).withMessage('Direction must be IN or OUT'),
-  body('store').isMongoId().withMessage('A store is required'),
+  body('store')
+    .matches(/^[a-f\d]{24}$/i)
+    .withMessage('A store is required'),
   body('amount').isFloat({ gt: 0 }).withMessage('Amount must be positive'),
   body('date').optional({ values: 'falsy' }).isISO8601().withMessage('Invalid date'),
   body('note').optional({ values: 'falsy' }).trim().isLength({ max: 200 }),
 ];
 
 const expenseValidator = [
-  body('warehouse').optional({ values: 'falsy' }).isMongoId().withMessage('Invalid warehouse'),
-  body('store').isMongoId().withMessage('A store is required'),
+  body('warehouse')
+    .optional({ values: 'falsy' })
+    .matches(/^[a-f\d]{24}$/i)
+    .withMessage('Invalid warehouse'),
+  body('store')
+    .matches(/^[a-f\d]{24}$/i)
+    .withMessage('A store is required'),
   body('amount').isFloat({ gt: 0 }).withMessage('Amount must be positive'),
   body('method')
     .optional({ values: 'falsy' })
     .isIn(['CASH', 'CARD', 'BANK_TRANSFER', 'ONLINE'])
     .withMessage('Invalid expense payment method'),
-  body('bankAccount').optional({ values: 'falsy' }).isMongoId().withMessage('Invalid bank account'),
+  body('bankAccount')
+    .optional({ values: 'falsy' })
+    .matches(/^[a-f\d]{24}$/i)
+    .withMessage('Invalid bank account'),
   body('date').optional({ values: 'falsy' }).isISO8601().withMessage('Invalid date'),
   body('note').optional({ values: 'falsy' }).trim().isLength({ max: 200 }),
 ];
@@ -121,7 +173,9 @@ const statementParamValidator = [
   param('kind')
     .isIn(['customer', 'vendor', 'supplier', 'labour', 'transport'])
     .withMessage("kind must be 'customer', 'vendor', 'supplier', 'labour', or 'transport'"),
-  param('id').isMongoId().withMessage('Invalid party id'),
+  param('id')
+    .matches(/^[a-f\d]{24}$/i)
+    .withMessage('Invalid party id'),
 ];
 
 const idParamValidator = [idParam];

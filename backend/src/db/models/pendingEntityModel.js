@@ -1,0 +1,30 @@
+const { DataTypes, id, money, quantity, defineModel } = require('./helpers');
+module.exports = (db) =>
+  defineModel(
+    db,
+    'PendingEntity',
+    {
+      id: id(),
+      sourceType: { type: DataTypes.STRING(24), allowNull: false },
+      sale: { type: DataTypes.STRING(24), field: 'sale_id' },
+      stockReceipt: { type: DataTypes.STRING(24), field: 'stock_receipt_id' },
+      sourceNo: { type: DataTypes.STRING(100), allowNull: false, defaultValue: '' },
+      vendor: { type: DataTypes.STRING(24), field: 'vendor_id' },
+      vendorName: { type: DataTypes.STRING(120), allowNull: false, defaultValue: '' },
+      supplier: { type: DataTypes.STRING(24), field: 'supplier_id' },
+      supplierName: { type: DataTypes.STRING(120), allowNull: false, defaultValue: '' },
+      product: { type: DataTypes.STRING(24), allowNull: false, field: 'product_id' },
+      productName: { type: DataTypes.STRING(160), allowNull: false, defaultValue: '' },
+      quantity: quantity({ defaultValue: undefined }),
+      store: { type: DataTypes.STRING(24), field: 'store_id' },
+      warehouse: { type: DataTypes.STRING(24), field: 'warehouse_id' },
+      date: { type: DataTypes.DATE, allowNull: false, defaultValue: DataTypes.NOW },
+      status: { type: DataTypes.STRING(12), allowNull: false, defaultValue: 'PENDING' },
+      purchasePrice: money({ allowNull: true, defaultValue: null }),
+      lineTotal: money({ allowNull: true, defaultValue: null }),
+      pricedBy: { type: DataTypes.STRING(24), field: 'priced_by_id' },
+      pricedAt: DataTypes.DATE,
+      createdBy: { type: DataTypes.STRING(24), field: 'created_by_id' },
+    },
+    { tableName: 'pending_entities' },
+  );

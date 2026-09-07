@@ -1,120 +1,74 @@
-const mongoose = require('mongoose');
-const Sale = require('../models/saleModel');
+const { Op, QueryTypes } = require('sequelize');
+const { initializeModels } = require('../db/models');
+const { getPostgres } = require('../db/postgres');
+const { isValidId } = require('../db/id');
 const journalService = require('./journalService');
 const stockService = require('./stockService');
 const { ACCOUNT, naturalBalance } = require('../utils/finance');
-const {
-  resolveWarehouseScope,
-  warehouseMongoFilter,
-  actorStoreId,
-} = require('../utils/storeScope');
 
-/**
- * Dashboard overview: the handful of headline figures and mini-charts shown on
- * the home screen, gathered in one round-trip so the client makes a single
- * request. All money is paisa; the controller converts to rupees.
- *
- * Two scopes are mixed here on purpose:
- *   - Sales-derived cards (today / month / total sales, trend, top products)
- *     and stock value respect the optional `warehouse`/`store` filter.
- *   - Ledger-derived cards (expenses, receivables, payables) are business-wide
- *     — the ledger is not dimensioned by warehouse — so they ignore it.
- *
- * Day boundaries are computed in UTC so the trend buckets line up with
- * MongoDB's `$dateToString` (which also defaults to UTC).
- */
-
+const { Sale } = initializeModels();
 const TREND_DAYS = 30;
 const TOP_PRODUCTS = 5;
 
-// Sum of Sale.total (paisa) matching the given filter.
-async function salesTotal(match) {
-  const rows = await Sale.aggregate([
-    { $match: match },
-    { $group: { _id: null, total: { $sum: '$total' } } },
-  ]);
-  return rows[0] ? rows[0].total : 0;
+function warehouseWhere(warehouse) {
+  return warehouse && isValidId(warehouse) ? { warehouse } : {};
 }
 
-// Daily Sale.total for the last TREND_DAYS days, zero-filled so the client gets
-// a continuous series. Keys are UTC YYYY-MM-DD.
-async function salesTrend(whMatch, fromDate) {
-  const rows = await Sale.aggregate([
-    { $match: { ...whMatch, date: { $gte: fromDate } } },
-    {
-      $group: {
-        _id: { $dateToString: { format: '%Y-%m-%d', date: '$date' } },
-        total: { $sum: '$total' },
-      },
-    },
-  ]);
+async function salesTotal(where) {
+  return Number((await Sale.sum('total', { where })) || 0);
+}
 
-  const byDay = new Map(rows.map((r) => [r._id, r.total]));
+async function salesTrend(warehouse, fromDate) {
+  const warehouseClause = warehouse ? 'AND warehouse_id = :warehouse' : '';
+  const rows = await getPostgres().query(
+    `SELECT TO_CHAR(date AT TIME ZONE 'UTC', 'YYYY-MM-DD') AS day,
+            SUM(total) AS total
+       FROM sales
+      WHERE date >= :fromDate ${warehouseClause}
+      GROUP BY day`,
+    { replacements: { fromDate, warehouse }, type: QueryTypes.SELECT },
+  );
+  const byDay = new Map(rows.map((row) => [row.day, Number(row.total)]));
   const series = [];
-  for (let i = TREND_DAYS - 1; i >= 0; i -= 1) {
-    const d = new Date(fromDate.getTime() + (TREND_DAYS - 1 - i) * 86400000);
-    const key = d.toISOString().slice(0, 10);
+  for (let index = 0; index < TREND_DAYS; index += 1) {
+    const date = new Date(fromDate.getTime() + index * 86400000);
+    const key = date.toISOString().slice(0, 10);
     series.push({ date: key, total: byDay.get(key) || 0 });
   }
   return series;
 }
 
-// Best-selling products by revenue (sum of line totals, paisa).
-async function topProducts(whMatch) {
-  const rows = await Sale.aggregate([
-    { $match: whMatch },
-    { $unwind: '$items' },
+async function topProducts(warehouse) {
+  const warehouseClause = warehouse ? 'WHERE s.warehouse_id = :warehouse' : '';
+  const rows = await getPostgres().query(
+    `SELECT si.product_id AS product, MIN(si.name) AS name,
+            SUM(si.quantity) AS quantity, SUM(si.line_total) AS revenue
+       FROM sale_items si
+       JOIN sales s ON s.id = si.sale_id
+       ${warehouseClause}
+      GROUP BY si.product_id
+      ORDER BY revenue DESC
+      LIMIT :limit`,
     {
-      $group: {
-        _id: '$items.product',
-        name: { $first: '$items.name' },
-        quantity: { $sum: '$items.quantity' },
-        revenue: { $sum: '$items.lineTotal' },
-      },
+      replacements: { warehouse, limit: TOP_PRODUCTS },
+      type: QueryTypes.SELECT,
     },
-    { $sort: { revenue: -1 } },
-    { $limit: TOP_PRODUCTS },
-  ]);
-
-  return rows.map((r) => ({
-    product: r._id,
-    name: r.name,
-    quantity: r.quantity,
-    revenue: r.revenue,
+  );
+  return rows.map((row) => ({
+    ...row,
+    quantity: Number(row.quantity),
+    revenue: Number(row.revenue),
   }));
 }
 
-// Sum of the positive natural balances under an account kind (paisa): total
-// money owed to us (AR) or by us (AP), ignoring any party in credit.
 async function outstanding(account) {
   const balances = await journalService.balancesByRef(account);
-  let sum = 0;
-  for (const bal of balances.values()) {
-    if (bal > 0) sum += bal;
-  }
-  return sum;
+  return [...balances.values()].reduce((sum, balance) => sum + Math.max(balance, 0), 0);
 }
 
-/**
- * Build the full dashboard payload (paisa). `store` (takes precedence) and
- * `warehouse` are both optional.
- */
-async function summary({ warehouse, store, actor } = {}) {
-  // Sales (and the COGS/expense entries they post) record their own
-  // storefront directly — prefer that over the looser warehouse-membership
-  // scoping (two stores can share a warehouse). Stock valuation has no direct
-  // store link (Products own a single warehouse, not a store), so it always
-  // resolves through warehouse membership.
-  const { warehouseIds } = await resolveWarehouseScope({ warehouse, store, actor });
-  // A store-restricted actor's own store always wins over the query param.
-  const validStore =
-    actorStoreId(actor) || (store && mongoose.isValidObjectId(store) ? store : null);
-  // Aggregation `$match` doesn't auto-cast query strings like `.find()` does.
-  const whMatch = validStore
-    ? { store: new mongoose.Types.ObjectId(validStore) }
-    : warehouseMongoFilter(warehouseIds);
-  const ledgerScope = validStore ? { store: validStore } : {};
-
+async function summary({ warehouse } = {}) {
+  const scopedWarehouse = warehouse && isValidId(warehouse) ? warehouse : null;
+  const baseWhere = warehouseWhere(scopedWarehouse);
   const now = new Date();
   const startOfToday = new Date(
     Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
@@ -134,20 +88,20 @@ async function summary({ warehouse, store, actor } = {}) {
     trend,
     products,
   ] = await Promise.all([
-    salesTotal({ ...whMatch, date: { $gte: startOfToday } }),
-    salesTotal({ ...whMatch, date: { $gte: startOfMonth } }),
-    salesTotal({ ...whMatch }),
-    stockService.valuation({ warehouseIds }).then((v) => v.total),
+    salesTotal({ ...baseWhere, date: { [Op.gte]: startOfToday } }),
+    salesTotal({ ...baseWhere, date: { [Op.gte]: startOfMonth } }),
+    salesTotal(baseWhere),
+    stockService.valuation({ warehouse: scopedWarehouse }).then((value) => value.total),
     journalService
-      .accountTotals(ACCOUNT.COGS, null, ledgerScope)
-      .then((t) => naturalBalance(ACCOUNT.COGS, t.debit, t.credit)),
+      .accountTotals(ACCOUNT.COGS)
+      .then((totals) => naturalBalance(ACCOUNT.COGS, totals.debit, totals.credit)),
     journalService
-      .accountTotals(ACCOUNT.OPERATING_EXPENSE, null, ledgerScope)
-      .then((t) => naturalBalance(ACCOUNT.OPERATING_EXPENSE, t.debit, t.credit)),
+      .accountTotals(ACCOUNT.OPERATING_EXPENSE)
+      .then((totals) => naturalBalance(ACCOUNT.OPERATING_EXPENSE, totals.debit, totals.credit)),
     outstanding(ACCOUNT.AR),
     outstanding(ACCOUNT.AP),
-    salesTrend(whMatch, trendStart),
-    topProducts(whMatch),
+    salesTrend(scopedWarehouse, trendStart),
+    topProducts(scopedWarehouse),
   ]);
 
   return {

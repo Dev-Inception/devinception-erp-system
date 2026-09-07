@@ -1,8 +1,8 @@
-const Role = require('../models/roleModel');
-const User = require('../models/userModel');
+const { initializeModels } = require('../db/models');
 const ApiError = require('../utils/ApiError');
 const { ROLES } = require('../utils/constants');
-const { PERMISSIONS, PERMISSION_VALUES, WILDCARD } = require('../utils/permissions');
+const { PERMISSION_VALUES, WILDCARD } = require('../utils/permissions');
+const { Role, User } = initializeModels();
 
 /**
  * Role management + a small in-process permission cache so authorization
@@ -11,134 +11,11 @@ const { PERMISSIONS, PERMISSION_VALUES, WILDCARD } = require('../utils/permissio
  * simply rebuilds its own cache on the next request.
  */
 
-// The five built-in roles. Permissions here preserve the original
-// hard-coded authorization: managers can read users, admins manage them,
-// super_admin can do everything (including role management) via wildcard.
-const SYSTEM_ROLES = [
-  {
-    name: ROLES.CASHIER,
-    description: 'Point-of-sale operator',
-    // The POS needs to look up/add customers, read stock, ring sales, and
-    // record advance payments taken against an on-account sale at checkout.
-    permissions: [
-      PERMISSIONS.CUSTOMERS_READ,
-      PERMISSIONS.CUSTOMERS_CREATE,
-      PERMISSIONS.INVENTORY_READ,
-      PERMISSIONS.GATE_PASSES_READ,
-      PERMISSIONS.SALES_READ,
-      PERMISSIONS.SALES_CREATE,
-      PERMISSIONS.ESTIMATES_READ,
-      PERMISSIONS.ESTIMATES_CREATE,
-      PERMISSIONS.FINANCE_MANAGE,
-      PERMISSIONS.EXPENSES_MANAGE,
-    ],
-  },
-  {
-    name: ROLES.ACCOUNTANT,
-    description: 'Finance / reporting',
-    // Read-only over partners, plus full finance, ledger and report access.
-    permissions: [
-      PERMISSIONS.VENDORS_READ,
-      PERMISSIONS.SUPPLIERS_READ,
-      PERMISSIONS.TRANSPORTERS_READ,
-      PERMISSIONS.CUSTOMERS_READ,
-      PERMISSIONS.INVENTORY_READ,
-      PERMISSIONS.GATE_PASSES_READ,
-      PERMISSIONS.SALES_READ,
-      PERMISSIONS.ESTIMATES_READ,
-      PERMISSIONS.FINANCE_READ,
-      PERMISSIONS.FINANCE_MANAGE,
-      PERMISSIONS.EXPENSES_MANAGE,
-      PERMISSIONS.REPORTS_READ,
-    ],
-  },
-  {
-    name: ROLES.MANAGER,
-    description: 'Can view staff and run day-to-day operations',
-    permissions: [
-      PERMISSIONS.USERS_READ,
-      PERMISSIONS.VENDORS_READ,
-      PERMISSIONS.VENDORS_CREATE,
-      PERMISSIONS.VENDORS_UPDATE,
-      PERMISSIONS.SUPPLIERS_READ,
-      PERMISSIONS.SUPPLIERS_CREATE,
-      PERMISSIONS.SUPPLIERS_UPDATE,
-      PERMISSIONS.TRANSPORTERS_READ,
-      PERMISSIONS.TRANSPORTERS_CREATE,
-      PERMISSIONS.TRANSPORTERS_UPDATE,
-      PERMISSIONS.CUSTOMERS_READ,
-      PERMISSIONS.CUSTOMERS_CREATE,
-      PERMISSIONS.CUSTOMERS_UPDATE,
-      PERMISSIONS.INVENTORY_READ,
-      PERMISSIONS.INVENTORY_MANAGE,
-      PERMISSIONS.GATE_PASSES_READ,
-      PERMISSIONS.SALES_READ,
-      PERMISSIONS.SALES_CREATE,
-      PERMISSIONS.SALES_UPDATE,
-      PERMISSIONS.ESTIMATES_READ,
-      PERMISSIONS.ESTIMATES_CREATE,
-      PERMISSIONS.ESTIMATES_UPDATE,
-      PERMISSIONS.FINANCE_READ,
-      PERMISSIONS.REPORTS_READ,
-    ],
-  },
-  {
-    name: ROLES.ADMIN,
-    description: 'Manages staff accounts, operations and finance',
-    permissions: [
-      PERMISSIONS.USERS_READ,
-      PERMISSIONS.USERS_CREATE,
-      PERMISSIONS.USERS_UPDATE,
-      PERMISSIONS.USERS_UPDATE_ROLE,
-      PERMISSIONS.USERS_SET_ACTIVE,
-      PERMISSIONS.USERS_SET_PASSWORD,
-      PERMISSIONS.USERS_DELETE,
-      PERMISSIONS.VENDORS_READ,
-      PERMISSIONS.VENDORS_CREATE,
-      PERMISSIONS.VENDORS_UPDATE,
-      PERMISSIONS.VENDORS_DELETE,
-      PERMISSIONS.SUPPLIERS_READ,
-      PERMISSIONS.SUPPLIERS_CREATE,
-      PERMISSIONS.SUPPLIERS_UPDATE,
-      PERMISSIONS.SUPPLIERS_DELETE,
-      PERMISSIONS.TRANSPORTERS_READ,
-      PERMISSIONS.TRANSPORTERS_CREATE,
-      PERMISSIONS.TRANSPORTERS_UPDATE,
-      PERMISSIONS.TRANSPORTERS_DELETE,
-      PERMISSIONS.CUSTOMERS_READ,
-      PERMISSIONS.CUSTOMERS_CREATE,
-      PERMISSIONS.CUSTOMERS_UPDATE,
-      PERMISSIONS.CUSTOMERS_DELETE,
-      PERMISSIONS.INVENTORY_READ,
-      PERMISSIONS.INVENTORY_MANAGE,
-      PERMISSIONS.GATE_PASSES_READ,
-      PERMISSIONS.SALES_READ,
-      PERMISSIONS.SALES_CREATE,
-      PERMISSIONS.SALES_UPDATE,
-      PERMISSIONS.ESTIMATES_READ,
-      PERMISSIONS.ESTIMATES_CREATE,
-      PERMISSIONS.ESTIMATES_UPDATE,
-      PERMISSIONS.ESTIMATES_DELETE,
-      PERMISSIONS.FINANCE_READ,
-      PERMISSIONS.FINANCE_MANAGE,
-      PERMISSIONS.EXPENSES_MANAGE,
-      PERMISSIONS.REPORTS_READ,
-      PERMISSIONS.SETTINGS_READ,
-      PERMISSIONS.SETTINGS_MANAGE,
-    ],
-  },
-  {
-    name: ROLES.SUPER_ADMIN,
-    description: 'Full access, including role management',
-    permissions: [WILDCARD],
-  },
-];
-
 let cache = null; // Map<roleName, Set<permission>>
 
 async function getCache() {
   if (cache) return cache;
-  const roles = await Role.find().lean();
+  const roles = await Role.findAll();
   cache = new Map(roles.map((r) => [r.name, new Set(r.permissions)]));
   return cache;
 }
@@ -153,19 +30,6 @@ async function getPermissions(roleName) {
   return c.get(roleName) || new Set();
 }
 
-// Idempotently create any missing built-in roles. Existing system roles are
-// left untouched so a super admin's permission tweaks survive re-seeding.
-async function ensureSystemRoles() {
-  for (const def of SYSTEM_ROLES) {
-    await Role.updateOne(
-      { name: def.name },
-      { $setOnInsert: { ...def, isSystem: true } },
-      { upsert: true },
-    );
-  }
-  invalidateCache();
-}
-
 function validatePermissions(permissions) {
   if (permissions.includes(WILDCARD)) {
     throw ApiError.badRequest('The wildcard permission cannot be assigned to a custom role');
@@ -177,18 +41,18 @@ function validatePermissions(permissions) {
 }
 
 async function listRoles() {
-  return Role.find().sort({ createdAt: 1 });
+  return Role.findAll({ order: [['createdAt', 'ASC']] });
 }
 
 async function getRoleById(id) {
-  const role = await Role.findById(id);
+  const role = await Role.findByPk(id);
   if (!role) throw ApiError.notFound('Role not found');
   return role;
 }
 
 async function createRole({ name, description, permissions = [] }) {
   const normalized = name.trim().toLowerCase();
-  const existing = await Role.findOne({ name: normalized });
+  const existing = await Role.findOne({ where: { name: normalized } });
   if (existing) throw ApiError.conflict('A role with that name already exists');
 
   validatePermissions(permissions);
@@ -232,20 +96,18 @@ async function deleteRole(id) {
     throw ApiError.forbidden('Built-in roles cannot be deleted');
   }
 
-  const inUse = await User.countDocuments({ role: role.name });
+  const inUse = await User.count({ where: { role: role.name } });
   if (inUse) {
     throw ApiError.badRequest(
       `Role is assigned to ${inUse} user(s); reassign them before deleting`,
     );
   }
 
-  await role.deleteOne();
+  await role.destroy();
   invalidateCache();
 }
 
 module.exports = {
-  SYSTEM_ROLES,
-  ensureSystemRoles,
   getPermissions,
   invalidateCache,
   listRoles,

@@ -1,7 +1,9 @@
 const { body, param } = require('express-validator');
 const { PAYMENT_METHODS, PAYMENT_METHOD } = require('../utils/finance');
 
-const idParam = param('id').isMongoId().withMessage('Invalid sale id');
+const idParam = param('id')
+  .matches(/^[a-f\d]{24}$/i)
+  .withMessage('Invalid sale id');
 
 // A later payment against a sale settles it in cash or into a bank/online
 // account — it can't itself be "on account" (CREDIT) or a checkout-time
@@ -16,9 +18,14 @@ const RECEIVABLE_METHODS = [
 // Items/labour/discount/tax/transport — shared by create (fresh checkout)
 // and update (full invoice edit); only the payment fields differ.
 const itemsAndTermsValidator = [
-  body('warehouse').optional({ values: 'falsy' }).isMongoId().withMessage('Invalid warehouse'),
+  body('warehouse')
+    .optional({ values: 'falsy' })
+    .matches(/^[a-f\d]{24}$/i)
+    .withMessage('Invalid warehouse'),
   body('items').isArray({ min: 1 }).withMessage('At least one item is required'),
-  body('items.*.product').isMongoId().withMessage('Each item needs a valid product'),
+  body('items.*.product')
+    .matches(/^[a-f\d]{24}$/i)
+    .withMessage('Each item needs a valid product'),
   body('items.*.quantity').isFloat({ gt: 0 }).withMessage('Each item quantity must be positive'),
   body('items.*.unitPrice')
     .optional()
@@ -28,13 +35,18 @@ const itemsAndTermsValidator = [
     .optional({ values: 'falsy' })
     .isIn(['WAREHOUSE', 'VENDOR'])
     .withMessage('Invalid item source'),
-  body('items.*.vendor').optional({ values: 'falsy' }).isMongoId().withMessage('Invalid vendor'),
+  body('items.*.vendor')
+    .optional({ values: 'falsy' })
+    .matches(/^[a-f\d]{24}$/i)
+    .withMessage('Invalid vendor'),
   body('items.*.warehouse')
     .optional({ values: 'falsy' })
-    .isMongoId()
+    .matches(/^[a-f\d]{24}$/i)
     .withMessage('Invalid item warehouse'),
   body('labour').optional({ values: 'falsy' }).isArray().withMessage('Labour must be an array'),
-  body('labour.*.labour').isMongoId().withMessage('Each labour entry must be a valid labour id'),
+  body('labour.*.labour')
+    .matches(/^[a-f\d]{24}$/i)
+    .withMessage('Each labour entry must be a valid labour id'),
   body('labour.*.rent')
     .optional({ values: 'falsy' })
     .isFloat({ min: 0 })
@@ -69,24 +81,35 @@ const itemsAndTermsValidator = [
   // A registered Transporter is optional — when set, the transport fare can
   // post against their ledger (see saleService); omitting a method just
   // means the fare is owed to them rather than settled now.
-  body('transporter').optional({ values: 'falsy' }).isMongoId().withMessage('Invalid transporter'),
+  body('transporter')
+    .optional({ values: 'falsy' })
+    .matches(/^[a-f\d]{24}$/i)
+    .withMessage('Invalid transporter'),
   body('transportFareMethod')
     .optional({ values: 'falsy' })
     .isIn(RECEIVABLE_METHODS)
     .withMessage('Invalid transport fare payment method'),
   body('transportFareBankAccount')
     .optional({ values: 'falsy' })
-    .isMongoId()
+    .matches(/^[a-f\d]{24}$/i)
     .withMessage('Invalid bank account'),
 ];
 
 const createSaleValidator = [
-  body('store').isMongoId().withMessage('A store is required'),
-  body('customer').optional({ values: 'falsy' }).isMongoId().withMessage('Invalid customer'),
+  body('store')
+    .matches(/^[a-f\d]{24}$/i)
+    .withMessage('A store is required'),
+  body('customer')
+    .optional({ values: 'falsy' })
+    .matches(/^[a-f\d]{24}$/i)
+    .withMessage('Invalid customer'),
   body('date').optional({ values: 'falsy' }).isISO8601().withMessage('Invalid date'),
   // Set when this sale is converting an existing estimate — see
   // saleService.createSale, which marks that estimate CONVERTED afterward.
-  body('estimate').optional({ values: 'falsy' }).isMongoId().withMessage('Invalid estimate'),
+  body('estimate')
+    .optional({ values: 'falsy' })
+    .matches(/^[a-f\d]{24}$/i)
+    .withMessage('Invalid estimate'),
   ...itemsAndTermsValidator,
   body('payment.method').isIn(PAYMENT_METHODS).withMessage('A valid payment method is required'),
   body('payment.cash')
@@ -99,7 +122,7 @@ const createSaleValidator = [
     .withMessage('Online must be non-negative'),
   body('payment.bankAccount')
     .optional({ values: 'falsy' })
-    .isMongoId()
+    .matches(/^[a-f\d]{24}$/i)
     .withMessage('Invalid bank account'),
   body('payment.receiptRef')
     .optional({ values: 'falsy' })
@@ -115,7 +138,10 @@ const recordPaymentValidator = [
   idParam,
   body('amount').isFloat({ gt: 0 }).withMessage('Amount must be positive'),
   body('method').isIn(RECEIVABLE_METHODS).withMessage('Invalid payment method'),
-  body('bankAccount').optional({ values: 'falsy' }).isMongoId().withMessage('Invalid bank account'),
+  body('bankAccount')
+    .optional({ values: 'falsy' })
+    .matches(/^[a-f\d]{24}$/i)
+    .withMessage('Invalid bank account'),
   body('note').optional({ values: 'falsy' }).isString().trim().isLength({ max: 500 }),
 ];
 

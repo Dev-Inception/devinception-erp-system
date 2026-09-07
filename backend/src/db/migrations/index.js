@@ -3,4 +3,5 @@ module.exports = [
   require('./002-gate-pass-processing'),
   require('./003-integer-quantities'),
   require('./004-bootstrap-data'),
+  require('./005-main-backend-schema'),
 ];

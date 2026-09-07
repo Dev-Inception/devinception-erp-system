@@ -13,6 +13,7 @@ module.exports = (db) =>
       email: { type: DataTypes.STRING(120), allowNull: false, defaultValue: '' },
       taxNumber: { type: DataTypes.STRING(60), allowNull: false, defaultValue: '' },
       currency: { type: DataTypes.STRING(10), allowNull: false, defaultValue: 'PKR' },
+      invoiceNote: { type: DataTypes.TEXT, allowNull: false, defaultValue: '' },
     },
     { tableName: 'settings' },
   );

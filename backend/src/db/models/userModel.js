@@ -19,15 +19,23 @@ module.exports = (db) => {
       password: { type: DataTypes.STRING, allowNull: false },
       role: { type: DataTypes.STRING(80), allowNull: false, defaultValue: 'cashier' },
       isActive: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: true },
+      store: { type: DataTypes.STRING(24), field: 'store_id' },
       passwordResetToken: DataTypes.STRING,
       passwordResetExpires: DataTypes.DATE,
       passwordChangedAt: DataTypes.DATE,
+      tokenVersion: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
     },
     {
       tableName: 'users',
       defaultScope: {
         attributes: {
-          exclude: ['password', 'passwordResetToken', 'passwordResetExpires', 'passwordChangedAt'],
+          exclude: [
+            'password',
+            'passwordResetToken',
+            'passwordResetExpires',
+            'passwordChangedAt',
+            'tokenVersion',
+          ],
         },
       },
       scopes: {
@@ -38,6 +46,7 @@ module.exports = (db) => {
               'passwordResetToken',
               'passwordResetExpires',
               'passwordChangedAt',
+              'tokenVersion',
             ],
           },
         },
