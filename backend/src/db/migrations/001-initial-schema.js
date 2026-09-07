@@ -680,7 +680,7 @@ async function up(db, transaction) {
       CHECK (
         (source_type = 'SALE' AND sale_id IS NOT NULL AND sale_return_id IS NULL AND stock_receipt_id IS NULL)
         OR
-        (source_type = 'RETURN' AND sale_return_id IS NOT NULL AND sale_id IS NULL AND stock_receipt_id IS NULL)
+        (source_type = 'RETURN' AND sale_return_id IS NOT NULL AND sale_id IS NOT NULL AND stock_receipt_id IS NULL)
         OR
         (source_type = 'PURCHASE' AND stock_receipt_id IS NOT NULL AND sale_id IS NULL AND sale_return_id IS NULL)
       )
