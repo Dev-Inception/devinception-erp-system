@@ -102,7 +102,7 @@ async function accountTotals(
     replacements.refType = refType;
   }
   if (Array.isArray(refIds)) {
-    conditions.push('je.ref_id = ANY(:refIds)');
+    conditions.push('je.ref_id IN (:refIds)');
     replacements.refIds = refIds;
   }
   if (warehouse) {

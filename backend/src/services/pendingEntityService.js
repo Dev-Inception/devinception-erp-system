@@ -115,7 +115,7 @@ async function pricedTotalsByStockReceipt(stockReceiptIds, transaction) {
   const rows = await getPostgres().query(
     `SELECT stock_receipt_id AS "stockReceipt", COALESCE(SUM(line_total), 0) AS total
      FROM pending_entities
-     WHERE stock_receipt_id = ANY(:ids) AND status = 'PRICED'
+     WHERE stock_receipt_id IN (:ids) AND status = 'PRICED'
      GROUP BY stock_receipt_id`,
     { replacements: { ids: stockReceiptIds }, transaction, type: QueryTypes.SELECT },
   );
