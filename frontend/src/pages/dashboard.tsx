@@ -22,6 +22,8 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { api } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
+import { useStorefrontFilter } from '@/store/storefront';
+import { useLanguage } from '@/components/language-provider';
 
 interface Kpis {
   todaySales: number;
@@ -64,17 +66,19 @@ function KpiCard({
 }
 
 export function DashboardPage() {
+  const { t } = useLanguage();
+  const storefront = useStorefrontFilter();
   const { data: kpis } = useQuery<Kpis>({
-    queryKey: ['kpis'],
-    queryFn: async () => (await api.get('/dashboard/kpis')).data,
+    queryKey: ['kpis', storefront.store],
+    queryFn: async () => (await api.get('/dashboard/kpis', { params: storefront })).data,
   });
   const { data: trend } = useQuery<{ date: string; total: number }[]>({
-    queryKey: ['sales-trend'],
-    queryFn: async () => (await api.get('/dashboard/sales-trend')).data,
+    queryKey: ['sales-trend', storefront.store],
+    queryFn: async () => (await api.get('/dashboard/sales-trend', { params: storefront })).data,
   });
   const { data: top } = useQuery<{ name: string; revenue: number }[]>({
-    queryKey: ['top-products'],
-    queryFn: async () => (await api.get('/dashboard/top-products')).data,
+    queryKey: ['top-products', storefront.store],
+    queryFn: async () => (await api.get('/dashboard/top-products', { params: storefront })).data,
   });
 
   const k = kpis ?? ({} as Kpis);
@@ -83,37 +87,41 @@ export function DashboardPage() {
     <div className="space-y-6">
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <KpiCard
-          label="Today's Sales"
+          label={t("Today's Sales")}
           value={formatCurrency(k.todaySales ?? 0)}
           icon={TrendingUp}
         />
         <KpiCard
-          label="Monthly Sales"
+          label={t('Monthly Sales')}
           value={formatCurrency(k.monthSales ?? 0)}
           icon={DollarSign}
           accent="bg-success/10 text-success"
         />
-        <KpiCard label="Total Revenue" value={formatCurrency(k.totalRevenue ?? 0)} icon={Receipt} />
         <KpiCard
-          label="Stock Value"
+          label={t('Total Revenue')}
+          value={formatCurrency(k.totalRevenue ?? 0)}
+          icon={Receipt}
+        />
+        <KpiCard
+          label={t('Stock Value')}
           value={formatCurrency(k.stockValue ?? 0)}
           icon={Boxes}
           accent="bg-blue-500/10 text-blue-500"
         />
         <KpiCard
-          label="Expenses"
+          label={t('Expenses')}
           value={formatCurrency(k.totalExpenses ?? 0)}
           icon={Wallet}
           accent="bg-amber-500/10 text-amber-500"
         />
         <KpiCard
-          label="Receivables"
+          label={t('Receivables')}
           value={formatCurrency(k.outstandingReceivables ?? 0)}
           icon={ArrowDownLeft}
           accent="bg-emerald-500/10 text-emerald-500"
         />
         <KpiCard
-          label="Payables"
+          label={t('Payables')}
           value={formatCurrency(k.outstandingPayables ?? 0)}
           icon={ArrowUpRight}
           accent="bg-rose-500/10 text-rose-500"
@@ -123,7 +131,7 @@ export function DashboardPage() {
       <div className="grid gap-4 lg:grid-cols-3">
         <Card className="lg:col-span-2">
           <CardHeader>
-            <CardTitle>Sales Trend (30 days)</CardTitle>
+            <CardTitle>{t('Sales Trend (30 days)')}</CardTitle>
           </CardHeader>
           <CardContent>
             <ResponsiveContainer width="100%" height={280}>
@@ -152,7 +160,7 @@ export function DashboardPage() {
 
         <Card>
           <CardHeader>
-            <CardTitle>Top Products</CardTitle>
+            <CardTitle>{t('Top Products')}</CardTitle>
           </CardHeader>
           <CardContent>
             <ResponsiveContainer width="100%" height={280}>

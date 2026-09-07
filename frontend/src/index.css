@@ -63,10 +63,13 @@
   }
 }
 
-/* Print helpers used by the printing service templates */
+/* Print helpers used by the printing service templates and printable in-app pages */
 @media print {
   .no-print {
     display: none !important;
+  }
+  .overflow-x-auto {
+    overflow: visible !important;
   }
 }
 

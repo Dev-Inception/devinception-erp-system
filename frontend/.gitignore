@@ -4,7 +4,12 @@ node_modules/
 # ─── Vite / build output ────────────────────────────────────
 dist/
 dist-ssr/
+dev-dist/
 *.local
+
+# ─── Local dev TLS certs (mkcert) ───────────────────────────
+certs/*.pem
+public/devinception-dev-ca.pem
 
 # ─── TypeScript incremental build ───────────────────────────
 *.tsbuildinfo

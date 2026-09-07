@@ -3,12 +3,13 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Plus,
   Trash2,
-  ShieldAlert,
   Check,
   UserPlus,
   ChevronDown,
   Pencil,
   Loader2,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { toast } from 'sonner';
@@ -28,13 +29,8 @@ import {
 import { cn } from '@/lib/utils';
 import { useAuthStore, type Role } from '@/store/auth';
 import { type ManagedUser } from '@/store/permissions';
-import {
-  ROLES,
-  CONFIGURABLE_ROLES,
-  CONFIGURABLE_MODULES,
-  MODULE_PERMISSION,
-  grantsPermission,
-} from '@/lib/modules';
+import { CONFIGURABLE_MODULES, MODULE_PERMISSION, grantsPermission } from '@/lib/modules';
+import { useLanguage } from '@/components/language-provider';
 
 const ROLE_LABELS: Record<Role, string> = {
   SUPER_ADMIN: 'Super Admin',
@@ -44,27 +40,46 @@ const ROLE_LABELS: Record<Role, string> = {
   ACCOUNTANT: 'Accountant',
 };
 
-/** Native select styled to match the Input component. */
+/** "store manager" -> "Store Manager"; falls back to the built-in label if known. */
+function roleLabel(name: string): string {
+  const known = ROLE_LABELS[name.toUpperCase() as Role];
+  if (known) return known;
+  return name
+    .split(/[\s_]+/)
+    .filter(Boolean)
+    .map((w) => w[0].toUpperCase() + w.slice(1))
+    .join(' ');
+}
+
+/** Native select styled to match the Input component. Options come from the live role list
+ *  (built-in + any custom roles created on the Roles page), not a hardcoded set. */
 function RoleSelect({
   value,
   onChange,
+  roles,
   id,
+  disabled,
+  title,
 }: {
-  value: Role;
-  onChange: (role: Role) => void;
+  value: string;
+  onChange: (role: string) => void;
+  roles: { name: string }[];
   id?: string;
+  disabled?: boolean;
+  title?: string;
 }) {
   return (
-    <div className="relative">
+    <div className="relative" title={title}>
       <select
         id={id}
         value={value}
-        onChange={(e) => onChange(e.target.value as Role)}
-        className="flex h-9 w-full appearance-none rounded-md border border-input bg-transparent py-1 pl-3 pr-9 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:border-input"
+        onChange={(e) => onChange(e.target.value)}
+        disabled={disabled}
+        className="flex h-9 w-full appearance-none rounded-md border border-input bg-transparent py-1 pl-3 pr-9 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:border-input disabled:cursor-not-allowed disabled:opacity-50"
       >
-        {ROLES.map((r) => (
-          <option key={r} value={r}>
-            {ROLE_LABELS[r]}
+        {roles.map((r) => (
+          <option key={r.name} value={r.name}>
+            {roleLabel(r.name)}
           </option>
         ))}
       </select>
@@ -73,27 +88,61 @@ function RoleSelect({
   );
 }
 
-function CreateUserDialog() {
+function CreateUserDialog({ roles }: { roles: { name: string }[] }) {
   const qc = useQueryClient();
+  const { t } = useLanguage();
   const [open, setOpen] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
   const [form, setForm] = useState<{
     fullName: string;
     email: string;
     password: string;
-    role: Role;
+    role: string;
+    store: string;
   }>({
     fullName: '',
     email: '',
     password: '',
-    role: 'CASHIER',
+    role: 'cashier',
+    store: '',
   });
 
+  // Every role but super_admin is confined to one storefront (see
+  // utils/storeScope.js on the backend) — the store to lock them to is
+  // decided here, at creation time.
+  const isSuperAdmin = form.role.toUpperCase() === 'SUPER_ADMIN';
+  const { data: stores = [] } = useQuery<{ id: string; name: string; code?: string }[]>({
+    queryKey: ['stores'],
+    queryFn: async () => (await api.get('/stores')).data,
+    enabled: open,
+  });
+
+  // Once roles load, make sure the selected role is actually one that exists.
+  useEffect(() => {
+    if (roles.length && !roles.some((r) => r.name === form.role)) {
+      setForm((f) => ({ ...f, role: roles[0].name }));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [roles]);
+
   const create = useMutation({
-    mutationFn: async () => (await api.post('/users', form)).data,
+    mutationFn: async () =>
+      (
+        await api.post('/users', {
+          ...form,
+          store: isSuperAdmin ? undefined : form.store,
+        })
+      ).data,
     onSuccess: () => {
-      toast.success(`${form.fullName} added as ${ROLE_LABELS[form.role]}`);
+      toast.success(`${form.fullName} added as ${roleLabel(form.role)}`);
       qc.invalidateQueries({ queryKey: ['users'] });
-      setForm({ fullName: '', email: '', password: '', role: 'CASHIER' });
+      setForm({
+        fullName: '',
+        email: '',
+        password: '',
+        role: roles[0]?.name ?? 'cashier',
+        store: '',
+      });
       setOpen(false);
     },
     onError: (e: any) =>
@@ -111,7 +160,7 @@ function CreateUserDialog() {
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
         <Button>
-          <Plus className="h-4 w-4" /> Add User
+          <Plus className="h-4 w-4" /> {t('Add User')}
         </Button>
       </DialogTrigger>
       <DialogContent>
@@ -141,14 +190,26 @@ function CreateUserDialog() {
           </div>
           <div className="space-y-1.5">
             <Label>Password *</Label>
-            <Input
-              required
-              type="password"
-              minLength={8}
-              placeholder="At least 8 characters"
-              value={form.password}
-              onChange={(e) => setForm({ ...form, password: e.target.value })}
-            />
+            <div className="relative">
+              <Input
+                required
+                type={showPassword ? 'text' : 'password'}
+                minLength={8}
+                placeholder="At least 8 characters"
+                value={form.password}
+                onChange={(e) => setForm({ ...form, password: e.target.value })}
+                className="pr-10"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword((v) => !v)}
+                aria-label={showPassword ? 'Hide password' : 'Show password'}
+                aria-pressed={showPassword}
+                className="absolute inset-y-0 right-0 flex items-center px-3 text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none"
+              >
+                {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </button>
+            </div>
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="new-user-role">Role</Label>
@@ -156,16 +217,45 @@ function CreateUserDialog() {
               id="new-user-role"
               value={form.role}
               onChange={(role) => setForm({ ...form, role })}
+              roles={roles}
             />
           </div>
+          {!isSuperAdmin && (
+            <div className="space-y-1.5">
+              <Label htmlFor="new-user-store">Store *</Label>
+              <div className="relative">
+                <select
+                  id="new-user-store"
+                  required
+                  value={form.store}
+                  onChange={(e) => setForm({ ...form, store: e.target.value })}
+                  className="flex h-9 w-full appearance-none rounded-md border border-input bg-transparent py-1 pl-3 pr-9 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:border-input"
+                >
+                  <option value="" disabled>
+                    Select store…
+                  </option>
+                  {stores.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name}
+                      {s.code ? ` (${s.code})` : ''}
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              </div>
+              <p className="text-xs text-muted-foreground">
+                This user will only see and act on this store's data.
+              </p>
+            </div>
+          )}
           <div className="flex justify-end gap-2 pt-2">
             <DialogClose asChild>
               <Button type="button" variant="outline">
-                Cancel
+                {t('Cancel')}
               </Button>
             </DialogClose>
             <Button type="submit" disabled={create.isPending}>
-              <UserPlus className="h-4 w-4" /> Create User
+              <UserPlus className="h-4 w-4" /> {t('Create User')}
             </Button>
           </div>
         </form>
@@ -174,18 +264,49 @@ function CreateUserDialog() {
   );
 }
 
-/** Edit a user's name and email (role and status are changed from the table). */
-function EditUserDialog({ user, trigger }: { user: ManagedUser; trigger: React.ReactNode }) {
+/**
+ * Edit a user: name, email, active status, and an optional password reset —
+ * all in one place instead of scattered across separate actions. Password is
+ * left blank to keep the current one; filling it force-sets a new one with
+ * no current-password check (this is an admin override, not self-service).
+ */
+function EditUserDialog({
+  user,
+  isSelf,
+  trigger,
+}: {
+  user: ManagedUser;
+  isSelf: boolean;
+  trigger: React.ReactNode;
+}) {
   const qc = useQueryClient();
+  const { t } = useLanguage();
   const [open, setOpen] = useState(false);
-  const [form, setForm] = useState({ fullName: user.fullName, email: user.email });
+  const [showPassword, setShowPassword] = useState(false);
+  const [form, setForm] = useState({
+    fullName: user.fullName,
+    email: user.email,
+    active: user.active,
+    password: '',
+  });
 
   useEffect(() => {
-    if (open) setForm({ fullName: user.fullName, email: user.email });
+    if (open) {
+      setForm({ fullName: user.fullName, email: user.email, active: user.active, password: '' });
+      setShowPassword(false);
+    }
   }, [open, user]);
 
   const save = useMutation({
-    mutationFn: async () => (await api.patch(`/users/${user.id}`, form)).data,
+    mutationFn: async () => {
+      await api.patch(`/users/${user.id}`, { fullName: form.fullName, email: form.email });
+      if (form.active !== user.active) {
+        await api.patch(`/users/${user.id}/active`, { active: form.active });
+      }
+      if (form.password) {
+        await api.patch(`/users/${user.id}/password`, { password: form.password });
+      }
+    },
     onSuccess: () => {
       toast.success('User updated');
       qc.invalidateQueries({ queryKey: ['users'] });
@@ -204,7 +325,8 @@ function EditUserDialog({ user, trigger }: { user: ManagedUser; trigger: React.R
         <DialogHeader>
           <DialogTitle>Edit User</DialogTitle>
           <DialogDescription>
-            Update this user’s name and email. Role and status are changed from the table.
+            Update this user's name, email, and status. Leave the password blank to keep it
+            unchanged.
           </DialogDescription>
         </DialogHeader>
         <form
@@ -231,14 +353,66 @@ function EditUserDialog({ user, trigger }: { user: ManagedUser; trigger: React.R
               onChange={(e) => setForm({ ...form, email: e.target.value })}
             />
           </div>
+          <div className="space-y-1.5">
+            <Label>New Password</Label>
+            <div className="relative">
+              <Input
+                type={showPassword ? 'text' : 'password'}
+                minLength={8}
+                placeholder="Leave blank to keep current password"
+                value={form.password}
+                onChange={(e) => setForm({ ...form, password: e.target.value })}
+                className="pr-10"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword((v) => !v)}
+                aria-label={showPassword ? 'Hide password' : 'Show password'}
+                aria-pressed={showPassword}
+                className="absolute inset-y-0 right-0 flex items-center px-3 text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none"
+              >
+                {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </button>
+            </div>
+          </div>
+          <div className="space-y-1.5">
+            <Label>Status</Label>
+            <div className="flex gap-2">
+              {(
+                [
+                  { value: true, label: 'Active' },
+                  { value: false, label: 'Disabled' },
+                ] as const
+              ).map((opt) => (
+                <button
+                  key={String(opt.value)}
+                  type="button"
+                  disabled={isSelf}
+                  title={isSelf ? 'You cannot change your own active status' : undefined}
+                  onClick={() => setForm({ ...form, active: opt.value })}
+                  className={cn(
+                    'flex-1 rounded-md border px-3 py-1.5 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50',
+                    form.active === opt.value
+                      ? opt.value
+                        ? 'border-emerald-500/50 bg-emerald-500/10 text-emerald-600'
+                        : 'border-destructive/50 bg-destructive/10 text-destructive'
+                      : 'border-input text-muted-foreground hover:bg-muted/50',
+                  )}
+                >
+                  {t(opt.label)}
+                </button>
+              ))}
+            </div>
+          </div>
           <div className="flex justify-end gap-2 pt-2">
             <DialogClose asChild>
               <Button type="button" variant="outline">
-                Cancel
+                {t('Cancel')}
               </Button>
             </DialogClose>
             <Button type="submit" disabled={save.isPending}>
-              {save.isPending && <Loader2 className="h-4 w-4 animate-spin" />}Save
+              {save.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+              {t('Save')}
             </Button>
           </div>
         </form>
@@ -249,6 +423,7 @@ function EditUserDialog({ user, trigger }: { user: ManagedUser; trigger: React.R
 
 function UsersCard() {
   const qc = useQueryClient();
+  const { t } = useLanguage();
   const currentUser = useAuthStore((s) => s.user);
   const canEdit = grantsPermission(currentUser?.permissions, 'users:update');
   const onError = (e: any) => toast.error(e?.response?.data?.message ?? 'Action failed');
@@ -258,9 +433,20 @@ function UsersCard() {
     queryKey: ['users'],
     queryFn: async () => (await api.get('/users')).data,
   });
+  // Live role list (built-in + custom roles added on the Roles page) for the assign-role dropdown.
+  const { data: roles = [] } = useQuery<{ name: string }[]>({
+    queryKey: ['roles'],
+    queryFn: async () => (await api.get('/roles')).data,
+  });
+  // Only one super admin is allowed system-wide — once one exists, don't
+  // offer it as a role for new users (the backend rejects it anyway).
+  const hasSuperAdmin = users.some((u) => u.role === 'SUPER_ADMIN');
+  const assignableRoles = hasSuperAdmin
+    ? roles.filter((r) => r.name.toUpperCase() !== 'SUPER_ADMIN')
+    : roles;
 
   const setRole = useMutation({
-    mutationFn: async ({ id, role }: { id: string; role: Role }) =>
+    mutationFn: async ({ id, role }: { id: string; role: string }) =>
       (await api.patch(`/users/${id}/role`, { role })).data,
     onSuccess: invalidate,
     onError,
@@ -280,7 +466,7 @@ function UsersCard() {
     onError,
   });
 
-  const updateUser = (id: string, patch: { role?: Role; active?: boolean }) => {
+  const updateUser = (id: string, patch: { role?: string; active?: boolean }) => {
     if (patch.role !== undefined) setRole.mutate({ id, role: patch.role });
     if (patch.active !== undefined) setActive.mutate({ id, active: patch.active });
   };
@@ -293,95 +479,113 @@ function UsersCard() {
           <CardTitle>Users</CardTitle>
           <CardDescription>Create users and assign each one a role.</CardDescription>
         </div>
-        <CreateUserDialog />
+        <CreateUserDialog roles={assignableRoles} />
       </CardHeader>
       <CardContent className="px-0 pb-0">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b bg-muted/50 text-left text-xs uppercase tracking-wide text-muted-foreground">
-              <th className="px-4 py-3 font-medium">User</th>
-              <th className="px-4 py-3 font-medium">Email</th>
-              <th className="px-4 py-3 font-medium">Role</th>
-              <th className="px-4 py-3 font-medium">Status</th>
-              <th className="px-4 py-3 text-right font-medium">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {users.map((u) => {
-              const isSelf = currentUser?.email === u.email;
-              return (
-                <tr key={u.id} className="border-b last:border-0 hover:bg-muted/30">
-                  <td className="px-4 py-3">
-                    <div className="flex items-center gap-3">
-                      <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
-                        {u.fullName?.[0] ?? 'U'}
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b bg-muted/50 text-left text-xs uppercase tracking-wide text-muted-foreground">
+                <th className="px-4 py-3 font-medium">User</th>
+                <th className="px-4 py-3 font-medium">Email</th>
+                <th className="px-4 py-3 font-medium">Role</th>
+                <th className="px-4 py-3 font-medium">Store</th>
+                <th className="px-4 py-3 font-medium">Status</th>
+                <th className="px-4 py-3 text-right font-medium">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {users.map((u) => {
+                const isSelf = currentUser?.email === u.email;
+                const isSuperAdmin = u.role === 'SUPER_ADMIN';
+                return (
+                  <tr key={u.id} className="border-b last:border-0 hover:bg-muted/30">
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-3">
+                        <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
+                          {u.fullName?.[0] ?? 'U'}
+                        </div>
+                        <span className="font-medium">{u.fullName}</span>
                       </div>
-                      <span className="font-medium">{u.fullName}</span>
-                    </div>
-                  </td>
-                  <td className="px-4 py-3 text-muted-foreground">{u.email}</td>
-                  <td className="px-4 py-3">
-                    <div className="w-40">
-                      <RoleSelect value={u.role} onChange={(role) => updateUser(u.id, { role })} />
-                    </div>
-                  </td>
-                  <td className="px-4 py-3">
-                    <button
-                      type="button"
-                      onClick={() => updateUser(u.id, { active: !u.active })}
-                      className={cn(
-                        'inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium transition-colors',
-                        u.active
-                          ? 'bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/20'
-                          : 'bg-muted text-muted-foreground hover:bg-muted/70',
-                      )}
-                    >
-                      {u.active ? 'Active' : 'Disabled'}
-                    </button>
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="flex justify-end gap-1">
-                      {canEdit && (
-                        <EditUserDialog
-                          user={u}
-                          trigger={
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-8 w-8"
-                              aria-label={`Edit ${u.fullName}`}
-                              title="Edit user"
-                            >
-                              <Pencil className="h-4 w-4" />
-                            </Button>
+                    </td>
+                    <td className="px-4 py-3 text-muted-foreground">{u.email}</td>
+                    <td className="px-4 py-3">
+                      <div className="w-40">
+                        <RoleSelect
+                          value={u.role.toLowerCase()}
+                          onChange={(role) => updateUser(u.id, { role })}
+                          roles={roles}
+                          disabled={isSelf && isSuperAdmin}
+                          title={
+                            isSelf && isSuperAdmin
+                              ? 'A super admin cannot change their own role'
+                              : undefined
                           }
                         />
-                      )}
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8"
-                        aria-label={`Remove ${u.fullName}`}
-                        disabled={isSelf}
-                        title={isSelf ? 'You cannot remove your own account' : 'Remove user'}
-                        onClick={() => remove(u)}
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 text-muted-foreground">
+                      {u.storeName ?? (u.role === 'SUPER_ADMIN' ? 'All stores' : '—')}
+                    </td>
+                    <td className="px-4 py-3">
+                      <button
+                        type="button"
+                        onClick={() => updateUser(u.id, { active: !u.active })}
+                        className={cn(
+                          'inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium transition-colors',
+                          u.active
+                            ? 'bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/20'
+                            : 'bg-muted text-muted-foreground hover:bg-muted/70',
+                        )}
                       >
-                        <Trash2 className="h-4 w-4 text-destructive" />
-                      </Button>
-                    </div>
+                        {u.active ? 'Active' : 'Disabled'}
+                      </button>
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex justify-end gap-1">
+                        {canEdit && (
+                          <EditUserDialog
+                            user={u}
+                            isSelf={isSelf}
+                            trigger={
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8"
+                                aria-label={`Edit ${u.fullName}`}
+                                title={t('Edit user')}
+                              >
+                                <Pencil className="h-4 w-4" />
+                              </Button>
+                            }
+                          />
+                        )}
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8"
+                          aria-label={`Remove ${u.fullName}`}
+                          disabled={isSelf}
+                          title={isSelf ? 'You cannot remove your own account' : 'Remove user'}
+                          onClick={() => remove(u)}
+                        >
+                          <Trash2 className="h-4 w-4 text-destructive" />
+                        </Button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+              {users.length === 0 && (
+                <tr>
+                  <td colSpan={6} className="px-4 py-10 text-center text-muted-foreground">
+                    No users yet.
                   </td>
                 </tr>
-              );
-            })}
-            {users.length === 0 && (
-              <tr>
-                <td colSpan={5} className="px-4 py-10 text-center text-muted-foreground">
-                  No users yet.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+              )}
+            </tbody>
+          </table>
+        </div>
       </CardContent>
     </Card>
   );
@@ -400,10 +604,9 @@ function ModuleAccessCard() {
     queryFn: async () => (await api.get('/roles')).data,
   });
 
-  // FE role (UPPER) → its backend role record.
-  const byRole = new Map<Role, RolePermissions>(
-    roles.map((r) => [r.name.toUpperCase() as Role, r]),
-  );
+  // Every role gets a column — built-in and custom alike — except Super
+  // Admin, which is locked server-side and always has full access.
+  const configurableRoles = roles.filter((r) => r.name.toUpperCase() !== 'SUPER_ADMIN');
 
   const update = useMutation({
     mutationFn: async ({ id, permissions }: { id: string; permissions: string[] }) =>
@@ -412,10 +615,9 @@ function ModuleAccessCard() {
     onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Could not update access'),
   });
 
-  const toggle = (role: Role, moduleKey: string) => {
-    const rec = byRole.get(role);
+  const toggle = (rec: RolePermissions, moduleKey: string) => {
     const perm = MODULE_PERMISSION[moduleKey];
-    if (!rec || !perm) return;
+    if (!perm) return;
     const permissions = grantsPermission(rec.permissions, perm)
       ? rec.permissions.filter((p) => p !== perm)
       : [...rec.permissions, perm];
@@ -428,8 +630,8 @@ function ModuleAccessCard() {
         <CardTitle>Module Access</CardTitle>
         <CardDescription>
           Controls each role's real permissions on the server — a checked box grants that module's
-          governing permission. Super Admin always has full access. (Dashboard and Reports share a
-          permission, so they toggle together.)
+          governing permission. Super Admin always has full access. (Dashboard, Reports and Day Book
+          share a permission, so they toggle together.)
         </CardDescription>
       </CardHeader>
       <CardContent className="px-0 pb-0">
@@ -437,10 +639,10 @@ function ModuleAccessCard() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b bg-muted/50 text-left text-xs uppercase tracking-wide text-muted-foreground">
-                <th className="px-4 py-3 font-medium">Module</th>
-                {CONFIGURABLE_ROLES.map((role) => (
-                  <th key={role} className="px-4 py-3 text-center font-medium">
-                    {ROLE_LABELS[role]}
+                <th className="px-4 py-3 font-medium">Role</th>
+                {CONFIGURABLE_MODULES.map((m) => (
+                  <th key={m.key} className="px-3 py-3 text-center font-medium" title={m.section}>
+                    <span className="whitespace-nowrap normal-case">{m.label}</span>
                   </th>
                 ))}
               </tr>
@@ -449,7 +651,7 @@ function ModuleAccessCard() {
               {isLoading && (
                 <tr>
                   <td
-                    colSpan={CONFIGURABLE_ROLES.length + 1}
+                    colSpan={CONFIGURABLE_MODULES.length + 1}
                     className="px-4 py-10 text-center text-muted-foreground"
                   >
                     Loading…
@@ -457,29 +659,20 @@ function ModuleAccessCard() {
                 </tr>
               )}
               {!isLoading &&
-                CONFIGURABLE_MODULES.map((m) => (
-                  <tr key={m.key} className="border-b last:border-0 hover:bg-muted/30">
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-3">
-                        <m.icon className="h-4 w-4 text-muted-foreground" />
-                        <div>
-                          <p className="font-medium">{m.label}</p>
-                          <p className="text-xs text-muted-foreground">{m.section}</p>
-                        </div>
-                      </div>
-                    </td>
-                    {CONFIGURABLE_ROLES.map((role) => {
-                      const rec = byRole.get(role);
-                      const enabled = grantsPermission(rec?.permissions, MODULE_PERMISSION[m.key]);
+                configurableRoles.map((rec) => (
+                  <tr key={rec.id} className="border-b last:border-0 hover:bg-muted/30">
+                    <td className="px-4 py-3 font-medium">{roleLabel(rec.name)}</td>
+                    {CONFIGURABLE_MODULES.map((m) => {
+                      const enabled = grantsPermission(rec.permissions, MODULE_PERMISSION[m.key]);
                       return (
-                        <td key={role} className="px-4 py-3 text-center">
+                        <td key={m.key} className="px-3 py-3 text-center">
                           <button
                             type="button"
                             role="checkbox"
                             aria-checked={enabled}
-                            aria-label={`${m.label} for ${ROLE_LABELS[role]}`}
-                            disabled={!rec || update.isPending}
-                            onClick={() => toggle(role, m.key)}
+                            aria-label={`${m.label} for ${roleLabel(rec.name)}`}
+                            disabled={update.isPending}
+                            onClick={() => toggle(rec, m.key)}
                             className={cn(
                               'inline-flex h-5 w-5 items-center justify-center rounded border transition-colors disabled:opacity-50',
                               enabled
@@ -494,6 +687,16 @@ function ModuleAccessCard() {
                     })}
                   </tr>
                 ))}
+              {!isLoading && configurableRoles.length === 0 && (
+                <tr>
+                  <td
+                    colSpan={CONFIGURABLE_MODULES.length + 1}
+                    className="px-4 py-10 text-center text-muted-foreground"
+                  >
+                    No roles yet.
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
@@ -502,25 +705,11 @@ function ModuleAccessCard() {
   );
 }
 
+// Visibility is already handled by ModuleGuard (see App.tsx), which gates
+// this whole route on the `permissions` module's governing permission
+// (roles:update — see MODULE_PERMISSION in lib/modules.ts) before this
+// component ever renders, so no in-component role check is needed here.
 export function PermissionsPage() {
-  const role = useAuthStore((s) => s.user?.role);
-
-  if (role !== 'SUPER_ADMIN') {
-    return (
-      <Card>
-        <CardContent className="flex flex-col items-center justify-center gap-3 py-20 text-center">
-          <div className="flex h-12 w-12 items-center justify-center rounded-full bg-destructive/10 text-destructive">
-            <ShieldAlert className="h-6 w-6" />
-          </div>
-          <h2 className="text-lg font-semibold">Super Admin only</h2>
-          <p className="max-w-md text-sm text-muted-foreground">
-            You don't have permission to manage users and module access.
-          </p>
-        </CardContent>
-      </Card>
-    );
-  }
-
   return (
     <div className="space-y-4">
       <UsersCard />

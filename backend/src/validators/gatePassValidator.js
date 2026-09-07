@@ -6,10 +6,9 @@ const gatePassIdParamValidator = [
 
 const saleParamValidator = [param('saleId').isMongoId().withMessage('Invalid sale id')];
 
-const purchaseParamValidator = [param('purchaseId').isMongoId().withMessage('Invalid purchase id')];
-
 const listGatePassValidator = [
   query('warehouse').optional({ values: 'falsy' }).isMongoId().withMessage('Invalid warehouse'),
+  query('store').optional({ values: 'falsy' }).isMongoId().withMessage('Invalid store'),
   query('status')
     .optional({ values: 'falsy' })
     .toUpperCase()
@@ -18,8 +17,10 @@ const listGatePassValidator = [
   query('sourceType')
     .optional({ values: 'falsy' })
     .toUpperCase()
-    .isIn(['SALE', 'PURCHASE'])
+    .isIn(['SALE', 'PURCHASE', 'RETURN'])
     .withMessage('Invalid gate pass source type'),
+  query('from').optional({ values: 'falsy' }).isISO8601().withMessage('Invalid from date'),
+  query('to').optional({ values: 'falsy' }).isISO8601().withMessage('Invalid to date'),
 ];
 
 const publicTokenParamValidator = [
@@ -32,19 +33,14 @@ const publicTokenParamValidator = [
     .withMessage('Invalid gate pass token'),
 ];
 
+// Driver/vehicle capture is optional — the gatekeeper flow no longer asks for
+// it (accountability comes from the logged-in gatekeeper's identity instead),
+// but the admin edit form may still record it for a delivery.
 const processingFieldsValidator = [
-  body('driver.name')
-    .trim()
-    .notEmpty()
-    .isLength({ max: 120 })
-    .withMessage('Driver name is required'),
+  body('driver.name').optional({ values: 'falsy' }).trim().isLength({ max: 120 }),
   body('driver.phone').optional({ values: 'falsy' }).trim().isLength({ max: 40 }),
   body('driver.licenseNumber').optional({ values: 'falsy' }).trim().isLength({ max: 80 }),
-  body('driver.vehicleNumber')
-    .trim()
-    .notEmpty()
-    .isLength({ max: 80 })
-    .withMessage('Vehicle number is required'),
+  body('driver.vehicleNumber').optional({ values: 'falsy' }).trim().isLength({ max: 80 }),
   body('loadNotes').optional({ values: 'falsy' }).trim().isLength({ max: 1000 }),
   body('items').isArray({ min: 1 }).withMessage('Every loaded item must be submitted'),
   body('items.*.productId').isMongoId().withMessage('Invalid gate pass product'),
@@ -82,7 +78,6 @@ const adminUpdateGatePassValidator = [
 module.exports = {
   gatePassIdParamValidator,
   saleParamValidator,
-  purchaseParamValidator,
   listGatePassValidator,
   processGatePassValidator,
   adminUpdateGatePassValidator,

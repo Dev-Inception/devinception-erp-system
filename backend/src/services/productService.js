@@ -8,7 +8,7 @@ const catalogService = require('./catalogService');
 const { ACCOUNT, REF } = require('../utils/finance');
 const { parsePagination, escapeRegex } = require('../utils/query');
 const { QUANTITY_DECIMALS, normalizeQuantity } = require('../utils/quantity');
-const { assertProductWarehouse } = require('../utils/productWarehouse');
+const { resolveWarehouseScope, warehouseMongoFilter } = require('../utils/storeScope');
 
 /**
  * Product catalog CRUD plus stock visibility. Prices/costs are paisa. Stock
@@ -16,18 +16,15 @@ const { assertProductWarehouse } = require('../utils/productWarehouse');
  * value on the books always equals quantity × average cost.
  */
 
-// Attach on-hand stock + value to products. With `warehouse` the figures are
-// for that location; otherwise they are summed across all warehouses. Also
-// flags low stock (on-hand at or below the product's minStock).
-async function attachStock(products, warehouse) {
+// Attach on-hand stock + value to products. With `warehouseIds` the figures
+// are for those locations; otherwise they are summed across all warehouses.
+// Also flags low stock (on-hand at or below the product's minStock).
+async function attachStock(products, warehouseIds) {
   const ids = products.map((p) => p._id);
-  const match = { product: { $in: ids } };
-  // listProducts validates a supplied id before reaching this point. Always
-  // apply it here so a warehouse-scoped response can never mix stock levels
-  // from other locations.
-  if (warehouse) {
-    match.warehouse = new mongoose.Types.ObjectId(warehouse);
-  }
+  // Always re-derive the match here (rather than trusting the caller) so a
+  // warehouse/store-scoped response can never mix stock levels from other
+  // locations.
+  const match = { product: { $in: ids }, ...warehouseMongoFilter(warehouseIds) };
 
   const levels = await StockLevel.aggregate([
     { $match: match },
@@ -56,7 +53,66 @@ async function attachStock(products, warehouse) {
   });
 }
 
-async function listProducts({ search, warehouse, includeInactive = false, ...query } = {}) {
+// Like attachStock, but expands each product into one row per warehouse that
+// actually has a StockLevel record for it (instead of one row with the
+// total summed across every warehouse). Used by the POS product search,
+// which needs to know per-warehouse availability to offer a per-line
+// warehouse picker — a plain product listing has no use for this shape.
+// Falls back to a single row on the product's own owning warehouse (0 stock)
+// for a product that has never been stocked anywhere, so it still shows up
+// in search results (the cashier can still source it from a vendor).
+async function attachStockByWarehouse(products, warehouseIds) {
+  const ids = products.map((p) => p._id);
+  const levels = await StockLevel.find({
+    product: { $in: ids },
+    ...warehouseMongoFilter(warehouseIds),
+    $expr: { $gt: [{ $round: ['$quantity', QUANTITY_DECIMALS] }, 0] },
+  }).lean();
+
+  const levelsByProduct = new Map();
+  for (const l of levels) {
+    const key = String(l.product);
+    if (!levelsByProduct.has(key)) levelsByProduct.set(key, []);
+    levelsByProduct.get(key).push(l);
+  }
+
+  const rows = [];
+  for (const p of products) {
+    const productLevels = levelsByProduct.get(String(p._id));
+    if (!productLevels || productLevels.length === 0) {
+      rows.push({
+        ...p,
+        stock: 0,
+        stockValue: 0,
+        lowStock: true,
+        warehouseId: p.warehouse ? String(p.warehouse) : null,
+      });
+      continue;
+    }
+    for (const l of productLevels) {
+      const stock = normalizeQuantity(l.quantity);
+      rows.push({
+        ...p,
+        stock,
+        stockValue: Math.round(stock * (l.avgCost || 0)),
+        lowStock: stock <= (p.minStock || 0),
+        warehouseId: String(l.warehouse),
+      });
+    }
+  }
+  return rows;
+}
+
+async function listProducts({
+  search,
+  warehouse,
+  store,
+  category,
+  includeInactive = false,
+  perWarehouse = false,
+  actor,
+  ...query
+} = {}) {
   // The inventory list and product pickers have no pagination UI, so this
   // endpoint allows a far larger page size than the default 100-row cap.
   const { page, limit, skip } = parsePagination(query, { defaultLimit: 1000, maxLimit: 100000 });
@@ -71,21 +127,19 @@ async function listProducts({ search, warehouse, includeInactive = false, ...que
       { barcode: { $regex: term, $options: 'i' } },
     ];
   }
+  if (category && mongoose.isValidObjectId(category)) filter.category = category;
 
-  // The unfiltered inventory is the complete product catalog. A warehouse
-  // filter has a narrower meaning: only products currently in stock at that
-  // location. This also keeps legacy products with stock rows in more than one
-  // warehouse accurate until their ownership is migrated.
-  if (warehouse && !mongoose.isValidObjectId(warehouse)) {
-    throw ApiError.badRequest('Invalid warehouse');
-  }
-  if (warehouse) {
-    const warehouseId = new mongoose.Types.ObjectId(warehouse);
-    const stockedProductIds = await StockLevel.distinct('product', {
-      warehouse: warehouseId,
-      $expr: { $gt: [{ $round: ['$quantity', QUANTITY_DECIMALS] }, 0] },
-    });
-    filter._id = { $in: stockedProductIds };
+  // The unfiltered inventory is the complete product catalog. A warehouse/
+  // store filter has a narrower meaning: only products *owned by* that
+  // location (or one of the store's locations) — the same single `warehouse`
+  // field the response already serializes as `warehouseId`. Filtering by
+  // StockLevel presence instead would surface a product under a warehouse
+  // other than the one shown in its own response (e.g. a stray manual stock
+  // adjustment posted to the wrong location), which reads as "the same
+  // inventory item is in two warehouses" even though it only has one owner.
+  const { warehouseIds } = await resolveWarehouseScope({ warehouse, store, actor });
+  if (warehouseIds) {
+    Object.assign(filter, warehouseMongoFilter(warehouseIds));
   }
 
   const [docs, total] = await Promise.all([
@@ -98,7 +152,12 @@ async function listProducts({ search, warehouse, includeInactive = false, ...que
     Product.countDocuments(filter),
   ]);
 
-  const products = await attachStock(docs, warehouse);
+  const products = perWarehouse
+    ? await attachStockByWarehouse(docs, warehouseIds)
+    : await attachStock(docs, warehouseIds);
+  // A per-warehouse expansion can turn N products into more than N rows
+  // (one per stocked warehouse) — `total` stays the product count, matching
+  // what the search UI actually cares about ("N products matched").
   return { products, total, page, limit };
 }
 
@@ -148,6 +207,14 @@ async function updateProduct(id, data) {
   for (const k of WRITABLE) if (data[k] !== undefined) product[k] = data[k];
   const refs = await catalogService.resolveProductRefs(data);
   for (const [k, v] of Object.entries(refs)) product[k] = v;
+  // Re-homing a product to a different warehouse only changes which location
+  // it's labeled/defaulted to — existing StockLevel rows (wherever they are)
+  // are untouched, same as a legacy product that already had stock in more
+  // than one warehouse.
+  if (data.warehouse) {
+    const warehouse = await require('./warehouseService').getWarehouseById(data.warehouse);
+    product.warehouse = warehouse._id;
+  }
   await product.save();
   return getProductById(id);
 }
@@ -197,9 +264,10 @@ async function adjustStock(
 
   // The id is shape-validated by the route, but a well-formed id that points at
   // no warehouse would still create stock + a journal entry against a ghost
-  // location. Confirm it actually exists (throws 404 otherwise).
+  // location. Confirm it actually exists (throws 404 otherwise). A product
+  // can hold stock in more than one warehouse (via StockLevel), so any real
+  // warehouse is a valid adjustment target, not just the product's own.
   const wh = await require('./warehouseService').getWarehouseById(warehouse);
-  assertProductWarehouse(product, wh);
 
   const level = await StockLevel.findOne({ product: product._id, warehouse: wh._id });
   const currentQty = level ? normalizeQuantity(level.quantity) : 0;

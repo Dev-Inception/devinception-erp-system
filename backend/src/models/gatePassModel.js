@@ -30,18 +30,40 @@ const gatePassSchema = new mongoose.Schema(
     // resolved server-side after an authenticated (or token-authenticated
     // public) scan.
     token: { type: String, required: true, unique: true, select: false },
-    // SALE = goods going out against a sale; PURCHASE = goods coming in
-    // against a vendor purchase. Exactly one of sale/purchase is set.
+    // SALE = goods going out against a sale. RETURN = goods coming back in
+    // against a SaleReturn (see `saleReturn` below). PURCHASE = goods coming
+    // in against a vendor truck delivery (see `stockReceipt` below).
     sourceType: {
       type: String,
-      enum: ['SALE', 'PURCHASE'],
+      enum: ['SALE', 'RETURN', 'PURCHASE'],
       default: 'SALE',
       required: true,
       index: true,
     },
     sale: { type: mongoose.Schema.Types.ObjectId, ref: 'Sale', default: null },
-    purchase: { type: mongoose.Schema.Types.ObjectId, ref: 'GoodsPurchase', default: null },
+    // Set only for sourceType RETURN — the specific return this pass
+    // documents. A sale can have several returns over time, each getting its
+    // own gate pass(es), so uniqueness is scoped to (saleReturn, warehouse)
+    // rather than (sale, kind, warehouse) below.
+    saleReturn: { type: mongoose.Schema.Types.ObjectId, ref: 'SaleReturn', default: null },
+    // Set only for sourceType PURCHASE — the specific stock receipt this
+    // pass documents. A receipt has exactly one warehouse (unlike a sale or
+    // return, which can span several), so it only ever needs one pass.
+    stockReceipt: { type: mongoose.Schema.Types.ObjectId, ref: 'StockReceipt', default: null },
+    // CUSTOMER = goods leaving a warehouse against this sale — scoped to ONE
+    // warehouse (`warehouse` below), so a sale spanning several warehouses
+    // gets several CUSTOMER passes, one per warehouse. VENDOR = the sale's
+    // vendor-sourced lines (all of them, regardless of how many vendors) — a
+    // single additional pass, since that portion never touched warehouse
+    // stock. See gatePassService's `createGatePassesForSale`.
+    kind: { type: String, enum: ['CUSTOMER', 'VENDOR'], default: 'CUSTOMER', required: true },
     documentNumber: { type: String, required: true },
+    // Snapshot of the sale's customer name, so the list can show/filter by
+    // party without joining back to the sale.
+    partyName: { type: String, trim: true, default: '' },
+    // Copied from the originating sale's own `store` — gate passes are always
+    // derived from a sale, so this is never captured independently.
+    store: { type: mongoose.Schema.Types.ObjectId, ref: 'Store', default: null, index: true },
     warehouse: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Warehouse',
@@ -71,13 +93,27 @@ const gatePassSchema = new mongoose.Schema(
   { timestamps: true },
 );
 
+// A sale can have multiple CUSTOMER-kind passes (one per warehouse) but only
+// one per (kind, warehouse) pair — the VENDOR pass always uses the same
+// (primary) warehouse value, so this still guarantees exactly one of those.
+// Excludes RETURN passes (saleReturn set) — those are scoped by the index
+// below instead, since several returns can target the same sale/warehouse.
 gatePassSchema.index(
-  { sale: 1 },
-  { unique: true, partialFilterExpression: { sale: { $type: 'objectId' } } },
+  { sale: 1, kind: 1, warehouse: 1 },
+  { unique: true, partialFilterExpression: { sale: { $type: 'objectId' }, saleReturn: null } },
 );
+
+// One RETURN pass per (return, warehouse) — a single return can span more
+// than one warehouse if its restocked lines came from different ones.
 gatePassSchema.index(
-  { purchase: 1 },
-  { unique: true, partialFilterExpression: { purchase: { $type: 'objectId' } } },
+  { saleReturn: 1, warehouse: 1 },
+  { unique: true, partialFilterExpression: { saleReturn: { $type: 'objectId' } } },
+);
+
+// One PURCHASE pass per stock receipt — a receipt only ever has one warehouse.
+gatePassSchema.index(
+  { stockReceipt: 1 },
+  { unique: true, partialFilterExpression: { stockReceipt: { $type: 'objectId' } } },
 );
 
 gatePassSchema.set('toJSON', {

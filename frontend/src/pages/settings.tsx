@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { api } from '@/lib/api';
+import { useLanguage } from '@/components/language-provider';
 
 interface Settings {
   companyName: string;
@@ -15,10 +16,12 @@ interface Settings {
   email?: string;
   taxNumber?: string;
   currency: string;
+  invoiceNote?: string;
 }
 
 export function SettingsPage() {
   const qc = useQueryClient();
+  const { t } = useLanguage();
   const { data } = useQuery<Settings>({
     queryKey: ['settings'],
     queryFn: async () => (await api.get('/settings')).data,
@@ -92,6 +95,20 @@ export function SettingsPage() {
                 onChange={(e) => field('address', e.target.value)}
               />
             </div>
+            <div className="col-span-2 space-y-1.5">
+              <Label>Invoice note</Label>
+              <textarea
+                dir="auto"
+                rows={2}
+                maxLength={1000}
+                className="min-h-16 w-full rounded-md border bg-transparent px-3 py-2 text-sm"
+                value={form.invoiceNote ?? ''}
+                onChange={(e) => field('invoiceNote', e.target.value)}
+                placeholder={t(
+                  'Printed at the bottom of every sale invoice, e.g. a return policy…',
+                )}
+              />
+            </div>
             <div className="col-span-2 flex justify-end">
               <Button type="submit" disabled={save.isPending}>
                 {save.isPending ? (
@@ -99,7 +116,7 @@ export function SettingsPage() {
                 ) : (
                   <Save className="h-4 w-4" />
                 )}
-                Save changes
+                {t('Save changes')}
               </Button>
             </div>
           </form>

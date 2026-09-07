@@ -4,20 +4,26 @@ import {
   Package,
   ShoppingCart,
   ScrollText,
-  FileText,
   Truck,
   Users,
   BookOpenCheck,
   BarChart3,
   Settings,
   Wallet,
-  Boxes,
   Warehouse,
   ShieldCheck,
   Tags,
   Ruler,
   HardHat,
   ClipboardCheck,
+  PackagePlus,
+  BookText,
+  Store,
+  FileText,
+  Receipt,
+  Hourglass,
+  Container,
+  Factory,
 } from 'lucide-react';
 import type { Role } from '@/store/auth';
 
@@ -64,14 +70,21 @@ export const MODULES: ModuleDef[] = [
   },
   { key: 'sales', to: '/sales', label: 'Sales', section: 'Operations', icon: ScrollText },
   {
-    key: 'purchases',
-    to: '/purchases',
-    label: 'Goods Purchase',
+    key: 'estimates',
+    to: '/estimates',
+    label: 'Estimates',
     section: 'Operations',
-    icon: Boxes,
-    defaultRoles: ['MANAGER', 'ADMIN', 'ACCOUNTANT'],
+    icon: FileText,
+    defaultRoles: ['CASHIER', 'MANAGER', 'ADMIN'],
   },
-  { key: 'invoices', to: '/invoices', label: 'Invoices', section: 'Operations', icon: FileText },
+  {
+    key: 'stock-receipts',
+    to: '/stock-receipts',
+    label: 'Stock Receiving',
+    section: 'Operations',
+    icon: PackagePlus,
+    defaultRoles: ['MANAGER', 'ADMIN'],
+  },
   {
     key: 'gate-passes',
     to: '/gate-passes',
@@ -79,7 +92,6 @@ export const MODULES: ModuleDef[] = [
     section: 'Operations',
     icon: ClipboardCheck,
     defaultRoles: ['ADMIN'],
-    adminOnly: true,
   },
   { key: 'products', to: '/products', label: 'Inventory', section: 'Catalog', icon: Package },
   {
@@ -106,8 +118,26 @@ export const MODULES: ModuleDef[] = [
     icon: Warehouse,
     defaultRoles: ['MANAGER', 'ADMIN'],
   },
+  {
+    key: 'stores',
+    to: '/stores',
+    label: 'Stores',
+    section: 'Catalog',
+    icon: Store,
+    defaultRoles: ['ADMIN'],
+    adminOnly: true,
+  },
   { key: 'customers', to: '/customers', label: 'Customers', section: 'Partners', icon: Users },
   { key: 'vendors', to: '/vendors', label: 'Vendors', section: 'Partners', icon: Truck },
+  { key: 'suppliers', to: '/suppliers', label: 'Suppliers', section: 'Partners', icon: Factory },
+  {
+    key: 'transporters',
+    to: '/transporters',
+    label: 'Transporters',
+    section: 'Partners',
+    icon: Container,
+  },
+  { key: 'roles', to: '/roles', label: 'Roles', section: 'Partners', icon: Users },
   {
     key: 'labour',
     to: '/labour',
@@ -124,7 +154,30 @@ export const MODULES: ModuleDef[] = [
     icon: BookOpenCheck,
     defaultRoles: ['ACCOUNTANT', 'MANAGER', 'ADMIN'],
   },
+  {
+    key: 'pending-entities',
+    to: '/pending-entities',
+    label: 'Pending Entities',
+    section: 'Finance',
+    icon: Hourglass,
+    defaultRoles: ['ACCOUNTANT', 'MANAGER', 'ADMIN'],
+  },
   { key: 'reports', to: '/reports', label: 'Reports', section: 'Finance', icon: BarChart3 },
+  {
+    key: 'expenses',
+    to: '/expenses',
+    label: 'Expenses',
+    section: 'Finance',
+    icon: Receipt,
+    defaultRoles: ['ACCOUNTANT', 'MANAGER', 'ADMIN'],
+  },
+  {
+    key: 'day-book',
+    to: '/day-book',
+    label: 'Day Book',
+    section: 'Finance',
+    icon: BookText,
+  },
   {
     key: 'cash',
     to: '/cash',
@@ -147,7 +200,12 @@ export const MODULES: ModuleDef[] = [
     label: 'Permissions',
     section: 'System',
     icon: ShieldCheck,
-    superAdminOnly: true,
+    // No configurable role gets this by default — user management and the
+    // module access matrix live here, so a super admin has to opt a role in
+    // explicitly rather than it defaulting open (matters only for the legacy
+    // no-`permissions`-loaded fallback in defaultModulesForRole below; a real
+    // session is always gated by MODULE_PERMISSION.permissions instead).
+    defaultRoles: [],
   },
 ];
 
@@ -172,22 +230,41 @@ export const MODULE_PERMISSION: Record<string, string> = {
   dashboard: 'reports:read',
   pos: 'sales:create',
   sales: 'sales:read',
-  purchases: 'purchases:read',
-  invoices: 'invoices:read',
-  'gate-passes': 'inventory:read',
+  estimates: 'estimates:read',
+  'stock-receipts': 'inventory:read',
+  'gate-passes': 'gate-passes:read',
   products: 'inventory:read',
   categories: 'inventory:manage',
   units: 'inventory:manage',
   warehouses: 'inventory:manage',
+  stores: 'stores:manage',
   customers: 'customers:read',
   vendors: 'vendors:read',
+  suppliers: 'suppliers:read',
+  transporters: 'transporters:read',
+  // No dedicated backend permission — the Roles page only lets a non-super-
+  // admin *see* role definitions (creating/editing is separately gated by
+  // `canManage` inside the page itself, hardcoded to super admin), so
+  // roles:read (currently held by nobody but super admin) is a reasonable,
+  // purely opt-in visibility gate.
+  roles: 'roles:read',
   // Matches the backend's /labour read routes, which require sales:create
   // (not a dedicated labour permission) — see labourRoutes.js.
   labour: 'sales:create',
   ledgers: 'finance:read',
+  'pending-entities': 'finance:read',
   reports: 'reports:read',
+  expenses: 'expenses:manage',
+  // Same governing permission as Reports — the Day Book is another report
+  // view (see reportRoutes.js), not a distinct backend permission.
+  'day-book': 'reports:read',
   cash: 'finance:manage',
   settings: 'settings:manage',
+  // User management + this very module-access matrix. roles:update isn't
+  // held by anyone but super admin today, so this stays opt-in — a super
+  // admin has to deliberately grant a role access to it (see the
+  // defaultRoles note on the `permissions` module above).
+  permissions: 'roles:update',
 };
 
 /** True if a permission list grants `permission`, honoring the wildcard. */

@@ -15,6 +15,9 @@ const ACCOUNT = {
   INVENTORY: 'INVENTORY', // stock at cost (asset)
   AR: 'AR', // accounts receivable (asset), ref = Customer
   AP: 'AP', // accounts payable (liability), ref = Vendor
+  AP_SUPPLIER: 'AP_SUPPLIER', // payable to a supplier (liability), ref = Supplier
+  AP_LABOUR: 'AP_LABOUR', // payable to a labourer (liability), ref = Labour
+  AP_TRANSPORT: 'AP_TRANSPORT', // payable to a transporter (liability), ref = Transporter
   SALES: 'SALES', // sales revenue (income)
   COGS: 'COGS', // cost of goods sold (expense)
   OPERATING_EXPENSE: 'OPERATING_EXPENSE', // rent, utilities, payroll, etc.
@@ -47,12 +50,14 @@ function naturalBalance(kind, debit, credit) {
 // Source document types a journal entry can reference.
 const REF = {
   SALE: 'SALE',
+  SALE_RETURN: 'SALE_RETURN', // goods returned against a sale
   PURCHASE: 'PURCHASE',
   PAYMENT: 'PAYMENT', // money paid to a vendor
   RECEIPT: 'RECEIPT', // money received from a customer
   CASH_ADJUST: 'CASH_ADJUST', // manual cash in/out
   EXPENSE: 'EXPENSE', // operating expense paid from cash/bank
   OPENING: 'OPENING', // opening balances
+  PENDING_ENTITY: 'PENDING_ENTITY', // vendor cost posted when a pending entity is priced
 };
 
 // How a sale (or purchase) was settled.

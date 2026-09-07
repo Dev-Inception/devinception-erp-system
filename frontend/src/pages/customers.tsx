@@ -20,6 +20,8 @@ import { formatCurrency } from '@/lib/utils';
 import { useAuthStore } from '@/store/auth';
 import { grantsPermission } from '@/lib/modules';
 import { Pagination } from '@/components/ui/pagination';
+import { useStorefrontFilter, useStorefrontStore } from '@/store/storefront';
+import { useLanguage } from '@/components/language-provider';
 
 interface Customer {
   id: string;
@@ -38,9 +40,15 @@ const emptyForm = { name: '', phone: '', email: '', address: '', creditLimit: 0 
 /** Create (no `customer`) or edit (with `customer`) a customer. */
 function CustomerDialog({ customer, trigger }: { customer?: Customer; trigger: React.ReactNode }) {
   const qc = useQueryClient();
+  const { t } = useLanguage();
   const editing = !!customer;
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(emptyForm);
+  // New customers are pinned to whatever store is currently selected in the
+  // header — a store-restricted user's is fixed to their own store already;
+  // a super admin must explicitly pick one (not "All Stores") before adding.
+  const currentStoreId = useStorefrontStore((s) => s.currentStoreId);
+  const hasSpecificStore = !!currentStoreId && currentStoreId !== 'ALL';
 
   // Reset the form to the customer's values (or blank) each time it opens.
   useEffect(() => {
@@ -63,7 +71,7 @@ function CustomerDialog({ customer, trigger }: { customer?: Customer; trigger: R
     mutationFn: async () =>
       editing
         ? (await api.patch(`/customers/${customer!.id}`, form)).data
-        : (await api.post('/customers', form)).data,
+        : (await api.post('/customers', { ...form, storeId: currentStoreId })).data,
     onSuccess: () => {
       toast.success(editing ? 'Customer updated' : 'Customer created');
       qc.invalidateQueries({ queryKey: ['customers'] });
@@ -129,15 +137,22 @@ function CustomerDialog({ customer, trigger }: { customer?: Customer; trigger: R
               onChange={(e) => setForm({ ...form, address: e.target.value })}
             />
           </div>
+          {!editing && !hasSpecificStore && (
+            <p className="text-sm text-destructive">
+              {t(
+                'Select a specific store from the header before adding a customer — "All Stores" can\'t be recorded on a customer.',
+              )}
+            </p>
+          )}
           <div className="flex justify-end gap-2 pt-2">
             <DialogClose asChild>
               <Button type="button" variant="outline">
-                Cancel
+                {t('Cancel')}
               </Button>
             </DialogClose>
-            <Button type="submit" disabled={save.isPending}>
+            <Button type="submit" disabled={save.isPending || (!editing && !hasSpecificStore)}>
               {save.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
-              Save
+              {t('Save')}
             </Button>
           </div>
         </form>
@@ -148,6 +163,7 @@ function CustomerDialog({ customer, trigger }: { customer?: Customer; trigger: R
 
 export function CustomersPage() {
   const qc = useQueryClient();
+  const { t } = useLanguage();
   const [search, setSearch] = useState('');
   const perms = useAuthStore((s) => s.user?.permissions);
   const canUpdate = grantsPermission(perms, 'customers:update');
@@ -162,13 +178,17 @@ export function CustomersPage() {
   const fetchPage = isSearching ? 1 : page;
   const fetchLimit = isSearching ? SEARCH_FETCH_LIMIT : PAGE_SIZE;
 
+  const storefront = useStorefrontFilter();
   const { data: customers = [], isLoading } = useQuery<Customer[]>({
-    queryKey: ['customers', search],
-    queryFn: async () => (await api.get('/customers', { params: { search } })).data,
+    queryKey: ['customers', search, storefront.store],
+    queryFn: async () => (await api.get('/customers', { params: { search, ...storefront } })).data,
   });
 
   const total = customers?.length ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const pageItems = isSearching
+    ? customers
+    : customers.slice((fetchPage - 1) * PAGE_SIZE, fetchPage * PAGE_SIZE);
 
   const del = useMutation({
     mutationFn: async (id: string) => (await api.delete(`/customers/${id}`)).data,
@@ -188,93 +208,107 @@ export function CustomersPage() {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="relative">
-          <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search customers…"
-            className="w-72 pl-8"
-          />
+        <div className="space-y-1.5">
+          <Label className="text-xs">{t('Search')}</Label>
+          <div className="relative">
+            <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder={t('Search customers…')}
+              className="w-72 pl-8"
+            />
+          </div>
         </div>
         <CustomerDialog
           trigger={
             <Button>
-              <Plus className="h-4 w-4" /> Add Customer
+              <Plus className="h-4 w-4" /> {t('Add Customer')}
             </Button>
           }
         />
       </div>
 
       <Card className="overflow-hidden">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b bg-muted/50 text-left text-xs uppercase tracking-wide text-muted-foreground">
-              <th className="px-4 py-3 font-medium">Customer</th>
-              <th className="px-4 py-3 font-medium">Phone</th>
-              <th className="px-4 py-3 font-medium">Email</th>
-              <th className="px-4 py-3 text-right font-medium">Credit Limit</th>
-              <th className="px-4 py-3 text-right font-medium">Outstanding</th>
-              {showActions && <th className="px-4 py-3 text-right font-medium">Actions</th>}
-            </tr>
-          </thead>
-          <tbody>
-            {isLoading && (
-              <tr>
-                <td colSpan={colSpan} className="px-4 py-10 text-center text-muted-foreground">
-                  Loading…
-                </td>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b bg-muted/50 text-left text-xs uppercase tracking-wide text-muted-foreground">
+                <th className="px-4 py-3 font-medium">{t('Customer')}</th>
+                <th className="px-4 py-3 font-medium">{t('Phone')}</th>
+                <th className="px-4 py-3 font-medium">{t('Email')}</th>
+                <th className="px-4 py-3 text-right font-medium">{t('Credit Limit')}</th>
+                <th className="px-4 py-3 text-right font-medium">{t('Outstanding')}</th>
+                {showActions && (
+                  <th className="px-4 py-3 text-right font-medium">{t('Actions')}</th>
+                )}
               </tr>
-            )}
-            {!isLoading &&
-              customers.map((c) => (
-                <tr key={c.id} className="border-b last:border-0 hover:bg-muted/30">
-                  <td className="px-4 py-3 font-medium">{c.name}</td>
-                  <td className="px-4 py-3 text-muted-foreground">{c.phone ?? '—'}</td>
-                  <td className="px-4 py-3 text-muted-foreground">{c.email ?? '—'}</td>
-                  <td className="px-4 py-3 text-right">{formatCurrency(Number(c.creditLimit))}</td>
-                  <td className="px-4 py-3 text-right font-medium">
-                    {formatCurrency(c.outstanding)}
+            </thead>
+            <tbody>
+              {isLoading && (
+                <tr>
+                  <td colSpan={colSpan} className="px-4 py-10 text-center text-muted-foreground">
+                    Loading…
                   </td>
-                  {showActions && (
-                    <td className="px-4 py-3">
-                      <div className="flex justify-end gap-1">
-                        {canUpdate && (
-                          <CustomerDialog
-                            customer={c}
-                            trigger={
-                              <Button variant="ghost" size="icon" className="h-8 w-8" title="Edit">
-                                <Pencil className="h-4 w-4" />
-                              </Button>
-                            }
-                          />
-                        )}
-                        {canDelete && (
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8"
-                            title="Delete"
-                            disabled={del.isPending}
-                            onClick={() => remove(c)}
-                          >
-                            <Trash2 className="h-4 w-4 text-destructive" />
-                          </Button>
-                        )}
-                      </div>
-                    </td>
-                  )}
                 </tr>
-              ))}
-            {!isLoading && customers.length === 0 && (
-              <tr>
-                <td colSpan={colSpan} className="px-4 py-10 text-center text-muted-foreground">
-                  No customers yet.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+              )}
+              {!isLoading &&
+                pageItems.map((c) => (
+                  <tr key={c.id} className="border-b last:border-0 hover:bg-muted/30">
+                    <td className="px-4 py-3 font-medium">{c.name}</td>
+                    <td className="px-4 py-3 text-muted-foreground">{c.phone ?? '—'}</td>
+                    <td className="px-4 py-3 text-muted-foreground">{c.email ?? '—'}</td>
+                    <td className="px-4 py-3 text-right">
+                      {formatCurrency(Number(c.creditLimit))}
+                    </td>
+                    <td className="px-4 py-3 text-right font-medium">
+                      {formatCurrency(c.outstanding)}
+                    </td>
+                    {showActions && (
+                      <td className="px-4 py-3">
+                        <div className="flex justify-end gap-1">
+                          {canUpdate && (
+                            <CustomerDialog
+                              customer={c}
+                              trigger={
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-8 w-8"
+                                  title={t('Edit')}
+                                >
+                                  <Pencil className="h-4 w-4" />
+                                </Button>
+                              }
+                            />
+                          )}
+                          {canDelete && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8"
+                              title={t('Delete')}
+                              disabled={del.isPending}
+                              onClick={() => remove(c)}
+                            >
+                              <Trash2 className="h-4 w-4 text-destructive" />
+                            </Button>
+                          )}
+                        </div>
+                      </td>
+                    )}
+                  </tr>
+                ))}
+              {!isLoading && pageItems.length === 0 && (
+                <tr>
+                  <td colSpan={colSpan} className="px-4 py-10 text-center text-muted-foreground">
+                    No customers yet.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
         {!isSearching && (
           <Pagination
             page={page}

@@ -16,6 +16,7 @@ function serialize(settings) {
     email: s.email || '',
     taxNumber: s.taxNumber || '',
     currency: s.currency || 'PKR',
+    invoiceNote: s.invoiceNote || '',
   };
 }
 

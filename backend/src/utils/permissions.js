@@ -16,6 +16,7 @@ const PERMISSIONS = {
   USERS_UPDATE: 'users:update',
   USERS_UPDATE_ROLE: 'users:update_role',
   USERS_SET_ACTIVE: 'users:set_active',
+  USERS_SET_PASSWORD: 'users:set_password',
   USERS_DELETE: 'users:delete',
 
   // Role management
@@ -30,6 +31,18 @@ const PERMISSIONS = {
   VENDORS_UPDATE: 'vendors:update',
   VENDORS_DELETE: 'vendors:delete',
 
+  // Supplier management
+  SUPPLIERS_READ: 'suppliers:read',
+  SUPPLIERS_CREATE: 'suppliers:create',
+  SUPPLIERS_UPDATE: 'suppliers:update',
+  SUPPLIERS_DELETE: 'suppliers:delete',
+
+  // Transporter management
+  TRANSPORTERS_READ: 'transporters:read',
+  TRANSPORTERS_CREATE: 'transporters:create',
+  TRANSPORTERS_UPDATE: 'transporters:update',
+  TRANSPORTERS_DELETE: 'transporters:delete',
+
   // Customer management
   CUSTOMERS_READ: 'customers:read',
   CUSTOMERS_CREATE: 'customers:create',
@@ -40,21 +53,37 @@ const PERMISSIONS = {
   INVENTORY_READ: 'inventory:read',
   INVENTORY_MANAGE: 'inventory:manage',
 
-  // Goods purchases
-  PURCHASES_READ: 'purchases:read',
-  PURCHASES_CREATE: 'purchases:create',
+  // Gate passes (truck dispatch authorization for sold/delivered stock)
+  GATE_PASSES_READ: 'gate-passes:read',
+
+  // Store management (storefront groupings of warehouses). Listing stores is
+  // open to any authenticated user (see storeRoutes.js) since every user must
+  // be able to populate the login picker and header switcher — only
+  // create/update/delete need this permission.
+  STORES_MANAGE: 'stores:manage',
 
   // POS sales
   SALES_READ: 'sales:read',
   SALES_CREATE: 'sales:create',
+  // Editing an already-completed sale, recording a later payment against it,
+  // and processing product returns against it.
+  SALES_UPDATE: 'sales:update',
 
-  // Invoices (vendor purchase documents)
-  INVOICES_READ: 'invoices:read',
-  INVOICES_CREATE: 'invoices:create',
+  // Customer estimates (quotes) — creation, follow-up, and conversion to a sale
+  ESTIMATES_READ: 'estimates:read',
+  ESTIMATES_CREATE: 'estimates:create',
+  // Editing an estimate, logging a follow-up, and marking it lost.
+  ESTIMATES_UPDATE: 'estimates:update',
+  ESTIMATES_DELETE: 'estimates:delete',
 
   // Finance: ledgers, cash & bank, payments
   FINANCE_READ: 'finance:read',
   FINANCE_MANAGE: 'finance:manage',
+
+  // Expenses — separate from finance:manage so a role can record/approve
+  // day-to-day spend without also being able to manage bank accounts, cash
+  // entries, or vendor/supplier/labour/transport payments.
+  EXPENSES_MANAGE: 'expenses:manage',
 
   // Reports
   REPORTS_READ: 'reports:read',

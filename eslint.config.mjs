@@ -7,7 +7,7 @@ import globals from 'globals';
 
 /**
  * Single flat config for the whole monorepo. Rules are scoped by path:
- * frontend gets React/browser rules, backend + electron get Node rules.
+ * frontend gets React/browser rules, backend gets Node rules.
  * `prettier` is last so it disables any stylistic rules that fight the formatter.
  */
 export default tseslint.config(
@@ -52,16 +52,10 @@ export default tseslint.config(
     },
   },
 
-  // Backend + electron — Node globals.
+  // Backend — Node globals.
   {
-    files: ['backend/**/*.ts', 'electron/**/*.{ts,js}'],
+    files: ['backend/**/*.ts'],
     languageOptions: { globals: { ...globals.node } },
-  },
-
-  // Electron main/preload are CommonJS — require() is the correct pattern there.
-  {
-    files: ['electron/**/*.js'],
-    rules: { '@typescript-eslint/no-require-imports': 'off' },
   },
 
   prettier,

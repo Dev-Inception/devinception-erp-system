@@ -37,6 +37,14 @@ const userSchema = new mongoose.Schema(
       type: Boolean,
       default: true,
     },
+    // The one storefront this user is confined to (list/report visibility and
+    // all store-scoped writes are locked to it). Null for super_admin, who
+    // sees and acts on every store.
+    store: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Store',
+      default: null,
+    },
 
     // Password reset: we store only the SHA-256 hash of the token, never
     // the raw token, so a DB leak can't be used to reset accounts.
@@ -45,6 +53,9 @@ const userSchema = new mongoose.Schema(
 
     // Bumped whenever the password changes; lets us invalidate old JWTs.
     passwordChangedAt: { type: Date, select: false },
+    // Incremented on logout so already-issued access and refresh JWTs stop
+    // working immediately instead of remaining usable until they expire.
+    tokenVersion: { type: Number, default: 0, select: false },
   },
   { timestamps: true },
 );
@@ -94,6 +105,7 @@ userSchema.set('toJSON', {
     delete ret.passwordResetToken;
     delete ret.passwordResetExpires;
     delete ret.passwordChangedAt;
+    delete ret.tokenVersion;
     delete ret.__v;
     return ret;
   },

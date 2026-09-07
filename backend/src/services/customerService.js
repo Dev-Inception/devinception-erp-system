@@ -1,9 +1,12 @@
+const mongoose = require('mongoose');
 const Customer = require('../models/customerModel');
+const Store = require('../models/storeModel');
 const ApiError = require('../utils/ApiError');
 const journalService = require('./journalService');
 const { ACCOUNT } = require('../utils/finance');
 const { toRupees } = require('../utils/money');
 const { parsePagination, escapeRegex } = require('../utils/query');
+const { actorStoreId, assertStoreAccess } = require('../utils/storeScope');
 
 /**
  * Customer management. Authorization is enforced by route middleware; here we
@@ -30,13 +33,14 @@ async function listCustomers(query = {}) {
       { name: { $regex: term, $options: 'i' } },
       { phone: { $regex: term, $options: 'i' } },
       { email: { $regex: term, $options: 'i' } },
+      { address: { $regex: term, $options: 'i' } },
     ];
   }
 
   const [docs, total, balances] = await Promise.all([
     Customer.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
     Customer.countDocuments(filter),
-    journalService.balancesByRef(ACCOUNT.AR),
+    journalService.balancesByRef(ACCOUNT.AR, { store: query.store }),
   ]);
 
   // Show the live receivable from the ledger (rupees) as outstanding.
@@ -54,8 +58,20 @@ async function getCustomerById(id) {
   return customer;
 }
 
-async function createCustomer(data) {
-  return Customer.create(pickWritable(data));
+async function createCustomer(actor, data) {
+  // Every customer belongs to the store it was added from — a store-
+  // restricted user (cashier, manager, ...) always gets their own store
+  // regardless of what (if anything) they sent; an unrestricted actor
+  // (super admin) must pick one explicitly, from the header's store switcher.
+  const restricted = actorStoreId(actor);
+  const storeId = restricted || data.store;
+  if (!storeId) throw ApiError.badRequest('A store is required');
+  if (!mongoose.isValidObjectId(storeId)) throw ApiError.badRequest('Invalid store');
+  const storeDoc = await Store.findById(storeId);
+  if (!storeDoc) throw ApiError.badRequest('Store not found');
+  assertStoreAccess(actor, storeDoc._id);
+
+  return Customer.create({ ...pickWritable(data), store: storeDoc._id });
 }
 
 async function updateCustomer(id, data) {

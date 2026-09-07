@@ -5,15 +5,15 @@
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
 │                         CLIENTS                                        │
-│  ┌──────────────┐   ┌────────────────────┐   ┌──────────────────┐      │
-│  │  Web (Vite)  │   │ Electron Desktop   │   │  Mobile (future) │      │
-│  │  React SPA   │   │ (same React build  │   │  React Native /  │      │
-│  │              │   │  + native print)   │   │  Expo)           │      │
-│  └──────┬───────┘   └─────────┬──────────┘   └────────┬─────────┘      │
-│         │                     │                       │                │
-└─────────┼─────────────────────┼───────────────────────┼────────────────┘
-          │ REST (JWT)          │ REST + IPC            │ REST
-          ▼                     ▼                       ▼
+│  ┌──────────────────────────────┐        ┌──────────────────┐          │
+│  │  Web / PWA (Vite)             │        │  Mobile (future) │          │
+│  │  React SPA — installable,     │        │  React Native /  │          │
+│  │  offline app-shell (Workbox)  │        │  Expo)           │          │
+│  └──────────────┬────────────────┘        └────────┬─────────┘         │
+│                 │                                    │                 │
+└─────────────────┼────────────────────────────────────┼─────────────────┘
+                   │ REST (JWT)                         │ REST
+                   ▼                                    ▼
 ┌──────────────────────────────────────────────────────────────────────┐
 │                 BACKEND  (Express 5, :5050/api)                        │
 │                                                                        │
@@ -47,7 +47,7 @@
 | API          | Express routers + express-validator                | HTTP surface, validation, RBAC       |
 | Domain       | Service modules (`src/services`)                   | Business rules, money/ledger logic   |
 | Data         | Mongoose models → MongoDB                          | Persistence, indexes                 |
-| Desktop      | Electron main/preload                              | Local printing, auto-update          |
+| PWA          | vite-plugin-pwa (Workbox service worker)           | Installability, offline app shell    |
 
 ## 3. Key design decisions
 
@@ -83,7 +83,6 @@
 - **JWT:** separate HS256 access (15m) and refresh (7d) secrets; refresh delivered as an `httpOnly; SameSite=strict` cookie (and accepted in the body). Refresh tokens are currently **stateless** (issued anew on `/auth/refresh`, not stored/rotated/revoked server-side); a password change invalidates outstanding access tokens via `passwordChangedAt`.
 - **Validation:** every write route runs `express-validator` chains; the central error handler avoids leaking stack traces outside development.
 - **Hardening:** `helmet` security headers (CSP disabled so the bundled Swagger UI works), CORS pinned to `CLIENT_URL` with credentials, rate limiting on login and password-reset, password-reset tokens stored only as SHA-256 hashes, and a generic forgot-password response (no account enumeration).
-- **Electron:** `contextIsolation` with a minimal preload bridge (no `nodeIntegration`).
 
 > See the code review notes for hardening follow-ups (JWT algorithm pinning,
 > refresh-token rotation/revocation, query-parameter sanitization).

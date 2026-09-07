@@ -7,15 +7,23 @@ const env = require('../config/env');
  * new access tokens.
  */
 function signAccessToken(user) {
-  return jwt.sign({ sub: user._id.toString(), role: user.role }, env.jwt.accessSecret, {
-    expiresIn: env.jwt.accessExpiresIn,
-  });
+  return jwt.sign(
+    { sub: user._id.toString(), role: user.role, tv: Number(user.tokenVersion || 0) },
+    env.jwt.accessSecret,
+    {
+      expiresIn: env.jwt.accessExpiresIn,
+    },
+  );
 }
 
 function signRefreshToken(user) {
-  return jwt.sign({ sub: user._id.toString() }, env.jwt.refreshSecret, {
-    expiresIn: env.jwt.refreshExpiresIn,
-  });
+  return jwt.sign(
+    { sub: user._id.toString(), tv: Number(user.tokenVersion || 0) },
+    env.jwt.refreshSecret,
+    {
+      expiresIn: env.jwt.refreshExpiresIn,
+    },
+  );
 }
 
 function verifyAccessToken(token) {

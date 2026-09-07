@@ -19,9 +19,9 @@ const ROW_MONEY = {
     'balance',
     'total',
   ],
-  purchases: ['subtotal', 'discount', 'taxableAmount', 'tax', 'total', 'paid', 'balance'],
   'stock-valuation': ['avgCost', 'value'],
   'profit-loss': ['amount'],
+  'day-book': ['amount'],
 };
 const SUMMARY_MONEY = {
   sales: [
@@ -36,9 +36,22 @@ const SUMMARY_MONEY = {
     'balance',
     'total',
   ],
-  purchases: ['subtotal', 'discount', 'taxableAmount', 'tax', 'total', 'paid', 'balance'],
   'stock-valuation': ['total'],
   'profit-loss': ['revenue', 'cogs', 'grossProfit', 'expenses', 'netProfit'],
+  'day-book': [
+    'totalSales',
+    'totalCOGS',
+    'totalPurchases',
+    'totalExpenses',
+    'totalVendorPayments',
+    'totalCustomerReceipts',
+    'cashIn',
+    'cashOut',
+    'netCash',
+    'bankIn',
+    'bankOut',
+    'netBank',
+  ],
 };
 
 function serialize(type, data) {
@@ -64,12 +77,13 @@ function serialize(type, data) {
 
 const getReport = asyncHandler(async (req, res) => {
   const { type } = req.params;
-  const { from, to, warehouse } = req.query;
-  const data = await reportService.runReport(type, { from, to, warehouse });
+  const { from, to, warehouse, store } = req.query;
+  const data = await reportService.runReport(type, { from, to, warehouse, store, actor: req.user });
   const query = new URLSearchParams();
   if (from) query.set('from', from);
   if (to) query.set('to', to);
   if (warehouse) query.set('warehouse', warehouse);
+  if (store) query.set('store', store);
   const serializedQuery = query.toString();
   const suffix = serializedQuery ? `?${serializedQuery}` : '';
   const exportApiPath = `${req.baseUrl}/${encodeURIComponent(type)}/csv${suffix}`;
@@ -91,8 +105,8 @@ const getReport = asyncHandler(async (req, res) => {
 
 const downloadReportCsv = asyncHandler(async (req, res) => {
   const { type } = req.params;
-  const { from, to, warehouse } = req.query;
-  const data = await reportService.runReport(type, { from, to, warehouse });
+  const { from, to, warehouse, store } = req.query;
+  const data = await reportService.runReport(type, { from, to, warehouse, store, actor: req.user });
   const csv = generateReportCsv(type, data);
   const date = new Date().toISOString().slice(0, 10);
 

@@ -9,6 +9,7 @@ import { Label } from '@/components/ui/label';
 import { SignaturePad } from '@/components/signature-pad';
 import { api } from '@/lib/api';
 import { useAuthStore } from '@/store/auth';
+import { useLanguage } from '@/components/language-provider';
 
 interface GatePassItem {
   productId: string;
@@ -18,12 +19,14 @@ interface GatePassItem {
   quantity: number;
   loadedQuantity?: number;
   loadConfirmed?: boolean;
+  returnedQuantity?: number;
+  scannedby?: string;
 }
 
 interface GatePassDetail {
   id: string;
   number: string;
-  sourceType?: 'SALE' | 'PURCHASE';
+  sourceType?: 'SALE' | 'PURCHASE' | 'RETURN';
   saleNumber: string;
   saleDate: string;
   items: GatePassItem[];
@@ -33,10 +36,15 @@ interface GatePassDetail {
     licenseNumber?: string;
     vehicleNumber: string;
   };
+  // Captured at POS time for SALE-sourced passes — display-only, distinct
+  // from `driver` above (which only formal purchase-side processing sets).
+  transport?: { driverName?: string; driverPhone?: string; vehicleNumber?: string };
+  labour?: { name: string; phoneNumber?: string }[];
   loadNotes?: string;
   status: 'PENDING' | 'PROCESSED' | 'CANCELLED';
   processedAt?: string;
   processedBy?: { name?: string };
+  scannedBy?: { name?: string };
 }
 
 type LoadedItem = Pick<GatePassItem, 'productId' | 'loadedQuantity' | 'loadConfirmed'>;
@@ -52,17 +60,12 @@ function Row({ label, value }: { label: string; value: string }) {
 
 export function GatePassScanPage() {
   const { token = '' } = useParams();
+  const { t } = useLanguage();
   const qc = useQueryClient();
   const user = useAuthStore((state) => state.user);
   const login = useAuthStore((state) => state.login);
   const [credentials, setCredentials] = useState({ email: '', password: '' });
   const [loginError, setLoginError] = useState('');
-  const [driver, setDriver] = useState({
-    name: '',
-    phone: '',
-    licenseNumber: '',
-    vehicleNumber: '',
-  });
   const [items, setItems] = useState<LoadedItem[]>([]);
   const [loadNotes, setLoadNotes] = useState('');
   const [signatureData, setSignatureData] = useState<string | null>(null);
@@ -96,7 +99,6 @@ export function GatePassScanPage() {
     mutationFn: async () =>
       (
         await api.post(`/gate-passes/public/${token}/process`, {
-          driver,
           items,
           loadNotes,
           signatureData,
@@ -117,14 +119,16 @@ export function GatePassScanPage() {
         items[index]?.loadConfirmed &&
         Number(items[index]?.loadedQuantity) === Number(item.quantity),
     );
-  const canProcess =
-    driver.name.trim() &&
-    driver.vehicleNumber.trim() &&
-    signatureData &&
-    allConfirmed &&
-    !processPass.isPending;
+  const canProcess = Boolean(signatureData) && allConfirmed && !processPass.isPending;
   const apiError = (error as any)?.response?.data?.message;
   const processError = (processPass.error as any)?.response?.data?.message;
+  const directionLabel = data?.sourceType === 'SALE' ? 'Goods Out' : 'Goods In';
+  const docLabel =
+    data?.sourceType === 'PURCHASE'
+      ? 'Purchase #'
+      : data?.sourceType === 'RETURN'
+        ? 'Return #'
+        : 'Sale #';
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-muted/30 p-4">
@@ -134,7 +138,7 @@ export function GatePassScanPage() {
           <h1 className="text-lg font-semibold">Gate Pass</h1>
           {data && (
             <p className="text-xs uppercase tracking-wide text-muted-foreground">
-              {data.sourceType === 'PURCHASE' ? 'Goods In' : 'Goods Out'}
+              {directionLabel}
             </p>
           )}
         </div>
@@ -151,10 +155,7 @@ export function GatePassScanPage() {
           <>
             <div className="space-y-1 text-sm">
               <Row label="Gate Pass #" value={data.number} />
-              <Row
-                label={data.sourceType === 'PURCHASE' ? 'Purchase #' : 'Sale #'}
-                value={data.saleNumber}
-              />
+              <Row label={docLabel} value={data.saleNumber} />
               <Row label="Date" value={new Date(data.saleDate).toLocaleString()} />
             </div>
 
@@ -162,10 +163,10 @@ export function GatePassScanPage() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b bg-muted/50 text-left text-xs uppercase tracking-wide text-muted-foreground">
-                    <th className="px-3 py-2 font-medium">Product</th>
-                    <th className="px-3 py-2 text-right font-medium">Gate Qty</th>
+                    <th className="px-3 py-2 font-medium">{t('Product')}</th>
+                    <th className="px-3 py-2 text-right font-medium">{t('Qty')}</th>
                     {data.status === 'PROCESSED' && (
-                      <th className="px-3 py-2 text-right font-medium">Loaded</th>
+                      <th className="px-3 py-2 text-right font-medium">{t('Loaded')}</th>
                     )}
                   </tr>
                 </thead>
@@ -177,6 +178,11 @@ export function GatePassScanPage() {
                         {item.sku && (
                           <div className="text-xs text-muted-foreground">{item.sku}</div>
                         )}
+                        {item.returnedQuantity ? (
+                          <div className="text-xs text-destructive">
+                            {item.returnedQuantity} returned
+                          </div>
+                        ) : null}
                       </td>
                       <td className="px-3 py-2 text-right tabular-nums">{item.quantity}</td>
                       {data.status === 'PROCESSED' && (
@@ -187,6 +193,31 @@ export function GatePassScanPage() {
                 </tbody>
               </table>
             </div>
+
+            {data.sourceType === 'SALE' && (
+              <div className="space-y-2 rounded-lg border bg-muted/20 p-4 text-sm">
+                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  Captured at Point of Sale
+                </p>
+                {data.labour && data.labour.length > 0 && (
+                  <Row label="Labour" value={data.labour.map((l) => l.name).join(', ')} />
+                )}
+                {data.transport?.driverName && (
+                  <Row label="Driver" value={data.transport.driverName} />
+                )}
+                {data.transport?.vehicleNumber && (
+                  <Row label="Vehicle" value={data.transport.vehicleNumber} />
+                )}
+                {data.transport?.driverPhone && (
+                  <Row label="Phone" value={data.transport.driverPhone} />
+                )}
+                {!data.labour?.length && !data.transport?.driverName && (
+                  <p className="text-muted-foreground">
+                    No labour or transport details were recorded.
+                  </p>
+                )}
+              </div>
+            )}
 
             {data.status === 'PENDING' && !user && (
               <form
@@ -234,44 +265,15 @@ export function GatePassScanPage() {
                   if (canProcess) processPass.mutate();
                 }}
               >
-                <div className="grid gap-3 sm:grid-cols-2">
-                  {[
-                    ['Driver name', 'name'],
-                    ['Vehicle number', 'vehicleNumber'],
-                    ['Driver phone', 'phone'],
-                    ['License number', 'licenseNumber'],
-                  ].map(([label, key]) => (
-                    <div key={key} className="space-y-1">
-                      <Label>{label}</Label>
-                      <Input
-                        required={key === 'name' || key === 'vehicleNumber'}
-                        value={driver[key as keyof typeof driver]}
-                        onChange={(event) =>
-                          setDriver((current) => ({ ...current, [key]: event.target.value }))
-                        }
-                      />
-                    </div>
-                  ))}
-                </div>
-
                 <div className="space-y-2">
-                  <Label>Confirm vehicle load</Label>
+                  <Label>Confirm items</Label>
                   {data.items.map((item, index) => (
                     <div
                       key={item.productId}
                       className="grid grid-cols-[1fr_6rem_auto] items-center gap-2 rounded-md border p-2 text-sm"
                     >
                       <span>{item.name}</span>
-                      <Input
-                        type="number"
-                        min="0"
-                        step="any"
-                        aria-label={`Loaded quantity for ${item.name}`}
-                        value={items[index]?.loadedQuantity ?? ''}
-                        onChange={(event) =>
-                          updateItem(index, { loadedQuantity: Number(event.target.value) })
-                        }
-                      />
+                      <span className="text-right tabular-nums">{item.quantity}</span>
                       <input
                         type="checkbox"
                         className="h-4 w-4"
@@ -285,7 +287,7 @@ export function GatePassScanPage() {
                   ))}
                   {!allConfirmed && (
                     <p className="text-xs text-muted-foreground">
-                      Each loaded quantity must match the gate quantity and be checked.
+                      Check each item to confirm it was loaded.
                     </p>
                   )}
                 </div>
@@ -320,6 +322,14 @@ export function GatePassScanPage() {
                   <span className="font-medium">Already processed</span>
                   {data.processedAt && <span>{new Date(data.processedAt).toLocaleString()}</span>}
                 </div>
+                {(data.scannedBy?.name || data.processedBy?.name) && (
+                  <div className="border-t pt-3">
+                    <Row
+                      label="Scanned by"
+                      value={data.scannedBy?.name ?? data.processedBy?.name ?? '—'}
+                    />
+                  </div>
+                )}
                 {data.driver && (
                   <div className="space-y-1 border-t pt-3">
                     <Row label="Driver" value={data.driver.name} />

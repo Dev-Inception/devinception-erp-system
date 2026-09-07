@@ -104,7 +104,7 @@ const vendorSchema = {
     outstanding: {
       type: 'number',
       example: 8600,
-      description: 'Payable balance; maintained by purchase flows, read-only here',
+      description: 'Payable balance, derived live from the ledger; read-only here',
     },
     createdAt: { type: 'string', format: 'date-time' },
     updatedAt: { type: 'string', format: 'date-time' },
@@ -190,12 +190,10 @@ const swaggerSpec = {
       description: 'Labour master data; POS users can read, only super_admin can manage',
     },
     { name: 'Inventory', description: 'Warehouses, products and stock' },
-    { name: 'Purchases', description: 'Goods purchases from vendors' },
     { name: 'Sales', description: 'POS sales' },
-    { name: 'Invoices', description: 'Persisted vendor purchase invoices (A/P)' },
     { name: 'Gate Passes', description: 'QR gate passes for sold products leaving a warehouse' },
     { name: 'Finance', description: 'Bank accounts, payments, ledgers and cash book' },
-    { name: 'Reports', description: 'Sales, purchases, stock valuation and P&L' },
+    { name: 'Reports', description: 'Sales, stock valuation and P&L' },
   ],
   components: {
     securitySchemes: {
@@ -1319,62 +1317,6 @@ const swaggerSpec = {
       },
     },
 
-    /* --------------------------- Purchases --------------------------- */
-    '/purchases': {
-      get: {
-        tags: ['Purchases'],
-        summary: 'List goods purchases (purchases:read)',
-        security: [{ bearerAuth: [] }],
-        parameters: [
-          qPage,
-          qLimit,
-          { name: 'vendor', in: 'query', schema: { type: 'string' } },
-          qFrom,
-          qTo,
-        ],
-        responses: { 200: { description: 'Purchases' }, 403: errorResponse },
-      },
-      post: {
-        tags: ['Purchases'],
-        summary:
-          'Record a goods purchase (purchases:create). Raises stock, posts Dr Inventory / Cr A-P; an amount paid posts a cash/bank payment.',
-        security: [{ bearerAuth: [] }],
-        requestBody: jsonBody(['vendor', 'items'], {
-          vendor: { type: 'string' },
-          warehouse: { type: 'string', description: 'Defaults to the default warehouse' },
-          items: {
-            type: 'array',
-            items: {
-              type: 'object',
-              properties: {
-                product: { type: 'string' },
-                quantity: { type: 'number', example: 100 },
-                unitCost: { type: 'number', example: 35 },
-              },
-            },
-          },
-          paid: { type: 'number', example: 1000 },
-          paymentMethod: { type: 'string', enum: PAYMENT_METHODS_ENUM },
-          bankAccount: { type: 'string' },
-        }),
-        responses: {
-          201: { description: 'Created' },
-          400: errorResponse,
-          403: errorResponse,
-          404: errorResponse,
-        },
-      },
-    },
-    '/purchases/{id}': {
-      get: {
-        tags: ['Purchases'],
-        summary: 'Get a purchase (purchases:read)',
-        security: [{ bearerAuth: [] }],
-        parameters: [pathId],
-        responses: { 200: { description: 'Purchase' }, 403: errorResponse, 404: errorResponse },
-      },
-    },
-
     /* ----------------------------- Sales ----------------------------- */
     '/sales': {
       get: {
@@ -1445,104 +1387,6 @@ const swaggerSpec = {
         security: [{ bearerAuth: [] }],
         parameters: [pathId],
         responses: { 200: { description: 'Sale' }, 403: errorResponse, 404: errorResponse },
-      },
-    },
-
-    /* ---------------------------- Invoices --------------------------- */
-    '/invoices': {
-      get: {
-        tags: ['Invoices'],
-        summary: 'List goods-purchase invoices (invoices:read)',
-        security: [{ bearerAuth: [] }],
-        parameters: [
-          qPage,
-          qLimit,
-          { name: 'vendor', in: 'query', schema: { type: 'string' } },
-          {
-            name: 'status',
-            in: 'query',
-            schema: { type: 'string', enum: ['UNPAID', 'PARTIAL', 'PAID'] },
-          },
-          qFrom,
-          qTo,
-        ],
-        responses: { 200: { description: 'Purchase invoices' }, 403: errorResponse },
-      },
-      post: {
-        tags: ['Invoices'],
-        summary: 'Store a goods purchase as an invoice (invoices:create)',
-        security: [{ bearerAuth: [] }],
-        requestBody: {
-          required: true,
-          content: {
-            'application/json': {
-              schema: {
-                type: 'object',
-                required: ['purchaseId'],
-                properties: {
-                  purchaseId: {
-                    type: 'string',
-                    description: 'Existing goods purchase to persist as a purchase invoice.',
-                  },
-                },
-              },
-            },
-          },
-        },
-        responses: {
-          200: { description: 'Purchase invoice' },
-          400: errorResponse,
-          403: errorResponse,
-          404: errorResponse,
-        },
-      },
-    },
-    '/invoices/{id}': {
-      get: {
-        tags: ['Invoices'],
-        summary: 'Get a goods-purchase invoice (invoices:read)',
-        description:
-          'Returns purchase lines/totals and a pdfUrl for the backend-rendered document.',
-        security: [{ bearerAuth: [] }],
-        parameters: [pathId],
-        responses: { 200: { description: 'Invoice' }, 403: errorResponse, 404: errorResponse },
-      },
-    },
-    '/invoices/{id}/pdf': {
-      get: {
-        tags: ['Invoices'],
-        summary: 'Download a purchase invoice as a PDF (invoices:read)',
-        description: 'Returns a PDF binary (application/pdf), not the JSON envelope.',
-        security: [{ bearerAuth: [] }],
-        parameters: [pathId],
-        responses: {
-          200: {
-            description: 'PDF file',
-            content: { 'application/pdf': { schema: { type: 'string', format: 'binary' } } },
-          },
-          403: errorResponse,
-          404: errorResponse,
-        },
-      },
-    },
-    '/invoices/{id}/pay': {
-      post: {
-        tags: ['Invoices'],
-        summary:
-          'Pay a purchase invoice (invoices:create). Posts Dr Accounts Payable / Cr Cash or Bank.',
-        security: [{ bearerAuth: [] }],
-        parameters: [pathId],
-        requestBody: jsonBody(['amount'], {
-          amount: { type: 'number' },
-          method: { type: 'string', enum: PAYMENT_METHODS_ENUM },
-          bankAccount: { type: 'string' },
-        }),
-        responses: {
-          200: { description: 'Payment recorded' },
-          400: errorResponse,
-          403: errorResponse,
-          404: errorResponse,
-        },
       },
     },
 
@@ -1834,7 +1678,7 @@ const swaggerSpec = {
         tags: ['Reports'],
         summary: 'Generate a report (reports:read)',
         description:
-          'Returns presentation-ready title, columns, detailed rows, summary cards, report metadata, and an authenticated export.url. Sales and purchases require from/to; Profit & Loss accepts both or neither; stock valuation is current-state and ignores dates. Pass warehouse to scope any report.',
+          'Returns presentation-ready title, columns, detailed rows, summary cards, report metadata, and an authenticated export.url. Sales requires from/to; Profit & Loss accepts both or neither; stock valuation is current-state and ignores dates. Pass warehouse to scope any report.',
         security: [{ bearerAuth: [] }],
         parameters: [
           {
@@ -1843,7 +1687,7 @@ const swaggerSpec = {
             required: true,
             schema: {
               type: 'string',
-              enum: ['sales', 'purchases', 'stock-valuation', 'profit-loss'],
+              enum: ['sales', 'stock-valuation', 'profit-loss'],
             },
           },
           qFrom,
@@ -1872,7 +1716,7 @@ const swaggerSpec = {
             required: true,
             schema: {
               type: 'string',
-              enum: ['sales', 'purchases', 'stock-valuation', 'profit-loss'],
+              enum: ['sales', 'stock-valuation', 'profit-loss'],
             },
           },
           qFrom,

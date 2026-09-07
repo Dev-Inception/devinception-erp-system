@@ -45,7 +45,13 @@ const refresh = asyncHandler(async (req, res) => {
   });
 });
 
-const logout = asyncHandler(async (_req, res) => {
+const logout = asyncHandler(async (req, res) => {
+  const authorization = req.headers.authorization || '';
+  const accessToken = authorization.startsWith('Bearer ') ? authorization.slice(7) : null;
+  await authService.logout({
+    accessToken,
+    refreshToken: req.cookies?.refreshToken || req.body?.refreshToken,
+  });
   res.clearCookie('refreshToken', { path: '/api/auth' });
   return sendSuccess(res, 200, 'Logged out');
 });

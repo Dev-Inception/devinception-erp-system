@@ -1,7 +1,9 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Toaster } from 'sonner';
+import { PwaInstallPrompt } from '@/components/pwa-install-prompt';
 import { ThemeProvider } from '@/components/theme-provider';
+import { LanguageProvider } from '@/components/language-provider';
 import { AppLayout } from '@/components/layout/app-layout';
 import { useAuthStore } from '@/store/auth';
 import { MODULES, canSeeModule, landingPath } from '@/lib/modules';
@@ -12,19 +14,31 @@ import { PosPage } from '@/pages/pos';
 import { ProductsPage } from '@/pages/products';
 import { CategoriesPage } from '@/pages/categories';
 import { UnitsPage } from '@/pages/units';
-import { PurchasesPage } from '@/pages/purchases';
 import { VendorsPage } from '@/pages/vendors';
+import { VendorDetailPage } from '@/pages/vendor-detail';
+import { SuppliersPage } from '@/pages/suppliers';
+import { SupplierDetailPage } from '@/pages/supplier-detail';
+import { LabourDetailPage } from '@/pages/labour-detail';
+import { TransportersPage } from '@/pages/transporters';
+import { TransporterDetailPage } from '@/pages/transporter-detail';
 import { LabourPage } from '@/pages/labour';
 import { CustomersPage } from '@/pages/customers';
 import { SalesPage } from '@/pages/sales';
+import { SaleEditPage } from '@/pages/sale-edit';
+import { EstimatesPage } from '@/pages/estimates';
+import { ExpensesPage } from '@/pages/expenses';
+import { StockReceiptsPage } from '@/pages/stock-receipts';
 import { SettingsPage } from '@/pages/settings';
 import { CashPage } from '@/pages/cash';
 import { LedgersPage } from '@/pages/ledgers';
-import { InvoicesPage } from '@/pages/invoices';
+import { PendingEntitiesPage } from '@/pages/pending-entities';
 import { ReportsPage } from '@/pages/reports';
+import { DayBookPage } from '@/pages/day-book';
 import { WarehousesPage } from '@/pages/warehouses';
+import { StoresPage } from '@/pages/stores';
 import { PermissionsPage } from '@/pages/permissions';
 import { GatePassesPage } from '@/pages/gate-passes';
+import { RolePage } from '@/pages/roles';
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { refetchOnWindowFocus: false, retry: 1 } },
@@ -63,14 +77,21 @@ const MODULE_ROUTES: { path: string; element: React.ReactElement }[] = [
   { path: 'categories', element: <CategoriesPage /> },
   { path: 'units', element: <UnitsPage /> },
   { path: 'warehouses', element: <WarehousesPage /> },
+  { path: 'stores', element: <StoresPage /> },
   { path: 'sales', element: <SalesPage /> },
-  { path: 'purchases', element: <PurchasesPage /> },
-  { path: 'invoices', element: <InvoicesPage /> },
+  { path: 'estimates', element: <EstimatesPage /> },
+  { path: 'stock-receipts', element: <StockReceiptsPage /> },
   { path: 'customers', element: <CustomersPage /> },
   { path: 'vendors', element: <VendorsPage /> },
+  { path: 'suppliers', element: <SuppliersPage /> },
+  { path: 'transporters', element: <TransportersPage /> },
   { path: 'labour', element: <LabourPage /> },
+  { path: 'roles', element: <RolePage /> },
   { path: 'ledgers', element: <LedgersPage /> },
+  { path: 'pending-entities', element: <PendingEntitiesPage /> },
   { path: 'reports', element: <ReportsPage /> },
+  { path: 'expenses', element: <ExpensesPage /> },
+  { path: 'day-book', element: <DayBookPage /> },
   { path: 'cash', element: <CashPage /> },
   { path: 'settings', element: <SettingsPage /> },
   { path: 'permissions', element: <PermissionsPage /> },
@@ -80,25 +101,68 @@ const MODULE_ROUTES: { path: string; element: React.ReactElement }[] = [
 export default function App() {
   return (
     <ThemeProvider>
-      <QueryClientProvider client={queryClient}>
-        <BrowserRouter>
-          <Routes>
-            <Route path="/login" element={<LoginPage />} />
-            <Route path="/gate-pass/scan/:token" element={<GatePassScanPage />} />
-            <Route element={<AppLayout />}>
-              <Route index element={<IndexRoute />} />
-              {MODULE_ROUTES.map((r) => (
+      <LanguageProvider>
+        <QueryClientProvider client={queryClient}>
+          <BrowserRouter>
+            <Routes>
+              <Route path="/login" element={<LoginPage />} />
+              <Route path="/gate-pass/scan/:token" element={<GatePassScanPage />} />
+              <Route element={<AppLayout />}>
+                <Route index element={<IndexRoute />} />
+                {MODULE_ROUTES.map((r) => (
+                  <Route
+                    key={r.path}
+                    path={r.path}
+                    element={<ModuleGuard moduleKey={r.path}>{r.element}</ModuleGuard>}
+                  />
+                ))}
                 <Route
-                  key={r.path}
-                  path={r.path}
-                  element={<ModuleGuard moduleKey={r.path}>{r.element}</ModuleGuard>}
+                  path="sales/:id/edit"
+                  element={
+                    <ModuleGuard moduleKey="sales">
+                      <SaleEditPage />
+                    </ModuleGuard>
+                  }
                 />
-              ))}
-            </Route>
-          </Routes>
-        </BrowserRouter>
-        <Toaster richColors position="top-right" />
-      </QueryClientProvider>
+                <Route
+                  path="vendors/:id"
+                  element={
+                    <ModuleGuard moduleKey="vendors">
+                      <VendorDetailPage />
+                    </ModuleGuard>
+                  }
+                />
+                <Route
+                  path="suppliers/:id"
+                  element={
+                    <ModuleGuard moduleKey="suppliers">
+                      <SupplierDetailPage />
+                    </ModuleGuard>
+                  }
+                />
+                <Route
+                  path="labour/:id"
+                  element={
+                    <ModuleGuard moduleKey="labour">
+                      <LabourDetailPage />
+                    </ModuleGuard>
+                  }
+                />
+                <Route
+                  path="transporters/:id"
+                  element={
+                    <ModuleGuard moduleKey="transporters">
+                      <TransporterDetailPage />
+                    </ModuleGuard>
+                  }
+                />
+              </Route>
+            </Routes>
+          </BrowserRouter>
+          <Toaster richColors position="top-right" />
+          <PwaInstallPrompt />
+        </QueryClientProvider>
+      </LanguageProvider>
     </ThemeProvider>
   );
 }
