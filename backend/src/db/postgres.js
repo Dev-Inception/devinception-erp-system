@@ -1,4 +1,4 @@
-const { Sequelize } = require('sequelize');
+const { Sequelize, DataTypes } = require('sequelize');
 const pg = require('pg');
 const env = require('../config/env');
 
@@ -9,6 +9,13 @@ const env = require('../config/env');
 // call site.
 pg.types.setTypeParser(pg.types.builtins.INT8, (value) => Number(value));
 pg.types.setTypeParser(pg.types.builtins.NUMERIC, (value) => Number(value));
+
+// Sequelize's postgres dialect keeps its own OID->parser map per connection
+// (see dialects/postgres/connection-manager.js) instead of consulting the
+// global `pg.types` registry above, and its DECIMAL type's `parse` normally
+// just returns the raw string — this is the actual hook that needs
+// overriding for NUMERIC/DECIMAL columns to come back as JS numbers.
+DataTypes.postgres.DECIMAL.parse = (value) => (value === null ? null : Number(value));
 
 let sequelize;
 
