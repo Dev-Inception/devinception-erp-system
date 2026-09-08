@@ -29,6 +29,16 @@ const optionalFields = [
     .optional({ values: 'falsy' })
     .isFloat({ min: 0 })
     .withMessage('Min stock must be non-negative'),
+  // A base64 data URL — the frontend resizes to a small thumbnail before
+  // upload, so 300kB comfortably covers a real image while still rejecting
+  // someone posting a full-resolution photo straight to the API.
+  body('image')
+    .optional({ values: 'falsy' })
+    .isString()
+    .matches(/^data:image\/(png|jpe?g|webp);base64,[A-Za-z0-9+/=]+$/)
+    .withMessage('Image must be a valid png/jpeg/webp data URL')
+    .isLength({ max: 300000 })
+    .withMessage('Image is too large'),
 ];
 
 const createProductValidator = [

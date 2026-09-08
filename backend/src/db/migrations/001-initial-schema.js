@@ -132,6 +132,7 @@ async function up(db, transaction) {
       tax_percent NUMERIC(9,4) NOT NULL DEFAULT 0 CHECK (tax_percent >= 0),
       min_stock NUMERIC(20,6) NOT NULL DEFAULT 0 CHECK (min_stock >= 0),
       is_active BOOLEAN NOT NULL DEFAULT true,
+      image TEXT,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
     );

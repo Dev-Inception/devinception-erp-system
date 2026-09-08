@@ -42,6 +42,7 @@ interface Product {
   currentStock: number;
   taxRate: string;
   warehouseId?: string;
+  image?: string;
 }
 type CartSource = 'WAREHOUSE' | 'VENDOR';
 interface CartLine {
@@ -1021,6 +1022,17 @@ export function PosPage() {
                           onClick={() => addRow(variants)}
                           className="flex w-full items-center gap-3 border-b px-3 py-2 text-left text-sm last:border-0 hover:bg-accent"
                         >
+                          {p.image ? (
+                            <img
+                              src={p.image}
+                              alt=""
+                              className="h-9 w-9 shrink-0 rounded object-cover"
+                            />
+                          ) : (
+                            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded bg-muted text-[10px] font-medium text-muted-foreground">
+                              {p.name.slice(0, 2).toUpperCase()}
+                            </div>
+                          )}
                           <div className="min-w-0 flex-1">
                             <p className="truncate font-medium">{p.name}</p>
                             <p className="text-xs text-muted-foreground">
@@ -1069,13 +1081,26 @@ export function PosPage() {
                       return (
                         <tr key={l.key} className="border-b last:border-0">
                           <td className="px-3 py-2">
-                            <p className="font-medium">{l.product.name}</p>
-                            <p className="text-xs text-muted-foreground">{l.product.sku}</p>
-                            {notStockedHere && !l.vendorId && (
-                              <p className="mt-0.5 text-xs text-destructive">
-                                {t('Not stocked here — pick a vendor')}
-                              </p>
-                            )}
+                            <div className="flex items-center gap-2">
+                              {l.product.image ? (
+                                <img
+                                  src={l.product.image}
+                                  alt=""
+                                  className="h-8 w-8 shrink-0 rounded object-cover"
+                                />
+                              ) : (
+                                <div className="h-8 w-8 shrink-0 rounded bg-muted" />
+                              )}
+                              <div className="min-w-0">
+                                <p className="truncate font-medium">{l.product.name}</p>
+                                <p className="text-xs text-muted-foreground">{l.product.sku}</p>
+                                {notStockedHere && !l.vendorId && (
+                                  <p className="mt-0.5 text-xs text-destructive">
+                                    {t('Not stocked here — pick a vendor')}
+                                  </p>
+                                )}
+                              </div>
+                            </div>
                           </td>
                           <td className="px-3 py-2">
                             <select

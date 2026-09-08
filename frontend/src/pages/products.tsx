@@ -1,6 +1,16 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Search, Plus, AlertTriangle, Loader2, Pencil, Trash2, ChevronDown } from 'lucide-react';
+import {
+  Search,
+  Plus,
+  AlertTriangle,
+  Loader2,
+  Pencil,
+  Trash2,
+  ChevronDown,
+  ImagePlus,
+  X,
+} from 'lucide-react';
 import { toast } from 'sonner';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -14,7 +24,7 @@ import {
   DialogDescription,
 } from '@/components/ui/dialog';
 import { api } from '@/lib/api';
-import { formatCurrency, cn } from '@/lib/utils';
+import { formatCurrency, cn, resizeImageToDataUrl } from '@/lib/utils';
 import { useWarehouses } from '@/components/layout/warehouse-switcher';
 import { useStorefrontFilter } from '@/store/storefront';
 import { Pagination } from '@/components/ui/pagination';
@@ -36,6 +46,7 @@ interface Product {
   warehouseId?: string;
   category?: { name: string };
   unit?: { abbreviation: string };
+  image?: string;
 }
 
 interface Catalog {
@@ -57,6 +68,7 @@ const blank = {
   salePrice: 0,
   taxRate: 0,
   minStock: 0,
+  image: '' as string | null,
 };
 
 /* ── Add / edit a product ── */
@@ -89,6 +101,7 @@ function ProductDialog({
           salePrice: Number(editing.salePrice),
           taxRate: Number(editing.taxRate),
           minStock: Number(editing.minStock),
+          image: editing.image ?? '',
         }
       : { ...blank, warehouseId: currentId ?? '' },
   );
@@ -118,6 +131,23 @@ function ProductDialog({
   });
 
   const field = (k: keyof typeof form, v: any) => setForm((f) => ({ ...f, [k]: v }));
+  const [imageBusy, setImageBusy] = useState(false);
+
+  const pickImage = async (file: File | undefined) => {
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      toast.error('Please choose an image file');
+      return;
+    }
+    setImageBusy(true);
+    try {
+      field('image', await resizeImageToDataUrl(file));
+    } catch {
+      toast.error('Could not read that image');
+    } finally {
+      setImageBusy(false);
+    }
+  };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -140,6 +170,41 @@ function ProductDialog({
           <div className="col-span-2 space-y-1.5">
             <Label>Name *</Label>
             <Input required value={form.name} onChange={(e) => field('name', e.target.value)} />
+          </div>
+          <div className="col-span-2 space-y-1.5">
+            <Label>Photo</Label>
+            <div className="flex items-center gap-3">
+              <label
+                className={cn(
+                  'relative flex h-16 w-16 shrink-0 cursor-pointer items-center justify-center overflow-hidden rounded-md border border-dashed border-input bg-muted/30 text-muted-foreground hover:border-primary',
+                  imageBusy && 'pointer-events-none opacity-60',
+                )}
+              >
+                {form.image ? (
+                  <img src={form.image} alt="" className="h-full w-full object-cover" />
+                ) : imageBusy ? (
+                  <Loader2 className="h-5 w-5 animate-spin" />
+                ) : (
+                  <ImagePlus className="h-5 w-5" />
+                )}
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={(e) => pickImage(e.target.files?.[0])}
+                />
+              </label>
+              {form.image && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => field('image', '')}
+                >
+                  <X className="h-3.5 w-3.5" /> {t('Remove')}
+                </Button>
+              )}
+            </div>
           </div>
           <div className="col-span-2 space-y-1.5">
             <Label>Warehouse *</Label>
@@ -412,7 +477,20 @@ export function ProductsPage() {
                         setDialogOpen(true);
                       }}
                     >
-                      {p.name}
+                      <div className="flex items-center gap-2.5">
+                        {p.image ? (
+                          <img
+                            src={p.image}
+                            alt=""
+                            className="h-8 w-8 shrink-0 rounded object-cover"
+                          />
+                        ) : (
+                          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded bg-muted text-muted-foreground">
+                            <ImagePlus className="h-3.5 w-3.5" />
+                          </div>
+                        )}
+                        {p.name}
+                      </div>
                     </td>
                     <td className="px-4 py-3 text-muted-foreground">{p.sku}</td>
                     <td className="px-4 py-3 text-muted-foreground">{p.category?.name ?? '—'}</td>

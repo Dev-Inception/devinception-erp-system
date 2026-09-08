@@ -228,6 +228,7 @@ const WRITABLE = [
   'taxPercent',
   'minStock',
   'isActive',
+  'image',
 ];
 
 async function createProduct(data) {

@@ -648,6 +648,7 @@ function mapProduct(p: any) {
     minStock: p.minStock ?? 0,
     currentStock: p.stock ?? 0,
     isLowStock: !!p.lowStock,
+    image: p.image || undefined,
     // Backend serializes catalog refs as { id, name(, abbreviation) } objects
     // plus matching *Id fields; pass them straight through so the edit-form
     // dropdowns round-trip on the catalog id.
@@ -711,6 +712,7 @@ function productPayload(body: any) {
     salePrice: body.salePrice,
     taxPercent: body.taxRate,
     minStock: body.minStock,
+    image: body.image !== undefined ? body.image || null : undefined,
   };
 }
 async function realCreateProduct(body: any) {

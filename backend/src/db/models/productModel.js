@@ -36,6 +36,11 @@ module.exports = function defineProduct(db) {
       },
       minStock: quantity({ validate: { min: 0 } }),
       isActive: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: true },
+      // A base64 data URL (small, client-resized thumbnail) — stored on the
+      // row itself rather than as a separate file, so it lives and dies with
+      // the product (no orphaned files to clean up if a warehouse/store is
+      // later removed).
+      image: { type: DataTypes.TEXT, allowNull: true },
     },
     { tableName: 'products' },
   );
