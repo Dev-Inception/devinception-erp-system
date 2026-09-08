@@ -33,11 +33,14 @@ async function getStatus(storeId, date) {
     ],
   });
   const isOpen = !doc || !!doc.reopenedAt;
+  // Prefer the populated `closer`/`reopener` (name + id) the frontend
+  // expects in place of the raw ref, same as Mongo's `.populate()` did;
+  // degrade to the bare id if a query path ever skips the include.
   return {
     isOpen,
-    closedBy: doc && !doc.reopenedAt ? doc.closedBy : null,
+    closedBy: doc && !doc.reopenedAt ? (doc.closer ?? doc.closedBy) : null,
     closedAt: doc && !doc.reopenedAt ? doc.closedAt : null,
-    reopenedBy: doc ? doc.reopenedBy : null,
+    reopenedBy: doc ? (doc.reopener ?? doc.reopenedBy) : null,
     reopenedAt: doc ? doc.reopenedAt : null,
   };
 }

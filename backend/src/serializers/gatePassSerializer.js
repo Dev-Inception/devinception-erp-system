@@ -15,10 +15,13 @@ function serializeGatePass(gatePass) {
   const g = gatePass && gatePass.toJSON ? gatePass.toJSON() : { ...gatePass };
   const gatePassId = idOf(g._id);
   const status = g.status === 'ACTIVE' ? 'PENDING' : g.status === 'USED' ? 'PROCESSED' : g.status;
+  // `processedBy`/`createdBy` are the raw FK ids; the populated user rows
+  // (when the query included them) sit under the association aliases
+  // `processor`/`creator` instead — see associations.js.
   const processor = g.processedBy
     ? withoutEmptyValues({
-        id: idOf(g.processedBy),
-        name: g.processedBy?.name,
+        id: idOf(g.processor ?? g.processedBy),
+        name: g.processor?.name,
       })
     : null;
 
@@ -63,8 +66,8 @@ function serializeGatePass(gatePass) {
     ...(g.createdBy
       ? {
           createdBy: withoutEmptyValues({
-            id: idOf(g.createdBy),
-            name: g.createdBy?.name,
+            id: idOf(g.creator ?? g.createdBy),
+            name: g.creator?.name,
           }),
         }
       : {}),

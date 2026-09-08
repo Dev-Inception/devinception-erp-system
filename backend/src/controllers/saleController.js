@@ -4,8 +4,26 @@ const { sendSuccess } = require('../utils/ApiResponse');
 const { view } = require('../utils/money');
 
 const out = (s) => (s && s.toJSON ? s.toJSON() : s);
+
+// Sequelize includes land under a `*Info` alias (e.g. `storeInfo`) alongside
+// the untouched raw FK (`store`). The frontend still expects the old
+// Mongo-`populate()` shape, where the ref field itself becomes the populated
+// object — so move each `*Info` value onto its ref field when present (a
+// sale whose query didn't include that association keeps the raw id, same
+// as an un-populated Mongo ref).
+function foldRefs(raw, refs) {
+  for (const ref of refs) {
+    const infoKey = `${ref}Info`;
+    if (infoKey in raw) {
+      raw[ref] = raw[infoKey];
+      delete raw[infoKey];
+    }
+  }
+  return raw;
+}
+
 function serialize(sale) {
-  const raw = out(sale);
+  const raw = foldRefs(out(sale), ['customer', 'store', 'warehouse', 'transporter']);
   // Paid so far = collected at checkout + anything settled later against this
   // sale specifically. Remaining = total owed after returns and payments.
   const paidAmount =

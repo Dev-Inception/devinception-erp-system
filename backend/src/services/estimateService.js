@@ -71,7 +71,13 @@ async function reloadWithItems(id, transaction) {
   return Estimate.findByPk(id, {
     include: [
       { model: EstimateItem, as: 'items', separate: true, order: [['position', 'ASC']] },
-      { model: EstimateFollowUp, as: 'followUps', separate: true, order: [['position', 'ASC']] },
+      {
+        model: EstimateFollowUp,
+        as: 'followUps',
+        separate: true,
+        order: [['position', 'ASC']],
+        include: [{ model: User, as: 'byInfo', attributes: ['id', 'name'] }],
+      },
       { model: Store, as: 'storeInfo', attributes: ['id', 'name', 'code'] },
       { model: User, as: 'creator', attributes: ['id', 'name'] },
     ],
