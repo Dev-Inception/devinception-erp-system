@@ -1,13 +1,10 @@
-const mongoose = require('mongoose');
-const Sale = require('../models/saleModel');
+const { QueryTypes } = require('sequelize');
+const { getPostgres } = require('../db/postgres');
+const { isValidId } = require('../db/id');
 const journalService = require('./journalService');
 const stockService = require('./stockService');
 const { ACCOUNT, naturalBalance } = require('../utils/finance');
-const {
-  resolveWarehouseScope,
-  warehouseMongoFilter,
-  actorStoreId,
-} = require('../utils/storeScope');
+const { resolveWarehouseScope, actorStoreId } = require('../utils/storeScope');
 
 /**
  * Dashboard overview: the handful of headline figures and mini-charts shown on
@@ -20,36 +17,53 @@ const {
  *   - Ledger-derived cards (expenses, receivables, payables) are business-wide
  *     — the ledger is not dimensioned by warehouse — so they ignore it.
  *
- * Day boundaries are computed in UTC so the trend buckets line up with
- * MongoDB's `$dateToString` (which also defaults to UTC).
+ * Day boundaries are computed in UTC so the trend buckets line up
+ * consistently regardless of server timezone.
  */
 
 const TREND_DAYS = 30;
 const TOP_PRODUCTS = 5;
 
-// Sum of Sale.total (paisa) matching the given filter.
-async function salesTotal(match) {
-  const rows = await Sale.aggregate([
-    { $match: match },
-    { $group: { _id: null, total: { $sum: '$total' } } },
-  ]);
-  return rows[0] ? rows[0].total : 0;
+// Builds a `sales` WHERE fragment for the store/warehouse scope: a store
+// filters on the sale's own `store_id`; otherwise a resolved warehouse-id
+// list filters on `warehouse_id` (an empty list — a real store with no
+// warehouses — correctly matches nothing via `IN (NULL)`); no scope at all
+// leaves every sale in view. `alias` is the table alias to qualify the
+// column with (e.g. `'s.'` when sales is joined under that alias).
+function scopeCondition(storeId, warehouseIds, alias = '') {
+  if (storeId) return { clause: `${alias}store_id = :storeId`, replacements: { storeId } };
+  if (warehouseIds)
+    return { clause: `${alias}warehouse_id IN (:warehouseIds)`, replacements: { warehouseIds } };
+  return { clause: 'TRUE', replacements: {} };
 }
 
-// Daily Sale.total for the last TREND_DAYS days, zero-filled so the client gets
-// a continuous series. Keys are UTC YYYY-MM-DD.
-async function salesTrend(whMatch, fromDate) {
-  const rows = await Sale.aggregate([
-    { $match: { ...whMatch, date: { $gte: fromDate } } },
-    {
-      $group: {
-        _id: { $dateToString: { format: '%Y-%m-%d', date: '$date' } },
-        total: { $sum: '$total' },
-      },
-    },
-  ]);
+// Sum of Sale.total (paisa) matching the given filter, optionally from a date.
+async function salesTotal(scope, fromDate) {
+  const conditions = [scope.clause];
+  const replacements = { ...scope.replacements };
+  if (fromDate) {
+    conditions.push('date >= :from');
+    replacements.from = fromDate;
+  }
+  const [row] = await getPostgres().query(
+    `SELECT COALESCE(SUM(total), 0) AS total FROM sales WHERE ${conditions.join(' AND ')}`,
+    { replacements, type: QueryTypes.SELECT },
+  );
+  return row.total;
+}
 
-  const byDay = new Map(rows.map((r) => [r._id, r.total]));
+// Daily Sale.total for the last TREND_DAYS days, zero-filled so the client
+// gets a continuous series. Keys are UTC YYYY-MM-DD.
+async function salesTrend(scope, fromDate) {
+  const rows = await getPostgres().query(
+    `SELECT TO_CHAR(date AT TIME ZONE 'UTC', 'YYYY-MM-DD') AS day, COALESCE(SUM(total), 0) AS total
+     FROM sales
+     WHERE ${scope.clause} AND date >= :from
+     GROUP BY day`,
+    { replacements: { ...scope.replacements, from: fromDate }, type: QueryTypes.SELECT },
+  );
+
+  const byDay = new Map(rows.map((r) => [r.day, r.total]));
   const series = [];
   for (let i = TREND_DAYS - 1; i >= 0; i -= 1) {
     const d = new Date(fromDate.getTime() + (TREND_DAYS - 1 - i) * 86400000);
@@ -60,24 +74,21 @@ async function salesTrend(whMatch, fromDate) {
 }
 
 // Best-selling products by revenue (sum of line totals, paisa).
-async function topProducts(whMatch) {
-  const rows = await Sale.aggregate([
-    { $match: whMatch },
-    { $unwind: '$items' },
-    {
-      $group: {
-        _id: '$items.product',
-        name: { $first: '$items.name' },
-        quantity: { $sum: '$items.quantity' },
-        revenue: { $sum: '$items.lineTotal' },
-      },
-    },
-    { $sort: { revenue: -1 } },
-    { $limit: TOP_PRODUCTS },
-  ]);
-
+async function topProducts(storeId, warehouseIds) {
+  const scope = scopeCondition(storeId, warehouseIds, 's.');
+  const rows = await getPostgres().query(
+    `SELECT si.product_id AS product, MIN(si.name) AS name,
+            SUM(si.quantity) AS quantity, SUM(si.line_total) AS revenue
+     FROM sale_items si
+     JOIN sales s ON s.id = si.sale_id
+     WHERE ${scope.clause}
+     GROUP BY si.product_id
+     ORDER BY revenue DESC
+     LIMIT ${TOP_PRODUCTS}`,
+    { replacements: scope.replacements, type: QueryTypes.SELECT },
+  );
   return rows.map((r) => ({
-    product: r._id,
+    product: r.product,
     name: r.name,
     quantity: r.quantity,
     revenue: r.revenue,
@@ -107,12 +118,8 @@ async function summary({ warehouse, store, actor } = {}) {
   // resolves through warehouse membership.
   const { warehouseIds } = await resolveWarehouseScope({ warehouse, store, actor });
   // A store-restricted actor's own store always wins over the query param.
-  const validStore =
-    actorStoreId(actor) || (store && mongoose.isValidObjectId(store) ? store : null);
-  // Aggregation `$match` doesn't auto-cast query strings like `.find()` does.
-  const whMatch = validStore
-    ? { store: new mongoose.Types.ObjectId(validStore) }
-    : warehouseMongoFilter(warehouseIds);
+  const validStore = actorStoreId(actor) || (store && isValidId(store) ? store : null);
+  const scope = scopeCondition(validStore, validStore ? null : warehouseIds);
   const ledgerScope = validStore ? { store: validStore } : {};
 
   const now = new Date();
@@ -134,9 +141,9 @@ async function summary({ warehouse, store, actor } = {}) {
     trend,
     products,
   ] = await Promise.all([
-    salesTotal({ ...whMatch, date: { $gte: startOfToday } }),
-    salesTotal({ ...whMatch, date: { $gte: startOfMonth } }),
-    salesTotal({ ...whMatch }),
+    salesTotal(scope, startOfToday),
+    salesTotal(scope, startOfMonth),
+    salesTotal(scope),
     stockService.valuation({ warehouseIds }).then((v) => v.total),
     journalService
       .accountTotals(ACCOUNT.COGS, null, ledgerScope)
@@ -146,8 +153,8 @@ async function summary({ warehouse, store, actor } = {}) {
       .then((t) => naturalBalance(ACCOUNT.OPERATING_EXPENSE, t.debit, t.credit)),
     outstanding(ACCOUNT.AR),
     outstanding(ACCOUNT.AP),
-    salesTrend(whMatch, trendStart),
-    topProducts(whMatch),
+    salesTrend(scope, trendStart),
+    topProducts(validStore, validStore ? null : warehouseIds),
   ]);
 
   return {

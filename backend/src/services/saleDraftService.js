@@ -1,16 +1,18 @@
-const mongoose = require('mongoose');
-const SaleDraft = require('../models/saleDraftModel');
+const { initializeModels } = require('../db/models');
+const { isValidId } = require('../db/id');
 const ApiError = require('../utils/ApiError');
 
 async function listDrafts(actor, store) {
-  const filter = { createdBy: actor._id };
-  if (store && mongoose.isValidObjectId(store)) filter.store = store;
-  return SaleDraft.find(filter).sort({ updatedAt: -1 });
+  const { SaleDraft } = initializeModels();
+  const where = { createdBy: actor.id };
+  if (store && isValidId(store)) where.store = store;
+  return SaleDraft.findAll({ where, order: [['updatedAt', 'DESC']] });
 }
 
 async function getOwnedDraft(actor, id) {
-  const draft = await SaleDraft.findById(id);
-  if (!draft || String(draft.createdBy) !== String(actor._id)) {
+  const { SaleDraft } = initializeModels();
+  const draft = await SaleDraft.findByPk(id);
+  if (!draft || String(draft.createdBy) !== String(actor.id)) {
     throw ApiError.notFound('Draft not found');
   }
   return draft;
@@ -34,7 +36,8 @@ function pickFields(body) {
 }
 
 async function createDraft(actor, body) {
-  return SaleDraft.create({ createdBy: actor._id, ...pickFields(body) });
+  const { SaleDraft } = initializeModels();
+  return SaleDraft.create({ createdBy: actor.id, ...pickFields(body) });
 }
 
 async function updateDraft(actor, id, body) {
@@ -46,7 +49,7 @@ async function updateDraft(actor, id, body) {
 
 async function deleteDraft(actor, id) {
   const draft = await getOwnedDraft(actor, id);
-  await draft.deleteOne();
+  await draft.destroy();
 }
 
 module.exports = { listDrafts, getOwnedDraft, createDraft, updateDraft, deleteDraft };

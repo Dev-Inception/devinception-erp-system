@@ -105,7 +105,10 @@ async function accountTotals(
     conditions.push('je.ref_id IN (:refIds)');
     replacements.refIds = refIds;
   }
-  if (warehouse) {
+  if (Array.isArray(warehouse)) {
+    conditions.push('je.warehouse_id IN (:warehouse)');
+    replacements.warehouse = warehouse;
+  } else if (warehouse) {
     conditions.push('je.warehouse_id = :warehouse');
     replacements.warehouse = warehouse;
   }

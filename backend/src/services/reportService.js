@@ -1,18 +1,12 @@
-const Sale = require('../models/saleModel');
-const Warehouse = require('../models/warehouseModel');
-const Store = require('../models/storeModel');
-const JournalEntry = require('../models/journalEntryModel');
+const { Op } = require('sequelize');
+const { initializeModels } = require('../db/models');
 const ApiError = require('../utils/ApiError');
 const { ACCOUNT, REF } = require('../utils/finance');
 const journalService = require('./journalService');
 const stockService = require('./stockService');
 const { parseReportDate, formatReportDate } = require('../utils/reportDate');
 const { normalizeQuantity } = require('../utils/quantity');
-const {
-  resolveWarehouseScope,
-  warehouseMongoFilter,
-  actorStoreId,
-} = require('../utils/storeScope');
+const { resolveWarehouseScope, warehouseWhere, actorStoreId } = require('../utils/storeScope');
 
 /**
  * Reporting: date-range aggregations over transactional data and the ledger.
@@ -28,7 +22,7 @@ const MS_PER_DAY = 24 * 60 * 60 * 1000;
 /**
  * Validate and normalize a required reporting window. Both ends are mandatory
  * for the row-level reports (sales/purchases) so we never load the entire
- * collection, and the span is capped to keep result sets bounded.
+ * table, and the span is capped to keep result sets bounded.
  */
 function normalizeRange({ from, to }, required = true) {
   if (!from || !to) {
@@ -50,13 +44,13 @@ function normalizeRange({ from, to }, required = true) {
 
 function requireRange(params) {
   const range = normalizeRange(params);
-  return { date: { $gte: range.from, $lte: range.to } };
+  return { date: { [Op.gte]: range.from, [Op.lte]: range.to } };
 }
 
 function warehouseInfo(warehouse) {
   if (!warehouse) return null;
   return {
-    id: String(warehouse._id),
+    id: String(warehouse.id),
     name: warehouse.name,
     location: warehouse.location || '',
     address: warehouse.address || '',
@@ -66,49 +60,65 @@ function warehouseInfo(warehouse) {
 
 // Sales report: Sale is the sole sales source.
 async function salesReport({ from, to, warehouseIds, store }) {
-  const filter = requireRange({ from, to });
+  const { Sale, SaleItem, Customer, Warehouse } = initializeModels();
+  const where = requireRange({ from, to });
   // Every sale records its own storefront directly — prefer that over the
   // looser warehouse-membership scoping (two stores can share a warehouse).
   if (store) {
-    filter.store = store;
+    where.store = store;
   } else {
-    Object.assign(filter, warehouseMongoFilter(warehouseIds));
+    Object.assign(where, warehouseWhere(warehouseIds));
   }
-  const sales = await Sale.find(filter)
-    .populate('customer', 'name phone email address')
-    .populate('warehouse', 'name location address isDefault')
-    .sort({ date: -1, createdAt: -1 })
-    .lean();
+  const sales = await Sale.findAll({
+    where,
+    include: [
+      {
+        model: Customer,
+        as: 'customerInfo',
+        attributes: ['id', 'name', 'phone', 'email', 'address'],
+      },
+      {
+        model: Warehouse,
+        as: 'warehouseInfo',
+        attributes: ['id', 'name', 'location', 'address', 'isDefault'],
+      },
+      { model: SaleItem, as: 'items', separate: true, attributes: ['quantity'] },
+    ],
+    order: [
+      ['date', 'DESC'],
+      ['createdAt', 'DESC'],
+    ],
+  });
 
-  const saleRows = sales.map((s) => {
-    const wh = warehouseInfo(s.warehouse);
+  const rows = sales.map((s) => {
+    const wh = warehouseInfo(s.warehouseInfo);
+    const customer = s.customerInfo;
     return {
-      id: String(s._id),
+      id: String(s.id),
       documentType: 'SALE',
       number: s.number,
       date: s.date,
-      customerId: s.customer ? String(s.customer._id || s.customer) : null,
+      customerId: customer ? String(customer.id) : s.customer ? String(s.customer) : null,
       customer: s.customerName,
-      customerDetails:
-        s.customer && s.customer._id
-          ? {
-              id: String(s.customer._id),
-              name: s.customer.name || s.customerName,
-              phone: s.customer.phone || '',
-              email: s.customer.email || '',
-              address: s.customer.address || '',
-            }
-          : null,
-      customerPhone: s.customer && s.customer.phone ? s.customer.phone : '',
-      customerEmail: s.customer && s.customer.email ? s.customer.email : '',
-      customerAddress: s.customer && s.customer.address ? s.customer.address : '',
+      customerDetails: customer
+        ? {
+            id: String(customer.id),
+            name: customer.name || s.customerName,
+            phone: customer.phone || '',
+            email: customer.email || '',
+            address: customer.address || '',
+          }
+        : null,
+      customerPhone: customer ? customer.phone || '' : '',
+      customerEmail: customer ? customer.email || '' : '',
+      customerAddress: customer ? customer.address || '' : '',
       warehouse: wh ? wh.name : '—',
       warehouseLocation: wh ? wh.location : '',
       warehouseAddress: wh ? wh.address : '',
       warehouseIsDefault: wh ? wh.isDefault : false,
       warehouseDetails: wh,
-      itemCount: (s.items || []).length,
-      quantity: normalizeQuantity((s.items || []).reduce((sum, item) => sum + item.quantity, 0)),
+      itemCount: s.items.length,
+      quantity: normalizeQuantity(s.items.reduce((sum, item) => sum + item.quantity, 0)),
       subtotal: s.subtotal,
       discount: s.discount,
       tax: s.tax,
@@ -123,8 +133,6 @@ async function salesReport({ from, to, warehouseIds, store }) {
       total: s.total,
     };
   });
-
-  const rows = saleRows;
 
   const summary = rows.reduce(
     (acc, r) => {
@@ -187,10 +195,10 @@ async function salesReport({ from, to, warehouseIds, store }) {
 async function stockValuationReport({ warehouseIds }) {
   const { rows, total } = await stockService.valuation({ warehouseIds });
   const detailRows = rows.map((r) => ({
-    productId: String(r.product._id),
+    productId: String(r.product.id),
     product: r.product.name,
     sku: r.product.sku || '',
-    unit: r.product.unit ? r.product.unit.abbreviation || r.product.unit.name : '',
+    unit: r.product.unitInfo ? r.product.unitInfo.abbreviation || r.product.unitInfo.name : '',
     warehouse: r.warehouse ? r.warehouse.name : '',
     warehouseLocation: r.warehouse ? r.warehouse.location || '' : '',
     warehouseAddress: r.warehouse ? r.warehouse.address || '' : '',
@@ -231,25 +239,29 @@ async function stockValuationReport({ warehouseIds }) {
  *   Gross profit − operating expenses = Net profit.
  */
 async function profitAndLossReport({ from, to, warehouseIds, store }) {
+  const { Sale } = initializeModels();
   const normalized = normalizeRange({ from, to }, false);
-  const range = normalized || {};
+  const range = normalized ? { ...normalized } : {};
   const expenseRange = normalized ? { ...normalized } : {};
   if (store) {
     // Every sale and expense records its own storefront directly — prefer
     // that over the looser warehouse-membership scoping.
-    const sourceFilter = { store };
-    if (normalized) sourceFilter.date = { $gte: normalized.from, $lte: normalized.to };
-    const saleIds = await Sale.find(sourceFilter).distinct('_id');
+    const sourceWhere = { store };
+    if (normalized) sourceWhere.date = { [Op.gte]: normalized.from, [Op.lte]: normalized.to };
+    const sales = await Sale.findAll({ where: sourceWhere, attributes: ['id'] });
     range.refType = REF.SALE;
-    range.refIds = saleIds;
+    range.refIds = sales.map((s) => s.id);
     expenseRange.store = store;
   } else if (warehouseIds) {
-    const sourceFilter = { ...warehouseMongoFilter(warehouseIds) };
-    if (normalized) sourceFilter.date = { $gte: normalized.from, $lte: normalized.to };
-    const saleIds = await Sale.find(sourceFilter).distinct('_id');
+    const sourceWhere = { ...warehouseWhere(warehouseIds) };
+    if (normalized) sourceWhere.date = { [Op.gte]: normalized.from, [Op.lte]: normalized.to };
+    const sales = await Sale.findAll({ where: sourceWhere, attributes: ['id'] });
     range.refType = REF.SALE;
-    range.refIds = saleIds;
-    Object.assign(expenseRange, warehouseMongoFilter(warehouseIds));
+    range.refIds = sales.map((s) => s.id);
+    // journalService.accountTotals's `warehouse` option accepts either a
+    // scalar id or an array (see its Array.isArray branch) — pass the
+    // resolved id list directly rather than a Sequelize `where` fragment.
+    expenseRange.warehouse = warehouseIds;
   }
   const [sales, cogs, expenses] = await Promise.all([
     journalService.accountTotals(ACCOUNT.SALES, null, range),
@@ -332,33 +344,41 @@ function sumWhere(entries, predicate) {
  * total operating expenses.
  */
 async function dayBookReport({ from, to, warehouseIds, store }) {
+  const { JournalEntry, JournalLine, Warehouse } = initializeModels();
   const range = resolveDayRange({ from, to });
-  const filter = { date: { $gte: range.from, $lte: range.to } };
+  const where = { date: { [Op.gte]: range.from, [Op.lte]: range.to } };
   if (store) {
     // Sales, purchases, payments, receipts, cash adjustments, and expenses
     // all record their own storefront directly. A handful of entry types
     // (manual stock adjustments, legacy data) carry no store at all — always
     // include those rather than making them disappear from every store's day.
-    filter.$or = [{ store: null }, { store }];
+    where[Op.or] = [{ store: null }, { store }];
   } else if (warehouseIds) {
     // Business-wide entries (vendor payments, customer receipts, cash
     // adjustments) carry no warehouse at all — always include them rather
     // than making them disappear from every specific store's day.
-    filter.$or = [{ warehouse: null }, warehouseMongoFilter(warehouseIds)];
+    where[Op.or] = [{ warehouse: null }, { warehouse: { [Op.in]: warehouseIds } }];
   }
-  const entries = await JournalEntry.find(filter)
-    .populate('warehouse', 'name')
-    .sort({ date: 1, createdAt: 1 })
-    .lean();
+  const entries = await JournalEntry.findAll({
+    where,
+    include: [
+      { model: JournalLine, as: 'lines', separate: true },
+      { model: Warehouse, as: 'warehouseInfo', attributes: ['id', 'name'] },
+    ],
+    order: [
+      ['date', 'ASC'],
+      ['createdAt', 'ASC'],
+    ],
+  });
 
   const rows = entries.map((e) => ({
-    id: String(e._id),
+    id: String(e.id),
     date: e.date,
     voucherType: e.refType,
     voucherLabel: VOUCHER_LABELS[e.refType] || e.refType,
     voucherNo: e.refNo || '',
     description: e.description || VOUCHER_LABELS[e.refType] || e.refType,
-    warehouse: e.warehouse ? e.warehouse.name : '',
+    warehouse: e.warehouseInfo ? e.warehouseInfo.name : '',
     amount: e.lines.reduce((sum, l) => sum + (l.debit || 0), 0),
   }));
 
@@ -408,6 +428,7 @@ async function runReport(type, params) {
     throw ApiError.badRequest(`Unknown report type: ${type}`);
   }
   const fn = REPORTS[type];
+  const { Store, Warehouse } = initializeModels();
 
   // `store` takes precedence over a plain `warehouse` — resolves to the list
   // of warehouse ids every report filters on. The single-warehouse doc below
@@ -420,13 +441,13 @@ async function runReport(type, params) {
   let warehouse = null;
   let store = null;
   if (effectiveStoreParam) {
-    store = await Store.findById(effectiveStoreParam).select('name code').lean();
+    store = await Store.findByPk(effectiveStoreParam, { attributes: ['id', 'name', 'code'] });
   } else if (params.warehouse) {
-    warehouse = await Warehouse.findById(params.warehouse).lean();
+    warehouse = await Warehouse.findByPk(params.warehouse);
     if (!warehouse) throw ApiError.notFound('Warehouse not found');
   }
 
-  const report = await fn({ ...params, warehouseIds, store: store ? store._id : null });
+  const report = await fn({ ...params, warehouseIds, store: store ? store.id : null });
   return {
     ...report,
     meta: {
@@ -435,7 +456,7 @@ async function runReport(type, params) {
         type === 'stock-valuation' ? null : { from: params.from || null, to: params.to || null },
       basis: type === 'stock-valuation' ? 'CURRENT' : 'PERIOD',
       warehouse: warehouseInfo(warehouse),
-      store: store ? { id: String(store._id), name: store.name, code: store.code || '' } : null,
+      store: store ? { id: String(store.id), name: store.name, code: store.code || '' } : null,
       scope: store ? 'STORE' : warehouse ? 'WAREHOUSE' : 'ALL_WAREHOUSES',
     },
   };
