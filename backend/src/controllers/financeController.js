@@ -75,13 +75,13 @@ const receiveFromCustomer = asyncHandler(async (req, res) => {
 
 const cashEntry = asyncHandler(async (req, res) => {
   const entry = await paymentService.cashEntry(req.user, req.body);
-  return sendSuccess(res, 201, 'Cash entry recorded', { id: entry._id });
+  return sendSuccess(res, 201, 'Cash entry recorded', { id: entry.id });
 });
 
 const recordExpense = asyncHandler(async (req, res) => {
   const entry = await paymentService.recordExpense(req.user, req.body);
   return sendSuccess(res, 201, 'Operating expense recorded', {
-    id: entry._id,
+    id: entry.id,
     refNo: entry.refNo,
   });
 });
