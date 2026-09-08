@@ -1,6 +1,6 @@
 # PostgreSQL migration and `main` merge status
 
-Last verified: 2026-09-08
+Last verified: 2026-09-09
 Branch: `feat/migrate-backend-to-postgresql`
 
 ## Result
@@ -19,9 +19,9 @@ the backend source or dependency manifests.
   warehouses, suppliers, transporters, stock receipts, pending entities,
   estimates and follow-ups, expenses and approvals, sale drafts, sale returns,
   day-end controls, per-store finance, and expanded gate passes.
-- Main's Mongoose model files were converted into compatibility exports that
-  point to the canonical Sequelize models. This preserves old import paths
-  without maintaining a second database layer.
+- Obsolete Mongoose-era compatibility model exports were removed after a full
+  import audit confirmed that the backend uses only the canonical Sequelize
+  models under `backend/src/db/models`.
 - API validators now validate the application's 24-character hexadecimal
   PostgreSQL record IDs without Mongoose.
 - Authentication session invalidation uses `token_version` in PostgreSQL.
@@ -43,6 +43,12 @@ back to `NUMERIC(20,6)` because the current frontend accepts fractional values.
 
 ## Verification completed
 
+- Clean-schema migration test from `001` through `005`: passed.
+- PostgreSQL API integration suite: 7 tests passed.
+- Concurrent sale-payment overpayment prevention: passed.
+- Concurrent cash overspend prevention: passed.
+- Receipt, sale, and return rollback/stock invariants: passed.
+- All generated journal entries balanced: passed.
 - Backend application import smoke test: passed.
 - Backend ESLint: passed.
 - All 45 Sequelize models initialized and queried against PostgreSQL: passed.
@@ -64,14 +70,28 @@ back to `NUMERIC(20,6)` because the current frontend accepts fractional values.
 
 ## Remaining engineering work
 
-- The backend test script is still a placeholder; add integration/API tests
-  that create a temporary PostgreSQL database and run all migrations.
-- Add concurrency tests and stronger locking/idempotency around cash/bank
-  sufficient-funds checks and client retries.
+- Add request idempotency keys for client retries. Database row locks now stop
+  concurrent overpayment and cash/bank overspending, but an identical request
+  retried after an uncertain network response can still create a second valid
+  payment.
+- Serialize concurrent sale returns by locking the sale while the cumulative
+  returnable quantity is checked. Normal sequential over-return is rejected;
+  two returns submitted at exactly the same time remain an open race.
+- Decide and document how sale/receipt labour and transporter charges should be
+  posted. The documents store those amounts, but automatic AP/expense posting
+  is not yet wired consistently, and a sale containing these charges can fail
+  the balanced-journal guard.
+- Decide whether a paid sale return creates a cash refund or a customer credit.
+  The current return reverses accounts receivable and can create a negative AR
+  balance when prior collections exceed the remaining invoice balance.
+- Align the frontend's edit/delete actions with the backend's immutable-posting
+  policy. Posted sale edits and posted stock-receipt edits/deletes return HTTP
+  409 intentionally; the UI should offer a reversal/replacement workflow.
 - Add a controlled MongoDB-to-PostgreSQL ETL tool only if existing production
   MongoDB data must be retained. The runtime no longer depends on MongoDB.
 - Decide whether production migrations should stay in `npm start` or move to a
-  separate release/deployment step.
+  separate release/deployment step. Run migrations once before scaling out;
+  the migration runner does not yet hold a cross-process advisory lock.
 - JavaScript number precision remains a risk for monetary values above
   `Number.MAX_SAFE_INTEGER`; enforce safe ranges or adopt decimal/string
   handling if such values are possible.

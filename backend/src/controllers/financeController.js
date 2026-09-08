@@ -17,8 +17,6 @@ function serializeStatement(stmt) {
   };
 }
 
-const serializeParty = (p) => view(out(p), ['balance']);
-
 /* ----------------------------- Bank accounts ----------------------------- */
 
 const listBankAccounts = asyncHandler(async (req, res) => {
@@ -78,51 +76,6 @@ const cashEntry = asyncHandler(async (req, res) => {
   return sendSuccess(res, 201, 'Cash entry recorded', { id: entry._id });
 });
 
-const recordExpense = asyncHandler(async (req, res) => {
-  const entry = await paymentService.recordExpense(req.user, req.body);
-  return sendSuccess(res, 201, 'Operating expense recorded', {
-    id: entry._id,
-    refNo: entry.refNo,
-  });
-});
-
-/* -------------------------------- Ledgers -------------------------------- */
-
-const customerLedgers = asyncHandler(async (_req, res) => {
-  const customers = await ledgerService.customerLedgers();
-  return sendSuccess(res, 200, 'Customer ledgers fetched', {
-    customers: customers.map(serializeParty),
-  });
-});
-
-const vendorLedgers = asyncHandler(async (_req, res) => {
-  const vendors = await ledgerService.vendorLedgers();
-  return sendSuccess(res, 200, 'Vendor ledgers fetched', {
-    vendors: vendors.map(serializeParty),
-  });
-});
-
-const supplierLedgers = asyncHandler(async (_req, res) => {
-  const suppliers = await ledgerService.supplierLedgers();
-  return sendSuccess(res, 200, 'Supplier ledgers fetched', {
-    suppliers: suppliers.map(serializeParty),
-  });
-});
-
-const labourLedgers = asyncHandler(async (_req, res) => {
-  const labour = await ledgerService.labourLedgers();
-  return sendSuccess(res, 200, 'Labour ledgers fetched', {
-    labour: labour.map(serializeParty),
-  });
-});
-
-const transporterLedgers = asyncHandler(async (_req, res) => {
-  const transporters = await ledgerService.transporterLedgers();
-  return sendSuccess(res, 200, 'Transporter ledgers fetched', {
-    transporters: transporters.map(serializeParty),
-  });
-});
-
 const partyStatement = asyncHandler(async (req, res) => {
   const { kind, id } = req.params;
   const { from, to, store } = req.query;
@@ -161,12 +114,6 @@ module.exports = {
   payTransport,
   receiveFromCustomer,
   cashEntry,
-  recordExpense,
-  customerLedgers,
-  vendorLedgers,
-  supplierLedgers,
-  labourLedgers,
-  transporterLedgers,
   partyStatement,
   cashLedger,
   bankLedger,

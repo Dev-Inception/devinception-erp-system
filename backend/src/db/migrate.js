@@ -23,40 +23,46 @@ async function appliedMigrationNames(db) {
   return new Set(rows.map((row) => row.name));
 }
 
-async function run() {
+async function run({ status = process.argv.includes('--status'), close = true } = {}) {
   const db = getPostgres();
-  await db.authenticate();
-  await db.transaction((transaction) => ensureMetaTable(db, transaction));
+  try {
+    await db.authenticate();
+    await db.transaction((transaction) => ensureMetaTable(db, transaction));
 
-  const applied = await appliedMigrationNames(db);
-  if (process.argv.includes('--status')) {
-    for (const migration of migrations) {
-      const state = applied.has(migration.name) ? 'up' : 'pending';
-      // eslint-disable-next-line no-console
-      console.log(`${state.padEnd(8)} ${migration.name}`);
+    const applied = await appliedMigrationNames(db);
+    if (status) {
+      for (const migration of migrations) {
+        const state = applied.has(migration.name) ? 'up' : 'pending';
+        // eslint-disable-next-line no-console
+        console.log(`${state.padEnd(8)} ${migration.name}`);
+      }
+      return;
     }
-    return;
-  }
 
-  for (const migration of migrations) {
-    if (applied.has(migration.name)) continue;
+    for (const migration of migrations) {
+      if (applied.has(migration.name)) continue;
 
-    await db.transaction(async (transaction) => {
-      await migration.up(db, transaction);
-      await db.query(`INSERT INTO ${META_TABLE} (name) VALUES (:name)`, {
-        replacements: { name: migration.name },
-        transaction,
+      await db.transaction(async (transaction) => {
+        await migration.up(db, transaction);
+        await db.query(`INSERT INTO ${META_TABLE} (name) VALUES (:name)`, {
+          replacements: { name: migration.name },
+          transaction,
+        });
       });
-    });
-    // eslint-disable-next-line no-console
-    console.log(`Applied ${migration.name}`);
+      // eslint-disable-next-line no-console
+      console.log(`Applied ${migration.name}`);
+    }
+  } finally {
+    if (close) await closePostgres();
   }
 }
 
-run()
-  .catch((error) => {
+if (require.main === module) {
+  run().catch((error) => {
     // eslint-disable-next-line no-console
     console.error('Database migration failed:', error);
     process.exitCode = 1;
-  })
-  .finally(closePostgres);
+  });
+}
+
+module.exports = { run };

@@ -353,38 +353,41 @@ async function getSaleById(actor, id, transaction = null) {
 }
 
 async function recordPayment(actor, saleId, { amount, method, bankAccount, note }) {
-  const sale = await Sale.findByPk(saleId);
-  if (!sale) throw ApiError.notFound('Sale not found');
-  if (!sale.customer) throw ApiError.badRequest('A customer is required to record a payment');
-  const value = toPaisa(amount);
-  const remaining = Math.max(
-    0,
-    Number(sale.total) -
-      Number(sale.returnedTotal || 0) -
-      Number(sale.cashAmount || 0) -
-      Number(sale.onlineAmount || 0) -
-      Number(sale.additionalPaidAmount || 0),
-  );
-  if (value <= 0) throw ApiError.badRequest('Amount must be positive');
-  if (value > remaining)
-    throw ApiError.badRequest('Amount exceeds the remaining balance on this sale');
-  const { settlementAccount } = require('./paymentService');
-  const settle = await settlementAccount(method, bankAccount, sale.store);
-  await journalService.post({
-    date: new Date(),
-    description: note || `Payment received for sale ${sale.number}`,
-    refType: REF.SALE,
-    refId: sale.id,
-    refNo: sale.number,
-    store: sale.store,
-    createdBy: actor && (actor.id || actor._id),
-    lines: [
-      journalService.line(settle.account, { debit: value, ref: settle.ref }),
-      journalService.line(ACCOUNT.AR, { credit: value, ref: sale.customer }),
-    ],
+  return getPostgres().transaction(async (transaction) => {
+    const sale = await Sale.findByPk(saleId, { transaction, lock: transaction.LOCK.UPDATE });
+    if (!sale) throw ApiError.notFound('Sale not found');
+    if (!sale.customer) throw ApiError.badRequest('A customer is required to record a payment');
+    const value = toPaisa(amount);
+    const remaining = Math.max(
+      0,
+      Number(sale.total) -
+        Number(sale.returnedTotal || 0) -
+        Number(sale.cashAmount || 0) -
+        Number(sale.onlineAmount || 0) -
+        Number(sale.additionalPaidAmount || 0),
+    );
+    if (value <= 0) throw ApiError.badRequest('Amount must be positive');
+    if (value > remaining)
+      throw ApiError.badRequest('Amount exceeds the remaining balance on this sale');
+    const { settlementAccount } = require('./paymentService');
+    const settle = await settlementAccount(method, bankAccount, sale.store, transaction);
+    await journalService.post({
+      date: new Date(),
+      description: note || `Payment received for sale ${sale.number}`,
+      refType: REF.SALE,
+      refId: sale.id,
+      refNo: sale.number,
+      store: sale.store,
+      createdBy: actor && (actor.id || actor._id),
+      lines: [
+        journalService.line(settle.account, { debit: value, ref: settle.ref }),
+        journalService.line(ACCOUNT.AR, { credit: value, ref: sale.customer }),
+      ],
+      transaction,
+    });
+    await sale.increment('additionalPaidAmount', { by: value, transaction });
+    return getSaleById(actor, sale.id, transaction);
   });
-  await sale.increment('additionalPaidAmount', { by: value });
-  return getSaleById(actor, sale.id);
 }
 
 async function updateSale(actor, id) {

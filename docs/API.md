@@ -36,14 +36,16 @@ an `httpOnly; SameSite=strict` cookie. Access token 15m, refresh 7d.
 
 ## Users — `/users`
 
-| Method | Path          | Permission          |
-| ------ | ------------- | ------------------- |
-| GET    | `/`           | `users:read`        |
-| GET    | `/:id`        | `users:read`        |
-| POST   | `/`           | `users:create`      |
-| PATCH  | `/:id/role`   | `users:update_role` |
-| PATCH  | `/:id/active` | `users:set_active`  |
-| DELETE | `/:id`        | `users:delete`      |
+| Method | Path            | Permission           |
+| ------ | --------------- | -------------------- |
+| GET    | `/`             | `users:read`         |
+| GET    | `/:id`          | `users:read`         |
+| POST   | `/`             | `users:create`       |
+| PATCH  | `/:id`          | `users:update`       |
+| PATCH  | `/:id/role`     | `users:update_role`  |
+| PATCH  | `/:id/active`   | `users:set_active`   |
+| PATCH  | `/:id/password` | `users:set_password` |
+| DELETE | `/:id`          | `users:delete`       |
 
 There is no self-registration — users are created here by an admin/super admin.
 
@@ -99,59 +101,23 @@ Allocates `SALE-YYYY-######`, decrements stock + appends `STOCK_OUT` movements,
 creates the sale, and posts the revenue and COGS journal entries. `unitPrice`
 defaults to the product's catalog `salePrice` when omitted.
 
-> ⚠️ Not wrapped in a DB transaction — see [ARCHITECTURE.md §4](ARCHITECTURE.md).
-> No idempotency key today, so a retried POST creates a duplicate sale.
+Sale creation, stock movements, and accounting entries are wrapped in a
+PostgreSQL transaction. There is no idempotency key today, so a request retried
+after an uncertain network response can still create a duplicate sale.
 
-## Purchases (GP) — `/purchases`
+## Historical purchase and invoice records
 
-| Method | Path                  | Permission         |
-| ------ | --------------------- | ------------------ |
-| POST   | `/`                   | `purchases:create` |
-| GET    | `/?from=&to=&vendor=` | `purchases:read`   |
-| GET    | `/:id`                | `purchases:read`   |
-
-`POST /purchases` body:
-
-```json
-{
-  "vendor": "...",
-  "warehouse": "optional",
-  "vendorInvoiceNo": "supplier inv #",
-  "date": "2026-06-22",
-  "items": [{ "product": "...", "quantity": 10, "unitCost": 800, "taxPercent": 0 }],
-  "discount": 0,
-  "paid": 5000,
-  "paymentMethod": "CASH | BANK_TRANSFER | ...",
-  "bankAccount": "optional bank account ID",
-  "notes": "optional"
-}
-```
-
-Allocates `GP-YYYY-####`, increments stock + appends `STOCK_IN` movements
-(updating moving-average cost), posts Dr Inventory / Cr A/P for the total, and
-posts a payment (Dr A/P, Cr Cash/Bank) for any `paid` amount.
+The PostgreSQL schema retains historical `goods_purchases`,
+`goods_purchase_items`, `invoices`, and `invoice_items` tables because reports,
+gate passes, deletion safeguards, and existing records can depend on them.
+There are no mounted `/purchases` or `/invoices` CRUD routes in the current
+backend. New stock intake uses `/stock-receipts`.
 
 ## Customers & Vendors — `/customers`, `/vendors`
 
 CRUD under `customers:*` / `vendors:*` permissions. List rows include a computed
 `outstanding` balance. Party **statements** are served by the finance module
 (`/finance/ledgers/...`), not by these routers.
-
-## Invoices — `/invoices`
-
-| Method | Path                  | Permission        |
-| ------ | --------------------- | ----------------- |
-| POST   | `/`                   | `invoices:create` |
-| GET    | `/?status=&customer=` | `invoices:read`   |
-| GET    | `/:id`                | `invoices:read`   |
-| GET    | `/:id/pdf`            | `invoices:read`   |
-| POST   | `/:id/pay`            | `invoices:create` |
-
-`POST /invoices` body mirrors a sale (`customer` required, `items[]`, `discount`,
-`taxPercent`, optional `dueDate`); issuing it lowers stock and posts Dr A/R /
-Cr Sales (+ Cr Tax). `POST /:id/pay` body: `{ amount, method?, bankAccount?, date? }`
-posts a customer receipt and updates the invoice status (`UNPAID/PARTIAL/PAID`).
-`/:id/pdf` streams a PDFKit-rendered invoice.
 
 ## Finance — `/finance` (`finance:read` / `finance:manage`)
 
@@ -165,15 +131,17 @@ posts a customer receipt and updates the invoice status (`UNPAID/PARTIAL/PAID`).
 | GET    | `/cash-ledger`              | `finance:read`   |
 | POST   | `/cash-entry`               | `finance:manage` |
 | POST   | `/payments/vendor`          | `finance:manage` |
+| POST   | `/payments/supplier`        | `finance:manage` |
+| POST   | `/payments/labour`          | `finance:manage` |
+| POST   | `/payments/transport`       | `finance:manage` |
 | POST   | `/payments/customer`        | `finance:manage` |
-| GET    | `/ledgers/customers`        | `finance:read`   |
-| GET    | `/ledgers/vendors`          | `finance:read`   |
 | GET    | `/ledgers/:kind/:id`        | `finance:read`   |
 
 `cash-entry` body: `{ direction: "IN" | "OUT", amount, date?, note? }`.
-`payments/vendor` / `payments/customer` body: `{ vendor|customer, amount, method?, bankAccount?, date?, note? }`.
-`/ledgers/:kind/:id` (`kind` = `customer` | `vendor`) returns a statement with a
-running balance derived from the journal.
+Payment bodies contain the relevant party ID plus
+`{ amount, method?, bankAccount?, date?, note? }`. `/ledgers/:kind/:id`
+(`kind` = `customer` | `vendor` | `supplier` | `labour` | `transport`) returns
+a statement with a running balance derived from the journal.
 
 ## Dashboard & Reports (`reports:read`)
 

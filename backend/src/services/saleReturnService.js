@@ -18,7 +18,6 @@ async function load(id, transaction) {
   });
   if (!row) return null;
   const value = row.toJSON();
-  value._id = value.id;
   const links = await SaleReturnGatePass.findAll({ where: { saleReturnId: id }, transaction });
   value.warehouseGatePasses = links.map((link) => ({
     warehouse: link.warehouseId,

@@ -90,7 +90,7 @@ async function accountBalance(account, ref = null, options = {}) {
 async function accountTotals(
   account,
   ref = null,
-  { from, to, refType, refIds, warehouse, store } = {},
+  { from, to, refType, refIds, warehouse, store, transaction } = {},
 ) {
   const clauses = ['jl.account = :account'];
   const replacements = { account, ref };
@@ -127,7 +127,7 @@ async function accountTotals(
        FROM journal_lines jl
        JOIN journal_entries je ON je.id = jl.journal_entry_id
       WHERE ${clauses.join(' AND ')}`,
-    { replacements, type: QueryTypes.SELECT },
+    { replacements, type: QueryTypes.SELECT, transaction },
   );
   return { debit: Number(row.debit), credit: Number(row.credit) };
 }
@@ -147,9 +147,8 @@ async function accountStatement(account, ref = null, { from, to, store } = {}) {
     });
     opening = naturalBalance(account, before.debit, before.credit);
   }
-  if (store) where[Op.or] = [{ store }, { store: null }];
-
   const where = {};
+  if (store) where[Op.or] = [{ store }, { store: null }];
   if (from || to) {
     where.date = {};
     if (from) where.date[Op.gte] = from;

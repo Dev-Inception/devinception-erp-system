@@ -46,14 +46,6 @@ router.patch(
   labourController.updateLabour,
 );
 
-router.put(
-  '/:id',
-  authorize(ROLES.SUPER_ADMIN),
-  updateLabourValidator,
-  validate,
-  labourController.updateLabour,
-);
-
 // Delete labour
 router.delete(
   '/:id',

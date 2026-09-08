@@ -15,18 +15,6 @@ const range = ({ from, to } = {}) => ({
   from: from ? new Date(from) : undefined,
   to: to ? new Date(to) : undefined,
 });
-async function list(Model, account) {
-  const [rows, balances] = await Promise.all([
-    Model.findAll({ order: [['name', 'ASC']] }),
-    journalService.balancesByRef(account),
-  ]);
-  return rows.map((r) => ({ ...r.toJSON(), balance: balances.get(r.id) || 0 }));
-}
-const customerLedgers = () => list(Customer, ACCOUNT.AR);
-const vendorLedgers = () => list(Vendor, ACCOUNT.AP);
-const supplierLedgers = () => list(Supplier, ACCOUNT.AP_SUPPLIER);
-const labourLedgers = () => list(Labour, ACCOUNT.AP_LABOUR);
-const transporterLedgers = () => list(Transporter, ACCOUNT.AP_TRANSPORT);
 async function partyStatement(kind, id, options = {}) {
   const config = configs[kind];
   if (!config)
@@ -60,11 +48,6 @@ async function bankLedger(id, options = {}) {
   };
 }
 module.exports = {
-  customerLedgers,
-  vendorLedgers,
-  supplierLedgers,
-  labourLedgers,
-  transporterLedgers,
   partyStatement,
   cashLedger,
   bankLedger,

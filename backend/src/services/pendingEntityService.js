@@ -81,7 +81,7 @@ async function getPendingEntityById(id) {
   if (!row) throw ApiError.notFound('Pending entity not found');
   return row;
 }
-async function pricedTotalsByStockReceipt(ids) {
+async function pricedTotalsByStockReceipt(ids, transaction = null) {
   const map = new Map();
   if (!ids?.length) return map;
   const rows = await PendingEntity.findAll({
@@ -89,6 +89,7 @@ async function pricedTotalsByStockReceipt(ids) {
     where: { stockReceipt: { [Op.in]: ids }, status: 'PRICED' },
     group: ['stockReceipt'],
     raw: true,
+    transaction,
   });
   for (const row of rows) map.set(String(row.stockReceipt), Number(row.total));
   return map;

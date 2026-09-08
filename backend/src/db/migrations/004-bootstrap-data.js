@@ -79,9 +79,9 @@ async function insertSuperAdmin(db, transaction) {
     INSERT INTO users
       (id, name, email, password, role, is_active, created_at, updated_at)
     SELECT
-      $id, $name, $email, $password, 'super_admin', TRUE, NOW(), NOW()
+      $id, $name, CAST($email AS VARCHAR(120)), $password, 'super_admin', TRUE, NOW(), NOW()
     WHERE NOT EXISTS (
-      SELECT 1 FROM users WHERE LOWER(email) = LOWER($email)
+      SELECT 1 FROM users WHERE LOWER(email) = LOWER(CAST($email AS VARCHAR(120)))
     )
     ON CONFLICT DO NOTHING
     `,

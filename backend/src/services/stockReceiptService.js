@@ -169,26 +169,31 @@ async function deleteReceipt(actor, id) {
   );
 }
 async function recordPayment(actor, id, input) {
-  const row = await StockReceipt.findByPk(id);
-  if (!row) throw ApiError.notFound('Stock receipt not found');
-  assertStoreAccess(actor, row.store);
-  const amount = toPaisa(input.amount);
-  if (amount <= 0) throw ApiError.badRequest('Amount must be positive');
-  const totals = await pendingEntityService.pricedTotalsByStockReceipt([row.id]);
-  const remaining = Math.max(0, (totals.get(row.id) || 0) - Number(row.additionalPaidAmount || 0));
-  if (amount > remaining)
-    throw ApiError.badRequest('Amount exceeds the remaining balance owed on this receipt');
-  await paymentService.paySupplier(actor, {
-    supplier: row.supplier,
-    store: row.store,
-    amount: input.amount,
-    method: input.method,
-    bankAccount: input.bankAccount,
-    note: input.note,
-    transaction: null,
+  return getPostgres().transaction(async (transaction) => {
+    const row = await StockReceipt.findByPk(id, { transaction, lock: transaction.LOCK.UPDATE });
+    if (!row) throw ApiError.notFound('Stock receipt not found');
+    assertStoreAccess(actor, row.store);
+    const amount = toPaisa(input.amount);
+    if (amount <= 0) throw ApiError.badRequest('Amount must be positive');
+    const totals = await pendingEntityService.pricedTotalsByStockReceipt([row.id], transaction);
+    const remaining = Math.max(
+      0,
+      (totals.get(row.id) || 0) - Number(row.additionalPaidAmount || 0),
+    );
+    if (amount > remaining)
+      throw ApiError.badRequest('Amount exceeds the remaining balance owed on this receipt');
+    await paymentService.paySupplier(actor, {
+      supplier: row.supplier,
+      store: row.store,
+      amount: input.amount,
+      method: input.method,
+      bankAccount: input.bankAccount,
+      note: input.note,
+      transaction,
+    });
+    await row.increment('additionalPaidAmount', { by: amount, transaction });
+    return load(row.id, transaction);
   });
-  await row.increment('additionalPaidAmount', { by: amount });
-  return load(row.id);
 }
 async function listReceipts(args = {}) {
   const { page, limit, skip: offset } = parsePagination(args);

@@ -13,7 +13,6 @@ const {
   payTransportValidator,
   receiveCustomerValidator,
   cashEntryValidator,
-  expenseValidator,
   statementParamValidator,
   idParamValidator,
 } = require('../validators/financeValidator');
@@ -68,7 +67,6 @@ router.get(
 /* Cash book */
 router.get('/cash-ledger', READ, financeController.cashLedger);
 router.post('/cash-entry', MANAGE, cashEntryValidator, validate, financeController.cashEntry);
-router.post('/expenses', MANAGE, expenseValidator, validate, financeController.recordExpense);
 
 /* Payments */
 router.post('/payments/vendor', MANAGE, payVendorValidator, validate, financeController.payVendor);
@@ -95,12 +93,7 @@ router.post(
   financeController.receiveFromCustomer,
 );
 
-/* Ledgers (party statements) */
-router.get('/ledgers/customers', READ, financeController.customerLedgers);
-router.get('/ledgers/vendors', READ, financeController.vendorLedgers);
-router.get('/ledgers/suppliers', READ, financeController.supplierLedgers);
-router.get('/ledgers/labour', READ, financeController.labourLedgers);
-router.get('/ledgers/transport', READ, financeController.transporterLedgers);
+/* Party statements */
 router.get(
   '/ledgers/:kind/:id',
   READ,

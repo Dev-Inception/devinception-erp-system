@@ -147,27 +147,6 @@ const cashEntryValidator = [
   body('note').optional({ values: 'falsy' }).trim().isLength({ max: 200 }),
 ];
 
-const expenseValidator = [
-  body('warehouse')
-    .optional({ values: 'falsy' })
-    .matches(/^[a-f\d]{24}$/i)
-    .withMessage('Invalid warehouse'),
-  body('store')
-    .matches(/^[a-f\d]{24}$/i)
-    .withMessage('A store is required'),
-  body('amount').isFloat({ gt: 0 }).withMessage('Amount must be positive'),
-  body('method')
-    .optional({ values: 'falsy' })
-    .isIn(['CASH', 'CARD', 'BANK_TRANSFER', 'ONLINE'])
-    .withMessage('Invalid expense payment method'),
-  body('bankAccount')
-    .optional({ values: 'falsy' })
-    .matches(/^[a-f\d]{24}$/i)
-    .withMessage('Invalid bank account'),
-  body('date').optional({ values: 'falsy' }).isISO8601().withMessage('Invalid date'),
-  body('note').optional({ values: 'falsy' }).trim().isLength({ max: 200 }),
-];
-
 /* Ledger statement params */
 const statementParamValidator = [
   param('kind')
@@ -189,7 +168,6 @@ module.exports = {
   payTransportValidator,
   receiveCustomerValidator,
   cashEntryValidator,
-  expenseValidator,
   statementParamValidator,
   idParamValidator,
 };

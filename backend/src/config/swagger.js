@@ -988,26 +988,6 @@ const swaggerSpec = {
           409: errorResponse,
         },
       },
-      put: {
-        tags: ['Labour'],
-        summary: 'Update labour (super_admin only; PUT compatibility route)',
-        security: [{ bearerAuth: [] }],
-        parameters: [pathId],
-        requestBody: jsonBody([], {
-          name: { type: 'string', example: 'Installation Labour' },
-          phoneNumber: { type: 'string', example: '0300 7654321' },
-        }),
-        responses: {
-          200: {
-            description: 'Updated labour',
-            content: { 'application/json': { schema: successData({ labour: labourSchema }) } },
-          },
-          400: errorResponse,
-          403: errorResponse,
-          404: errorResponse,
-          409: errorResponse,
-        },
-      },
       delete: {
         tags: ['Labour'],
         summary: 'Delete labour (super_admin only)',
@@ -1247,23 +1227,6 @@ const swaggerSpec = {
       patch: {
         tags: ['Inventory'],
         summary: 'Update a product (inventory:manage)',
-        security: [{ bearerAuth: [] }],
-        parameters: [pathId],
-        requestBody: jsonBody([], {
-          ...productWriteProperties,
-          isActive: { type: 'boolean', example: true },
-        }),
-        responses: {
-          200: { description: 'Updated' },
-          400: errorResponse,
-          403: errorResponse,
-          404: errorResponse,
-          409: errorResponse,
-        },
-      },
-      put: {
-        tags: ['Inventory'],
-        summary: 'Update a product (inventory:manage; PUT compatibility route)',
         security: [{ bearerAuth: [] }],
         parameters: [pathId],
         requestBody: jsonBody([], {
@@ -1569,28 +1532,6 @@ const swaggerSpec = {
         responses: { 201: { description: 'Recorded' }, 400: errorResponse, 403: errorResponse },
       },
     },
-    '/finance/expenses': {
-      post: {
-        tags: ['Finance'],
-        summary: 'Record a warehouse operating expense (finance:manage)',
-        description:
-          'Posts Dr Operating Expense / Cr Cash or Bank and feeds the Operating Expenses and Net Profit rows in Profit & Loss reports.',
-        security: [{ bearerAuth: [] }],
-        requestBody: jsonBody(['amount'], {
-          warehouse: { type: 'string', description: 'Defaults to the default warehouse' },
-          amount: { type: 'number', exclusiveMinimum: 0 },
-          method: {
-            type: 'string',
-            enum: ['CASH', 'CARD', 'BANK_TRANSFER', 'ONLINE'],
-            default: 'CASH',
-          },
-          bankAccount: { type: 'string' },
-          date: { type: 'string', format: 'date-time' },
-          note: { type: 'string' },
-        }),
-        responses: { 201: { description: 'Recorded' }, 400: errorResponse, 403: errorResponse },
-      },
-    },
     '/finance/payments/vendor': {
       post: {
         tags: ['Finance'],
@@ -1629,22 +1570,6 @@ const swaggerSpec = {
           403: errorResponse,
           404: errorResponse,
         },
-      },
-    },
-    '/finance/ledgers/customers': {
-      get: {
-        tags: ['Finance'],
-        summary: 'Customers with receivable balances (finance:read)',
-        security: [{ bearerAuth: [] }],
-        responses: { 200: { description: 'Customer ledgers' }, 403: errorResponse },
-      },
-    },
-    '/finance/ledgers/vendors': {
-      get: {
-        tags: ['Finance'],
-        summary: 'Vendors with payable balances (finance:read)',
-        security: [{ bearerAuth: [] }],
-        responses: { 200: { description: 'Vendor ledgers' }, 403: errorResponse },
       },
     },
     '/finance/ledgers/{kind}/{id}': {
