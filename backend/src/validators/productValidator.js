@@ -1,5 +1,5 @@
-const mongoose = require('mongoose');
 const { body, param, query } = require('express-validator');
+const { isValidId } = require('../db/id');
 
 const idParam = param('id').isMongoId().withMessage('Invalid product id');
 
@@ -36,7 +36,7 @@ const createProductValidator = [
   body('sku').trim().notEmpty().withMessage('SKU is required').isLength({ max: 60 }),
   body('warehouse').custom((value, { req }) => {
     const warehouse = value || req.body.warehouseId;
-    if (!mongoose.isValidObjectId(warehouse)) {
+    if (!isValidId(warehouse)) {
       throw new Error('A valid warehouse is required');
     }
     return true;

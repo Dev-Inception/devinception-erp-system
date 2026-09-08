@@ -1,5 +1,5 @@
 const { body, param, query } = require('express-validator');
-const { EXPENSE_METHODS } = require('../models/expenseModel');
+const { EXPENSE_METHODS } = require('../db/models/expenseModel');
 
 const idParam = param('id').isMongoId().withMessage('Invalid expense id');
 

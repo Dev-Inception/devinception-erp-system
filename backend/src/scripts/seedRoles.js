@@ -5,18 +5,17 @@
  *
  *   node src/scripts/seedRoles.js
  */
-const mongoose = require('mongoose');
 const connectDB = require('../config/db');
 const roleService = require('../services/roleService');
 
 async function seed() {
-  await connectDB();
+  const db = await connectDB();
   await roleService.ensureSystemRoles();
 
   // eslint-disable-next-line no-console
   console.log(`System roles ensured: ${roleService.SYSTEM_ROLES.map((r) => r.name).join(', ')}`);
 
-  await mongoose.connection.close();
+  await db.close();
   process.exit(0);
 }
 

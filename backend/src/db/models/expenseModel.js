@@ -11,7 +11,11 @@ const EXPENSE_METHODS = [
 
 const EXPENSE_STATUS = { PENDING: 'PENDING', APPROVED: 'APPROVED', REJECTED: 'REJECTED' };
 
-module.exports = function defineExpense(db) {
+module.exports = defineExpense;
+module.exports.EXPENSE_METHODS = EXPENSE_METHODS;
+module.exports.EXPENSE_STATUS = EXPENSE_STATUS;
+
+function defineExpense(db) {
   const Expense = defineModel(
     db,
     'Expense',
@@ -52,4 +56,4 @@ module.exports = function defineExpense(db) {
   Expense.EXPENSE_STATUS = EXPENSE_STATUS;
 
   return Expense;
-};
+}

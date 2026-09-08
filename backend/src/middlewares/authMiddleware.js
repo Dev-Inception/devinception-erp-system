@@ -1,4 +1,4 @@
-const User = require('../models/userModel');
+const { initializeModels } = require('../db/models');
 const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
 const tokenService = require('../services/tokenService');
@@ -28,7 +28,8 @@ const protect = asyncHandler(async (req, _res, next) => {
     throw ApiError.unauthorized('Invalid or expired token');
   }
 
-  const user = await User.findById(payload.sub).select('+passwordChangedAt +tokenVersion');
+  const { User } = initializeModels();
+  const user = await User.scope('withSecrets').findByPk(payload.sub);
   if (!user) {
     throw ApiError.unauthorized('User belonging to this token no longer exists');
   }

@@ -5,7 +5,6 @@
  *
  *   node src/scripts/seedCatalog.js
  */
-const mongoose = require('mongoose');
 const connectDB = require('../config/db');
 const catalogService = require('../services/catalogService');
 
@@ -17,7 +16,7 @@ const UNITS = [
 ];
 
 async function seed() {
-  await connectDB();
+  const db = await connectDB();
 
   for (const name of CATEGORIES) await catalogService.createEntry('category', { name });
   for (const name of BRANDS) await catalogService.createEntry('brand', { name });
@@ -28,7 +27,7 @@ async function seed() {
     `Catalog seeded: ${CATEGORIES.length} categories, ${BRANDS.length} brands, ${UNITS.length} units`,
   );
 
-  await mongoose.connection.close();
+  await db.close();
   process.exit(0);
 }
 

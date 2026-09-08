@@ -74,7 +74,7 @@ const resetPassword = asyncHandler(async (req, res) => {
 
 const changePassword = asyncHandler(async (req, res) => {
   const { currentPassword, newPassword } = req.body;
-  const tokens = await authService.changePassword(req.user._id, currentPassword, newPassword);
+  const tokens = await authService.changePassword(req.user.id, currentPassword, newPassword);
 
   setRefreshCookie(res, tokens.refreshToken);
   return sendSuccess(res, 200, 'Password changed', {
