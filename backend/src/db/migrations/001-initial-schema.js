@@ -69,13 +69,14 @@ async function up(db, transaction) {
     CREATE INDEX warehouses_name_idx ON warehouses (name);
     CREATE UNIQUE INDEX warehouses_single_default ON warehouses (is_default) WHERE is_default = TRUE;
 
-    -- Store.warehouses[] in Mongo. A warehouse belongs to at most one store
-    -- (tightened from Mongo, which had no cross-document uniqueness check).
+    -- Store.warehouses[] in Mongo: a many-to-many membership — a warehouse
+    -- can be shared by more than one store (see reportService.salesReport,
+    -- which already scopes by a sale's own store rather than warehouse
+    -- membership for exactly this reason).
     CREATE TABLE store_warehouses (
       store_id VARCHAR(24) NOT NULL REFERENCES stores(id) ON DELETE CASCADE,
       warehouse_id VARCHAR(24) NOT NULL REFERENCES warehouses(id) ON DELETE CASCADE,
-      PRIMARY KEY (store_id, warehouse_id),
-      UNIQUE (warehouse_id)
+      PRIMARY KEY (store_id, warehouse_id)
     );
 
     CREATE TABLE categories (

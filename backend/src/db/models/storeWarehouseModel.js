@@ -1,8 +1,8 @@
 const { DataTypes } = require('sequelize');
 const { defineModel } = require('./helpers');
 
-// Join table for Store.warehouses[] — a warehouse belongs to at most one
-// store (see migration 001's UNIQUE(warehouse_id)).
+// Join table for Store.warehouses[] — many-to-many; a warehouse can be
+// shared by more than one store (see migration 001).
 module.exports = function defineStoreWarehouse(db) {
   return defineModel(
     db,
