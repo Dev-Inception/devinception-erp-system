@@ -62,6 +62,21 @@ const HIDDEN_FIELDS = {
 // Reshapes flattened columns back into the nested object shape the old
 // Mongoose subdocument had, so response payloads stay contract-compatible.
 const TRANSFORMS = {
+  Sale: (values) => {
+    const hasTransport =
+      values.transportDriverName || values.transportDriverPhone || values.transportVehicleNumber;
+    values.transport = hasTransport
+      ? {
+          driverName: values.transportDriverName || '',
+          driverPhone: values.transportDriverPhone || '',
+          vehicleNumber: values.transportVehicleNumber || '',
+        }
+      : undefined;
+    delete values.transportDriverName;
+    delete values.transportDriverPhone;
+    delete values.transportVehicleNumber;
+    return values;
+  },
   GatePass: (values) => {
     const hasDriver = values.driverName || values.driverVehicleNumber;
     values.driver = hasDriver

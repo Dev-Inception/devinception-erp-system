@@ -334,6 +334,29 @@ async function reverseTransportFareExpense(sale, actor, transaction) {
   }
 }
 
+// `sale.items = lineItems` elsewhere in this file is a plain-property hack
+// that only exists to hand gatePassService the in-memory line items — Sequelize
+// never wires a getter/setter for association aliases, so that assignment
+// doesn't land in `dataValues` and is lost the moment the instance is
+// reloaded or serialized. Re-fetching with the real associations (the same
+// pattern `getSaleById` and `saleReturnService.reloadWithAssociations` use)
+// is what actually returns items/labour/gate-passes to the caller.
+async function reloadSaleWithAssociations(id, transaction) {
+  const { Sale, SaleItem, SaleLabour, SaleWarehouseGatePass, Customer, Store, Warehouse } =
+    initializeModels();
+  return Sale.findByPk(id, {
+    include: [
+      { model: SaleItem, as: 'items', separate: true, order: [['position', 'ASC']] },
+      { model: SaleLabour, as: 'labour', separate: true, order: [['position', 'ASC']] },
+      { model: SaleWarehouseGatePass, as: 'warehouseGatePasses', separate: true },
+      { model: Customer, as: 'customerInfo', attributes: ['id', 'name', 'phone'] },
+      { model: Store, as: 'storeInfo', attributes: ['id', 'name', 'code', 'address'] },
+      { model: Warehouse, as: 'warehouseInfo', attributes: ['id', 'name'] },
+    ],
+    transaction,
+  });
+}
+
 async function createSale(actor, input) {
   const {
     customer,
@@ -611,18 +634,14 @@ async function createSale(actor, input) {
     // gate-pass failure rolls back the whole sale, per the atomicity model
     // this migration adopted for multi-step writes.
     sale.items = lineItems;
-    const { warehouseGatePasses } = await gatePassService.createGatePassesForSale(
-      sale,
-      transaction,
-    );
+    await gatePassService.createGatePassesForSale(sale, transaction);
 
     if (estimate) {
       await estimateService.markConverted(estimate, sale.id, transaction);
     }
 
-    await sale.reload({ transaction });
-    const result = sale.toJSON();
-    result.warehouseGatePasses = warehouseGatePasses;
+    const reloaded = await reloadSaleWithAssociations(sale.id, transaction);
+    const result = reloaded.toJSON();
     result.transporterInfo = transporterDoc ? transporterDoc.toJSON() : null;
     return result;
   });
@@ -889,14 +908,10 @@ async function updateSale(actor, saleId, input) {
     }
 
     sale.items = lineItems;
-    const { warehouseGatePasses } = await gatePassService.createGatePassesForSale(
-      sale,
-      transaction,
-    );
+    await gatePassService.createGatePassesForSale(sale, transaction);
 
-    await sale.reload({ transaction });
-    const result = sale.toJSON();
-    result.warehouseGatePasses = warehouseGatePasses;
+    const reloaded = await reloadSaleWithAssociations(sale.id, transaction);
+    const result = reloaded.toJSON();
     result.transporterInfo = transporterDoc ? transporterDoc.toJSON() : null;
     return result;
   });
@@ -976,7 +991,8 @@ async function listSales({
   actor,
   ...query
 } = {}) {
-  const { Sale, SaleItem, SaleLabour, Store, Transporter } = initializeModels();
+  const { Sale, SaleItem, SaleLabour, SaleWarehouseGatePass, Store, Transporter } =
+    initializeModels();
   const { page, limit, skip } = parsePagination(query);
   const where = {};
   if (customer) where.customer = customer;
@@ -997,6 +1013,32 @@ async function listSales({
     if (from) where.date[Op.gte] = new Date(from);
     if (to) where.date[Op.lte] = new Date(to);
   }
+  // Sequelize won't allow the `items`/`labour` associations included twice
+  // (once to filter, once to display) under the same alias, so the
+  // vendor/labour filters resolve to a set of matching sale ids up front
+  // instead — leaving the include below free to always fetch full items and
+  // labour for display, filter or no filter.
+  if (vendor) {
+    const matches = await SaleItem.findAll({
+      where: { vendor },
+      attributes: ['saleId'],
+      group: ['saleId'],
+      raw: true,
+    });
+    where.id = { [Op.in]: matches.map((m) => m.saleId) };
+  }
+  if (labour) {
+    const matches = await SaleLabour.findAll({
+      where: { labour },
+      attributes: ['saleId'],
+      group: ['saleId'],
+      raw: true,
+    });
+    const labourSaleIds = matches.map((m) => m.saleId);
+    where.id = where.id
+      ? { [Op.in]: where.id[Op.in].filter((id) => labourSaleIds.includes(id)) }
+      : { [Op.in]: labourSaleIds };
+  }
 
   const { rows, count } = await Sale.findAndCountAll({
     where,
@@ -1007,12 +1049,9 @@ async function listSales({
         as: 'transporterInfo',
         attributes: ['id', 'name', 'phone', 'vehicleNumber'],
       },
-      ...(vendor
-        ? [{ model: SaleItem, as: 'items', attributes: [], where: { vendor }, required: true }]
-        : []),
-      ...(labour
-        ? [{ model: SaleLabour, as: 'labour', attributes: [], where: { labour }, required: true }]
-        : []),
+      { model: SaleItem, as: 'items', separate: true, order: [['position', 'ASC']] },
+      { model: SaleLabour, as: 'labour', separate: true, order: [['position', 'ASC']] },
+      { model: SaleWarehouseGatePass, as: 'warehouseGatePasses', separate: true },
     ],
     order: [
       ['date', 'DESC'],

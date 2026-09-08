@@ -43,7 +43,15 @@ function defineModel(db, name, attributes, options = {}) {
 // GatePass.driver — see models/index.js's TRANSFORMS map).
 function addPublicSerialization(model, hidden = [], transform = null) {
   model.prototype.toJSON = function toJSON() {
-    const values = { ...this.get() };
+    // `{ plain: true }` is required here — without it, Sequelize's `get()`
+    // returns loaded associations (e.g. a hasMany fetched via `separate:
+    // true`, like Sale.items) as raw Model instances instead of recursively
+    // converting them to plain objects. Left as bare `this.get()`, those
+    // instances leak their internal Sequelize state (dataValues,
+    // _previousDataValues, _changed, ...) into the API response the moment
+    // anything downstream spreads them (e.g. `{ ...item }`), instead of the
+    // instance's actual columns.
+    const values = { ...this.get({ plain: true }) };
     values._id = values.id;
     delete values.id;
     for (const field of hidden) delete values[field];
