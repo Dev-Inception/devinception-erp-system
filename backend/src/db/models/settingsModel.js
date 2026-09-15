@@ -16,6 +16,12 @@ module.exports = function defineSettings(db) {
       taxNumber: { type: DataTypes.STRING(60), allowNull: false, defaultValue: '' },
       currency: { type: DataTypes.STRING(10), allowNull: false, defaultValue: 'PKR' },
       invoiceNote: { type: DataTypes.STRING(1000), allowNull: false, defaultValue: '' },
+      logoUrl: { type: DataTypes.TEXT, allowNull: true },
+      facebook: { type: DataTypes.STRING(300), allowNull: false, defaultValue: '' },
+      instagram: { type: DataTypes.STRING(300), allowNull: false, defaultValue: '' },
+      gmail: { type: DataTypes.STRING(120), allowNull: false, defaultValue: '' },
+      tiktok: { type: DataTypes.STRING(300), allowNull: false, defaultValue: '' },
+      website: { type: DataTypes.STRING(300), allowNull: false, defaultValue: '' },
     },
     { tableName: 'settings' },
   );

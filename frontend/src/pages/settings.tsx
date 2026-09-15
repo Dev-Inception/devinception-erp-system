@@ -1,13 +1,15 @@
 import { useEffect, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Loader2, Save } from 'lucide-react';
+import { Loader2, Save, ImagePlus, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { api } from '@/lib/api';
+import { cn, resizeImageToDataUrl } from '@/lib/utils';
 import { useStorefrontFilter } from '@/store/storefront';
+import { useAuthStore } from '@/store/auth';
 import { useLanguage } from '@/components/language-provider';
 
 interface Settings {
@@ -18,11 +20,18 @@ interface Settings {
   taxNumber?: string;
   currency: string;
   invoiceNote?: string;
+  logoUrl?: string;
+  facebook?: string;
+  instagram?: string;
+  gmail?: string;
+  tiktok?: string;
+  website?: string;
 }
 
 export function SettingsPage() {
   const qc = useQueryClient();
   const { t } = useLanguage();
+  const isSuperAdmin = useAuthStore((s) => s.user?.role === 'SUPER_ADMIN');
   const storefront = useStorefrontFilter();
   const { data } = useQuery<Settings>({
     queryKey: ['settings', storefront.store],
@@ -44,13 +53,35 @@ export function SettingsPage() {
   });
 
   const field = (k: keyof Settings, v: string) => setForm((f) => ({ ...f, [k]: v }));
+  const [logoBusy, setLogoBusy] = useState(false);
+
+  const pickLogo = async (file: File | undefined) => {
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      toast.error('Please choose an image file');
+      return;
+    }
+    setLogoBusy(true);
+    try {
+      field('logoUrl', await resizeImageToDataUrl(file));
+    } catch {
+      toast.error('Could not read that image');
+    } finally {
+      setLogoBusy(false);
+    }
+  };
 
   return (
     <div className="max-w-2xl space-y-4">
       <Card>
         <CardHeader>
           <CardTitle>Company</CardTitle>
-          <CardDescription>Shown on invoices, receipts and purchase documents.</CardDescription>
+          <CardDescription>
+            Shown on invoices, receipts and purchase documents.{' '}
+            {isSuperAdmin && !storefront.store
+              ? 'These are the platform defaults — any store that has not set its own value falls back to what you enter here.'
+              : 'Leave a field blank to use the default your admin has configured.'}
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <form
@@ -60,6 +91,41 @@ export function SettingsPage() {
               save.mutate();
             }}
           >
+            <div className="col-span-2 space-y-1.5">
+              <Label>Logo</Label>
+              <div className="flex items-center gap-3">
+                <label
+                  className={cn(
+                    'relative flex h-16 w-16 shrink-0 cursor-pointer items-center justify-center overflow-hidden rounded-md border border-dashed border-input bg-muted/30 text-muted-foreground hover:border-primary',
+                    logoBusy && 'pointer-events-none opacity-60',
+                  )}
+                >
+                  {form.logoUrl ? (
+                    <img src={form.logoUrl} alt="" className="h-full w-full object-contain" />
+                  ) : logoBusy ? (
+                    <Loader2 className="h-5 w-5 animate-spin" />
+                  ) : (
+                    <ImagePlus className="h-5 w-5" />
+                  )}
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={(e) => pickLogo(e.target.files?.[0])}
+                  />
+                </label>
+                {form.logoUrl && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => field('logoUrl', '')}
+                  >
+                    <X className="h-3.5 w-3.5" /> {t('Remove')}
+                  </Button>
+                )}
+              </div>
+            </div>
             <div className="col-span-2 space-y-1.5">
               <Label>Company Name</Label>
               <Input
@@ -109,6 +175,50 @@ export function SettingsPage() {
                 placeholder={t(
                   'Printed at the bottom of every sale invoice, e.g. a return policy…',
                 )}
+              />
+            </div>
+            <div className="col-span-2 space-y-1.5 pt-2">
+              <Label className="text-muted-foreground">Social & Contact Links</Label>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Facebook</Label>
+              <Input
+                placeholder="facebook.com/yourpage"
+                value={form.facebook ?? ''}
+                onChange={(e) => field('facebook', e.target.value)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Instagram</Label>
+              <Input
+                placeholder="instagram.com/yourpage"
+                value={form.instagram ?? ''}
+                onChange={(e) => field('instagram', e.target.value)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Gmail</Label>
+              <Input
+                type="email"
+                placeholder="you@gmail.com"
+                value={form.gmail ?? ''}
+                onChange={(e) => field('gmail', e.target.value)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>TikTok</Label>
+              <Input
+                placeholder="tiktok.com/@yourpage"
+                value={form.tiktok ?? ''}
+                onChange={(e) => field('tiktok', e.target.value)}
+              />
+            </div>
+            <div className="col-span-2 space-y-1.5">
+              <Label>Website</Label>
+              <Input
+                placeholder="www.yourcompany.com"
+                value={form.website ?? ''}
+                onChange={(e) => field('website', e.target.value)}
               />
             </div>
             <div className="col-span-2 flex justify-end">

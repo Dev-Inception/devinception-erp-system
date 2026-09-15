@@ -9,4 +9,5 @@ module.exports = [
   require('./008-store-scoped-role-names'),
   require('./009-admin-expense-approve-and-pe-price'),
   require('./010-vendor-supplier-transporter-labour-store-scope'),
+  require('./011-settings-branding'),
 ];

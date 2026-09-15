@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Plus, Trash2, UserPlus, ChevronDown, Pencil, Loader2, Eye, EyeOff } from 'lucide-react';
 import { api } from '@/lib/api';
@@ -54,7 +54,7 @@ function RoleSelect({
 }: {
   value: string;
   onChange: (role: string) => void;
-  roles: { name: string; label: string }[];
+  roles: { name: string; label: string; isSystem?: boolean }[];
   id?: string;
   disabled?: boolean;
   title?: string;
@@ -70,7 +70,11 @@ function RoleSelect({
       >
         {roles.map((r) => (
           <option key={r.name} value={r.name}>
+            {/* A custom role can share a built-in's display name (e.g. a
+                store's own "Manager"), so tag non-system ones to keep them
+                from looking like an exact duplicate in the list. */}
             {roleLabel(r.label)}
+            {r.isSystem === false ? ' (Custom)' : ''}
           </option>
         ))}
       </select>
@@ -79,7 +83,11 @@ function RoleSelect({
   );
 }
 
-function CreateUserDialog({ roles }: { roles: { name: string; label: string }[] }) {
+function CreateUserDialog({
+  roles,
+}: {
+  roles: { name: string; label: string; store?: string; isSystem?: boolean }[];
+}) {
   const qc = useQueryClient();
   const { t } = useLanguage();
   const [open, setOpen] = useState(false);
@@ -108,13 +116,22 @@ function CreateUserDialog({ roles }: { roles: { name: string; label: string }[] 
     enabled: open,
   });
 
-  // Once roles load, make sure the selected role is actually one that exists.
+  // A custom role belongs to exactly one store, so once a store is picked,
+  // only offer built-ins plus that store's own custom roles — otherwise every
+  // tenant's identically-named "Cashier"/"Manager" would show at once.
+  const availableRoles = useMemo(
+    () => roles.filter((r) => r.isSystem || r.store === form.store),
+    [roles, form.store],
+  );
+
+  // Once roles load (or the store selection narrows them), make sure the
+  // selected role is actually one that exists in the current list.
   useEffect(() => {
-    if (roles.length && !roles.some((r) => r.name === form.role)) {
-      setForm((f) => ({ ...f, role: roles[0].name }));
+    if (availableRoles.length && !availableRoles.some((r) => r.name === form.role)) {
+      setForm((f) => ({ ...f, role: availableRoles[0].name }));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [roles]);
+  }, [availableRoles]);
 
   const create = useMutation({
     mutationFn: async () =>
@@ -203,15 +220,6 @@ function CreateUserDialog({ roles }: { roles: { name: string; label: string }[] 
               </button>
             </div>
           </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="new-user-role">Role</Label>
-            <RoleSelect
-              id="new-user-role"
-              value={form.role}
-              onChange={(role) => setForm({ ...form, role })}
-              roles={roles}
-            />
-          </div>
           {!isSuperAdmin && (
             <div className="space-y-1.5">
               <Label htmlFor="new-user-store">Store *</Label>
@@ -236,10 +244,25 @@ function CreateUserDialog({ roles }: { roles: { name: string; label: string }[] 
                 <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               </div>
               <p className="text-xs text-muted-foreground">
-                This user will only see and act on this store's data.
+                This user will only see and act on this store's data. Pick it first — the roles
+                below are scoped to whichever store is selected.
               </p>
             </div>
           )}
+          <div className="space-y-1.5">
+            <Label htmlFor="new-user-role">Role</Label>
+            <RoleSelect
+              id="new-user-role"
+              value={form.role}
+              onChange={(role) => setForm({ ...form, role })}
+              roles={availableRoles}
+            />
+            {!isSuperAdmin && !form.store && (
+              <p className="text-xs text-muted-foreground">
+                Showing built-in roles only — select a store above to also see its custom roles.
+              </p>
+            )}
+          </div>
           <div className="flex justify-end gap-2 pt-2">
             <DialogClose asChild>
               <Button type="button" variant="outline">
@@ -427,7 +450,13 @@ export function UsersPage() {
     queryFn: async () => (await api.get('/users', { params: storefront })).data,
   });
   // Live role list (built-in + custom roles added on the Roles page) for the assign-role dropdown.
-  const { data: roles = [] } = useQuery<{ name: string; label: string }[]>({
+  // Under "All Stores" this intentionally includes every owned store's own
+  // custom roles (not just one), so it has to stay unfiltered by store here —
+  // narrowing to one store's roles happens per user/dialog below, via
+  // `rolesForStore`.
+  const { data: roles = [] } = useQuery<
+    { name: string; label: string; store?: string; isSystem?: boolean }[]
+  >({
     queryKey: ['roles', storefront.store],
     queryFn: async () => (await api.get('/roles', { params: storefront })).data,
   });
@@ -437,12 +466,18 @@ export function UsersPage() {
   // a store gets provisioned in the first place (see Subscriptions), not
   // something one store's admin should be able to mint for someone else.
   const hasSuperAdmin = users.some((u) => u.role === 'SUPER_ADMIN');
-  const assignableRoles = roles.filter((r) => {
+  const grantableRoles = roles.filter((r) => {
     const name = r.name.toUpperCase();
     if (name === 'SUPER_ADMIN' && hasSuperAdmin) return false;
     if (name === 'ADMIN' && currentUser?.role !== 'SUPER_ADMIN') return false;
     return true;
   });
+  // A custom role only belongs to the one store it was created for — a
+  // multi-store admin's "Cashier" in Store A is a different role than their
+  // "Cashier" in Store B, so only one store's worth should ever show at once.
+  // Built-ins (isSystem) have no store and apply everywhere.
+  const rolesForStore = (storeId?: string) =>
+    grantableRoles.filter((r) => r.isSystem || r.store === storeId);
 
   const setRole = useMutation({
     mutationFn: async ({ id, role }: { id: string; role: string }) =>
@@ -480,7 +515,7 @@ export function UsersPage() {
             Create your store's staff (managers, cashiers, accountants) and assign each one a role.
           </CardDescription>
         </div>
-        <CreateUserDialog roles={assignableRoles} />
+        <CreateUserDialog roles={grantableRoles} />
       </CardHeader>
       <CardContent className="px-0 pb-0">
         <div className="overflow-x-auto">
@@ -515,7 +550,7 @@ export function UsersPage() {
                         <RoleSelect
                           value={u.role.toLowerCase()}
                           onChange={(role) => updateUser(u.id, { role })}
-                          roles={assignableRoles}
+                          roles={rolesForStore(u.storeId)}
                           disabled={isSelf && isSuperAdmin}
                           title={
                             isSelf && isSuperAdmin

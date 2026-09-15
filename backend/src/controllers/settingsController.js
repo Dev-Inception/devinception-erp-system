@@ -17,6 +17,12 @@ function serialize(settings) {
     taxNumber: s.taxNumber || '',
     currency: s.currency || 'PKR',
     invoiceNote: s.invoiceNote || '',
+    logoUrl: s.logoUrl || '',
+    facebook: s.facebook || '',
+    instagram: s.instagram || '',
+    gmail: s.gmail || '',
+    tiktok: s.tiktok || '',
+    website: s.website || '',
   };
 }
 

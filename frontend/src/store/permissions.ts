@@ -10,6 +10,8 @@ export interface ManagedUser {
   role: Role;
   active: boolean;
   createdAt: string;
+  /** Id of the one store this user is confined to; unset for super admin. */
+  storeId?: string;
   /** Name of the one store this user is confined to; unset for super admin. */
   storeName?: string;
 }

@@ -2204,6 +2204,10 @@ function mapRole(r: any) {
     description: (r.description as string) ?? '',
     permissions: (r.permissions as string[]) ?? [],
     isSystem: !!r.isSystem,
+    // Which store a custom role belongs to (null/undefined for built-ins) —
+    // needed to scope the role dropdown to one store instead of showing
+    // every tenant's identically-named custom roles at once.
+    store: r.store ? String(r.store) : undefined,
   };
 }
 async function realRoles(params?: any) {
@@ -2262,7 +2266,10 @@ function mapManagedUser(u: any) {
     role: String(u.role).toUpperCase(), // backend lowercase → FE uppercase
     active: u.isActive !== false,
     createdAt: u.createdAt ? String(u.createdAt).slice(0, 10) : '',
-    storeName: u.store && typeof u.store === 'object' ? u.store.name : undefined,
+    // The list include lands the populated store under `storeInfo` (see
+    // controllers' `*Info` alias convention) — `store` itself is just the id.
+    storeId: u.storeInfo?.id ? String(u.storeInfo.id) : undefined,
+    storeName: u.storeInfo?.name ?? undefined,
   };
 }
 async function realUsers(params?: any) {
