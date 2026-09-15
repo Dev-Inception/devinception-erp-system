@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { api } from '@/lib/api';
+import { useStorefrontFilter } from '@/store/storefront';
 import { useLanguage } from '@/components/language-provider';
 
 interface Settings {
@@ -22,9 +23,10 @@ interface Settings {
 export function SettingsPage() {
   const qc = useQueryClient();
   const { t } = useLanguage();
+  const storefront = useStorefrontFilter();
   const { data } = useQuery<Settings>({
-    queryKey: ['settings'],
-    queryFn: async () => (await api.get('/settings')).data,
+    queryKey: ['settings', storefront.store],
+    queryFn: async () => (await api.get('/settings', { params: storefront })).data,
   });
 
   const [form, setForm] = useState<Settings>({ companyName: '', currency: 'PKR' });
@@ -33,7 +35,7 @@ export function SettingsPage() {
   }, [data]);
 
   const save = useMutation({
-    mutationFn: async () => (await api.put('/settings', form)).data,
+    mutationFn: async () => (await api.put('/settings', form, { params: storefront })).data,
     onSuccess: () => {
       toast.success('Settings saved');
       qc.invalidateQueries({ queryKey: ['settings'] });

@@ -1,9 +1,8 @@
 const express = require('express');
 const labourController = require('../controllers/labourController');
 const { protect } = require('../middlewares/authMiddleware');
-const { authorize, requirePermission } = require('../middlewares/roleMiddleware');
+const { requirePermission } = require('../middlewares/roleMiddleware');
 const { validate } = require('../middlewares/validateMiddleware');
-const { ROLES } = require('../utils/constants');
 const { PERMISSIONS } = require('../utils/permissions');
 const {
   createLabourValidator,
@@ -17,12 +16,12 @@ const router = express.Router();
 router.use(protect);
 
 // List all labour
-router.get('/', requirePermission(PERMISSIONS.SALES_CREATE), labourController.listLabour);
+router.get('/', requirePermission(PERMISSIONS.LABOUR_READ), labourController.listLabour);
 
 // Get single labour by ID
 router.get(
   '/:id',
-  requirePermission(PERMISSIONS.SALES_CREATE),
+  requirePermission(PERMISSIONS.LABOUR_READ),
   idParamValidator,
   validate,
   labourController.getLabour,
@@ -31,7 +30,7 @@ router.get(
 // Create new labour
 router.post(
   '/',
-  authorize(ROLES.SUPER_ADMIN),
+  requirePermission(PERMISSIONS.LABOUR_CREATE),
   createLabourValidator,
   validate,
   labourController.createLabour,
@@ -40,7 +39,7 @@ router.post(
 // Update labour
 router.patch(
   '/:id',
-  authorize(ROLES.SUPER_ADMIN),
+  requirePermission(PERMISSIONS.LABOUR_UPDATE),
   updateLabourValidator,
   validate,
   labourController.updateLabour,
@@ -48,7 +47,7 @@ router.patch(
 
 router.put(
   '/:id',
-  authorize(ROLES.SUPER_ADMIN),
+  requirePermission(PERMISSIONS.LABOUR_UPDATE),
   updateLabourValidator,
   validate,
   labourController.updateLabour,
@@ -57,7 +56,7 @@ router.put(
 // Delete labour
 router.delete(
   '/:id',
-  authorize(ROLES.SUPER_ADMIN),
+  requirePermission(PERMISSIONS.LABOUR_DELETE),
   idParamValidator,
   validate,
   labourController.deleteLabour,

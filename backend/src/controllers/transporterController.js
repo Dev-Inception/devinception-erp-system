@@ -4,27 +4,33 @@ const { sendSuccess } = require('../utils/ApiResponse');
 
 const listTransporters = asyncHandler(async (req, res) => {
   const { page, limit, search, store } = req.query;
-  const result = await transporterService.listTransporters({ page, limit, search, store });
+  const result = await transporterService.listTransporters({
+    page,
+    limit,
+    search,
+    store,
+    actor: req.user,
+  });
   return sendSuccess(res, 200, 'Transporters fetched', result);
 });
 
 const getTransporter = asyncHandler(async (req, res) => {
-  const transporter = await transporterService.getTransporterById(req.params.id);
+  const transporter = await transporterService.getTransporterById(req.user, req.params.id);
   return sendSuccess(res, 200, 'Transporter fetched', { transporter });
 });
 
 const createTransporter = asyncHandler(async (req, res) => {
-  const transporter = await transporterService.createTransporter(req.body);
+  const transporter = await transporterService.createTransporter(req.user, req.body);
   return sendSuccess(res, 201, 'Transporter created', { transporter });
 });
 
 const updateTransporter = asyncHandler(async (req, res) => {
-  const transporter = await transporterService.updateTransporter(req.params.id, req.body);
+  const transporter = await transporterService.updateTransporter(req.user, req.params.id, req.body);
   return sendSuccess(res, 200, 'Transporter updated', { transporter });
 });
 
 const deleteTransporter = asyncHandler(async (req, res) => {
-  await transporterService.deleteTransporter(req.params.id);
+  await transporterService.deleteTransporter(req.user, req.params.id);
   return sendSuccess(res, 200, 'Transporter deleted');
 });
 

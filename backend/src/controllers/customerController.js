@@ -4,12 +4,18 @@ const { sendSuccess } = require('../utils/ApiResponse');
 
 const listCustomers = asyncHandler(async (req, res) => {
   const { page, limit, search, store } = req.query;
-  const result = await customerService.listCustomers({ page, limit, search, store });
+  const result = await customerService.listCustomers({
+    page,
+    limit,
+    search,
+    store,
+    actor: req.user,
+  });
   return sendSuccess(res, 200, 'Customers fetched', result);
 });
 
 const getCustomer = asyncHandler(async (req, res) => {
-  const customer = await customerService.getCustomerById(req.params.id);
+  const customer = await customerService.getCustomerById(req.user, req.params.id);
   return sendSuccess(res, 200, 'Customer fetched', { customer });
 });
 
@@ -19,12 +25,12 @@ const createCustomer = asyncHandler(async (req, res) => {
 });
 
 const updateCustomer = asyncHandler(async (req, res) => {
-  const customer = await customerService.updateCustomer(req.params.id, req.body);
+  const customer = await customerService.updateCustomer(req.user, req.params.id, req.body);
   return sendSuccess(res, 200, 'Customer updated', { customer });
 });
 
 const deleteCustomer = asyncHandler(async (req, res) => {
-  await customerService.deleteCustomer(req.params.id);
+  await customerService.deleteCustomer(req.user, req.params.id);
   return sendSuccess(res, 200, 'Customer deleted');
 });
 

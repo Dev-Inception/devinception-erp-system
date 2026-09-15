@@ -76,8 +76,14 @@ async function seed() {
   if (!warehouse) throw new Error(`Warehouse not found: ${WAREHOUSE_NAME}`);
   const actor = await User.findOne({ where: { email: env.superAdmin.email } });
 
-  for (const name of CATEGORIES) await catalogService.createEntry('category', { name });
-  await catalogService.createEntry('unit', { name: 'Piece', abbreviation: 'pc' });
+  for (const name of CATEGORIES) {
+    await catalogService.createEntry('category', actor, { name, store: store.id });
+  }
+  await catalogService.createEntry('unit', actor, {
+    name: 'Piece',
+    abbreviation: 'pc',
+    store: store.id,
+  });
 
   let supplier = await supplierService
     .listSuppliers({ search: SUPPLIER_NAME })
@@ -93,12 +99,13 @@ async function seed() {
       skipped += 1;
       continue;
     }
-    const product = await productService.createProduct({
+    const product = await productService.createProduct(actor, {
       name: `${category} ${sku}`,
       sku,
       category,
       unit: 'Piece',
       warehouse: warehouse.id,
+      store: store.id,
     });
     receiptItems.push({ product: product._id, receivedQuantity: quantity, damagedQuantity: 0 });
     created += 1;

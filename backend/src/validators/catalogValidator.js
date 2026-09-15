@@ -13,8 +13,13 @@ const descriptionField = body('description')
   .isLength({ max: 500 })
   .withMessage('Description is too long');
 
-const createCategoryValidator = [nameField, descriptionField];
-const createBrandValidator = [nameField];
+const storeField = body('store')
+  .optional({ values: 'falsy' })
+  .isMongoId()
+  .withMessage('Invalid store');
+
+const createCategoryValidator = [nameField, descriptionField, storeField];
+const createBrandValidator = [nameField, storeField];
 const createUnitValidator = [
   body('name').trim().notEmpty().withMessage('A name is required').isLength({ max: 40 }),
   body('unit').custom((value, { req }) => {
@@ -23,6 +28,7 @@ const createUnitValidator = [
     if (String(unit).trim().length > 20) throw new Error('Unit is too long');
     return true;
   }),
+  storeField,
 ];
 
 const idParamValidator = [param('id').isMongoId().withMessage('Invalid catalog id')];

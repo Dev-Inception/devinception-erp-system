@@ -217,6 +217,18 @@ async function getProductById(id) {
   return presentProduct(product);
 }
 
+// Controller-facing read: same lookup, plus a check that the product's own
+// warehouse is one the actor can actually reach.
+async function getProductForActor(actor, id) {
+  const { Product } = initializeModels();
+  const raw = await Product.findByPk(id);
+  if (!raw) throw ApiError.notFound('Product not found');
+  if (raw.warehouse) {
+    await require('./warehouseService').assertWarehouseAccess(actor, raw.warehouse);
+  }
+  return getProductById(id);
+}
+
 // `category`/`brand`/`unit` are resolved from the payload by catalogService, so
 // they aren't copied verbatim here.
 const WRITABLE = [
@@ -231,12 +243,14 @@ const WRITABLE = [
   'image',
 ];
 
-async function createProduct(data) {
+async function createProduct(actor, data) {
   const { Product } = initializeModels();
   if (!isValidId(data.warehouse)) {
     throw ApiError.badRequest('A valid warehouse is required');
   }
-  const warehouse = await require('./warehouseService').getWarehouseById(data.warehouse);
+  const warehouseService = require('./warehouseService');
+  const warehouse = await warehouseService.getWarehouseById(data.warehouse);
+  await warehouseService.assertWarehouseAccess(actor, warehouse.id);
   if (data.sku) {
     const existing = await Product.findOne({ where: { sku: data.sku.toUpperCase() } });
     if (existing) throw ApiError.conflict('A product with that SKU already exists');
@@ -245,36 +259,44 @@ async function createProduct(data) {
   for (const k of WRITABLE) if (data[k] !== undefined) fields[k] = data[k];
   fields.warehouse = warehouse.id;
   // Resolve category/brand/unit to catalog ids (from an id or a free-text name).
-  Object.assign(fields, await catalogService.resolveProductRefs(data));
+  Object.assign(fields, await catalogService.resolveProductRefs(data, actor));
   const product = await Product.create(fields);
   return getProductById(product.id);
 }
 
-async function updateProduct(id, data) {
+async function updateProduct(actor, id, data) {
   const product = await findProductOrThrow(id);
+  const warehouseService = require('./warehouseService');
+  if (product.warehouse) {
+    await warehouseService.assertWarehouseAccess(actor, product.warehouse);
+  }
   if (data.sku !== undefined && data.sku && data.sku.toUpperCase() !== product.sku) {
     const { Product } = initializeModels();
     const existing = await Product.findOne({ where: { sku: data.sku.toUpperCase() } });
     if (existing) throw ApiError.conflict('A product with that SKU already exists');
   }
   for (const k of WRITABLE) if (data[k] !== undefined) product[k] = data[k];
-  const refs = await catalogService.resolveProductRefs(data);
+  const refs = await catalogService.resolveProductRefs(data, actor);
   for (const [k, v] of Object.entries(refs)) product[k] = v;
   // Re-homing a product to a different warehouse only changes which location
   // it's labeled/defaulted to — existing StockLevel rows (wherever they are)
   // are untouched, same as a legacy product that already had stock in more
   // than one warehouse.
   if (data.warehouse) {
-    const warehouse = await require('./warehouseService').getWarehouseById(data.warehouse);
+    const warehouse = await warehouseService.getWarehouseById(data.warehouse);
+    await warehouseService.assertWarehouseAccess(actor, warehouse.id);
     product.warehouse = warehouse.id;
   }
   await product.save();
   return getProductById(id);
 }
 
-async function deleteProduct(id) {
+async function deleteProduct(actor, id) {
   const { Product, StockLevel } = initializeModels();
-  await findProductOrThrow(id);
+  const product = await findProductOrThrow(id);
+  if (product.warehouse) {
+    await require('./warehouseService').assertWarehouseAccess(actor, product.warehouse);
+  }
   const hasStock = await StockLevel.count({ where: { product: id, quantity: { [Op.ne]: 0 } } });
   if (hasStock) throw ApiError.badRequest('Product still has stock and cannot be deleted');
   // Remove the leftover zero-quantity stock rows so no orphans linger.
@@ -284,11 +306,17 @@ async function deleteProduct(id) {
 
 // Current on-hand quantity for a product at a warehouse (summed across all
 // warehouses when none is given). A cheap lookup the stock-adjust screen uses.
-async function getStock(id, warehouse) {
+async function getStock(actor, id, warehouse) {
   const { StockLevel } = initializeModels();
-  await findProductOrThrow(id); // 404 if the product doesn't exist
+  const product = await findProductOrThrow(id); // 404 if the product doesn't exist
+  if (product.warehouse) {
+    await require('./warehouseService').assertWarehouseAccess(actor, product.warehouse);
+  }
   const where = { product: id };
-  if (warehouse && isValidId(warehouse)) where.warehouse = warehouse;
+  if (warehouse && isValidId(warehouse)) {
+    await require('./warehouseService').assertWarehouseAccess(actor, warehouse);
+    where.warehouse = warehouse;
+  }
   const row = await StockLevel.findOne({
     attributes: [[fn('SUM', col('quantity')), 'quantity']],
     where,
@@ -313,10 +341,12 @@ const ADJUST_SIGN = { STOCK_IN: 1, STOCK_OUT: -1, DAMAGED: -1, ADJUSTMENT: 0 };
  * drift out of step.
  */
 async function adjustStock(
+  actor,
   id,
   { warehouse, type, quantity, delta, unitCost, note = '', createdBy },
 ) {
   const { StockLevel } = initializeModels();
+  const warehouseService = require('./warehouseService');
 
   const { newQty } = await getPostgres().transaction(async (transaction) => {
     const product = await findProductOrThrow(id, transaction);
@@ -326,7 +356,8 @@ async function adjustStock(
     // location. Confirm it actually exists (throws 404 otherwise). A product
     // can hold stock in more than one warehouse (via StockLevel), so any real
     // warehouse is a valid adjustment target, not just the product's own.
-    const wh = await require('./warehouseService').getWarehouseById(warehouse, transaction);
+    const wh = await warehouseService.getWarehouseById(warehouse, transaction);
+    await warehouseService.assertWarehouseAccess(actor, wh.id);
 
     const level = await StockLevel.findOne({
       where: { product: product.id, warehouse: wh.id },
@@ -400,6 +431,7 @@ async function adjustStock(
 module.exports = {
   listProducts,
   getProductById,
+  getProductForActor,
   getStock,
   createProduct,
   updateProduct,

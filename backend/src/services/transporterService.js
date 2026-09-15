@@ -6,7 +6,12 @@ const journalService = require('./journalService');
 const { ACCOUNT, REF } = require('../utils/finance');
 const { toPaisa, toRupees } = require('../utils/money');
 const { parsePagination } = require('../utils/query');
-const { assertStoreAccess } = require('../utils/storeScope');
+const {
+  requireWriteStore,
+  resolveStoreScope,
+  storeWhere,
+  assertStoreAccess,
+} = require('../utils/storeScope');
 const counterService = require('./counterService');
 
 // Every transport charge happens at one physical storefront's till — same
@@ -42,7 +47,8 @@ function pickWritable({ name, phone, vehicleNumber, address }) {
 async function listTransporters(query = {}) {
   const { Transporter } = initializeModels();
   const { page, limit, skip } = parsePagination(query, { defaultLimit: 1000, maxLimit: 100000 });
-  const where = {};
+  const { storeIds } = await resolveStoreScope({ store: query.store, actor: query.actor });
+  const where = { ...storeWhere(storeIds) };
   if (query.search) {
     const term = `%${escapeLike(query.search)}%`;
     where[Op.or] = [
@@ -55,7 +61,7 @@ async function listTransporters(query = {}) {
   const [docs, total, balances] = await Promise.all([
     Transporter.findAll({ where, order: [['createdAt', 'DESC']], offset: skip, limit }),
     Transporter.count({ where }),
-    journalService.balancesByRef(ACCOUNT.AP_TRANSPORT, { store: query.store }),
+    journalService.balancesByRef(ACCOUNT.AP_TRANSPORT, { store: storeIds }),
   ]);
 
   const transporters = docs.map((tr) => {
@@ -66,27 +72,32 @@ async function listTransporters(query = {}) {
   return { transporters, total, page, limit };
 }
 
-async function getTransporterById(id) {
+async function getTransporterById(actor, id) {
   const { Transporter } = initializeModels();
   const transporter = await Transporter.findByPk(id);
   if (!transporter) throw ApiError.notFound('Transporter not found');
+  assertStoreAccess(actor, transporter.store);
   return transporter;
 }
 
-async function createTransporter(data) {
-  const { Transporter } = initializeModels();
-  return Transporter.create(pickWritable(data));
+async function createTransporter(actor, { store, ...data }) {
+  const { Store, Transporter } = initializeModels();
+  const storeId = requireWriteStore(actor, store);
+  const storeDoc = await Store.findByPk(storeId);
+  if (!storeDoc) throw ApiError.badRequest('Store not found');
+
+  return Transporter.create({ ...pickWritable(data), store: storeDoc.id });
 }
 
-async function updateTransporter(id, data) {
-  const transporter = await getTransporterById(id);
+async function updateTransporter(actor, id, data) {
+  const transporter = await getTransporterById(actor, id);
   Object.assign(transporter, pickWritable(data));
   await transporter.save();
   return transporter;
 }
 
-async function deleteTransporter(id) {
-  const transporter = await getTransporterById(id);
+async function deleteTransporter(actor, id) {
+  const transporter = await getTransporterById(actor, id);
   const balance = await journalService.accountBalance(ACCOUNT.AP_TRANSPORT, transporter.id);
   if (balance > 0) {
     throw ApiError.badRequest('Transporter has an outstanding balance and cannot be deleted');
@@ -104,6 +115,9 @@ async function chargeTransport(actor, { transporter, store, amount, date, note }
     const transporterDoc = await Transporter.findByPk(transporter, { transaction });
     if (!transporterDoc) throw ApiError.notFound('Transporter not found');
     const storeDoc = await requireStore(actor, store, transaction);
+    if (String(transporterDoc.store) !== String(storeDoc.id)) {
+      throw ApiError.badRequest('Transporter does not belong to this store');
+    }
 
     const amt = toPaisa(amount);
     if (amt <= 0) throw ApiError.badRequest('Amount must be positive');

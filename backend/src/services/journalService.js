@@ -112,7 +112,10 @@ async function accountTotals(
     conditions.push('je.warehouse_id = :warehouse');
     replacements.warehouse = warehouse;
   }
-  if (store) {
+  if (Array.isArray(store)) {
+    conditions.push('(je.store_id IN (:store) OR je.store_id IS NULL)');
+    replacements.store = store;
+  } else if (store) {
     conditions.push('(je.store_id = :store OR je.store_id IS NULL)');
     replacements.store = store;
   }
@@ -155,10 +158,15 @@ async function accountStatement(account, ref = null, { from, to, store, transact
     conditions.push('je.date <= :to');
     replacements.to = to;
   }
-  // Unlike accountTotals, the itemized rows below use strict store equality
-  // (no null-store fallback) — matches the original behavior exactly.
-  if (store) {
-    conditions.push('je.store_id = :store');
+  // Same null-store fallback as accountTotals/balancesByRef, so the itemized
+  // rows agree with the opening/closing balance on which entries count as
+  // "this store's activity" (legacy entries posted before per-entry store
+  // tracking have a null store_id and must not be silently dropped here).
+  if (Array.isArray(store)) {
+    conditions.push('(je.store_id IN (:store) OR je.store_id IS NULL)');
+    replacements.store = store;
+  } else if (store) {
+    conditions.push('(je.store_id = :store OR je.store_id IS NULL)');
     replacements.store = store;
   }
 
@@ -211,7 +219,10 @@ async function balanceAsOf(account, ref, at, { store, transaction } = {}) {
 async function balancesByRef(account, { store, transaction } = {}) {
   const conditions = ['jl.account = :account'];
   const replacements = { account };
-  if (store) {
+  if (Array.isArray(store)) {
+    conditions.push('(je.store_id IN (:store) OR je.store_id IS NULL)');
+    replacements.store = store;
+  } else if (store) {
     conditions.push('(je.store_id = :store OR je.store_id IS NULL)');
     replacements.store = store;
   }

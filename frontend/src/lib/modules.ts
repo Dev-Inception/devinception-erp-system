@@ -24,6 +24,7 @@ import {
   Hourglass,
   Container,
   Factory,
+  CreditCard,
 } from 'lucide-react';
 import type { Role } from '@/store/auth';
 
@@ -187,6 +188,17 @@ export const MODULES: ModuleDef[] = [
     defaultRoles: ['ACCOUNTANT', 'MANAGER', 'ADMIN'],
   },
   {
+    key: 'users',
+    to: '/users',
+    label: 'Users',
+    section: 'System',
+    icon: Users,
+    // A store admin manages their own store's staff (see backend
+    // userService.js — creates/edits/removes are already scoped to their own
+    // store); super admin sees/manages every store's staff.
+    adminOnly: true,
+  },
+  {
     key: 'settings',
     to: '/settings',
     label: 'Settings',
@@ -206,6 +218,16 @@ export const MODULES: ModuleDef[] = [
     // no-`permissions`-loaded fallback in defaultModulesForRole below; a real
     // session is always gated by MODULE_PERMISSION.permissions instead).
     defaultRoles: [],
+  },
+  {
+    key: 'subscriptions',
+    to: '/subscriptions',
+    label: 'Subscriptions',
+    section: 'System',
+    icon: CreditCard,
+    // Selling/provisioning stores is the company's own business, not a
+    // tenant's — only the super admin ever sees or manages it.
+    superAdminOnly: true,
   },
 ];
 

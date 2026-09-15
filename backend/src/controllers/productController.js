@@ -83,7 +83,7 @@ const listProducts = asyncHandler(async (req, res) => {
 });
 
 const getProduct = asyncHandler(async (req, res) => {
-  const product = await productService.getProductById(req.params.id);
+  const product = await productService.getProductForActor(req.user, req.params.id);
   return sendSuccess(res, 200, 'Product fetched', { product: serialize(product) });
 });
 
@@ -97,6 +97,7 @@ function pricesToPaisa(data) {
 
 const createProduct = asyncHandler(async (req, res) => {
   const product = await productService.createProduct(
+    req.user,
     pricesToPaisa({
       ...req.body,
       warehouse: warehouseFromRequest(req),
@@ -107,6 +108,7 @@ const createProduct = asyncHandler(async (req, res) => {
 
 const updateProduct = asyncHandler(async (req, res) => {
   const product = await productService.updateProduct(
+    req.user,
     req.params.id,
     pricesToPaisa({ ...req.body, warehouse: warehouseFromRequest(req) }),
   );
@@ -114,7 +116,7 @@ const updateProduct = asyncHandler(async (req, res) => {
 });
 
 const deleteProduct = asyncHandler(async (req, res) => {
-  await productService.deleteProduct(req.params.id);
+  await productService.deleteProduct(req.user, req.params.id);
   return sendSuccess(res, 200, 'Product deleted');
 });
 
@@ -122,7 +124,7 @@ const deleteProduct = asyncHandler(async (req, res) => {
 // `{ type, quantity }` or a signed `delta`; returns the product and `newQty`.
 const adjustStock = asyncHandler(async (req, res) => {
   const { warehouse, type, quantity, delta, unitCost, note } = req.body;
-  const { product, newQty } = await productService.adjustStock(req.params.id, {
+  const { product, newQty } = await productService.adjustStock(req.user, req.params.id, {
     warehouse,
     type,
     quantity: quantity !== undefined ? Number(quantity) : undefined,
@@ -136,7 +138,7 @@ const adjustStock = asyncHandler(async (req, res) => {
 
 // Current on-hand quantity for a product (optionally at one warehouse).
 const getStock = asyncHandler(async (req, res) => {
-  const quantity = await productService.getStock(req.params.id, req.query.warehouse);
+  const quantity = await productService.getStock(req.user, req.params.id, req.query.warehouse);
   return sendSuccess(res, 200, 'Stock fetched', { quantity });
 });
 

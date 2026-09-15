@@ -9,6 +9,7 @@ module.exports = function defineLabour(db) {
       id: id(),
       name: { type: DataTypes.STRING(100), allowNull: false, validate: { len: [2, 100] } },
       phoneNumber: { type: DataTypes.STRING(20), allowNull: false },
+      store: { type: DataTypes.STRING(24), allowNull: false, field: 'store_id' },
     },
     { tableName: 'labour' },
   );

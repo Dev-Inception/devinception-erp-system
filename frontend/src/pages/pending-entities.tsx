@@ -18,6 +18,7 @@ import {
 import { cn, formatCurrency } from '@/lib/utils';
 import { api } from '@/lib/api';
 import { useAuthStore } from '@/store/auth';
+import { grantsPermission } from '@/lib/modules';
 import { useLanguage } from '@/components/language-provider';
 
 interface PendingEntity {
@@ -41,8 +42,8 @@ function sourceLabel(t: (s: string) => string, sourceType: PendingEntity['source
   return sourceType === 'SALE_ITEM' ? t('Sale (vendor item)') : t('Stock receipt');
 }
 
-/** Super-admin-only: put a price on a pending entity, which posts the
- * vendor's real payable. */
+/** Put a price on a pending entity, which posts the vendor's real payable —
+ * gated by the pending-entities:price permission (see PendingEntitiesPage). */
 function SetPriceDialog({ entity, onClose }: { entity: PendingEntity; onClose: () => void }) {
   const qc = useQueryClient();
   const { t } = useLanguage();
@@ -112,10 +113,11 @@ function SetPriceDialog({ entity, onClose }: { entity: PendingEntity; onClose: (
 
 export function PendingEntitiesPage() {
   const { t } = useLanguage();
-  const role = useAuthStore((s) => s.user?.role);
-  // Only a super admin may price a pending entity — that's what actually
-  // creates the vendor's payable (see backend/pendingEntityRoutes.js).
-  const canPrice = role === 'SUPER_ADMIN';
+  const authUser = useAuthStore((s) => s.user);
+  // Pricing a pending entity is what actually creates the vendor/supplier's
+  // payable (see backend/pendingEntityRoutes.js) — a store admin may only
+  // price their own store's entities, enforced server-side.
+  const canPrice = grantsPermission(authUser?.permissions, 'pending-entities:price');
 
   const [status, setStatus] = useState<'PENDING' | 'PRICED'>('PENDING');
   const [search, setSearch] = useState('');

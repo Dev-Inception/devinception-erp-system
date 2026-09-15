@@ -7,7 +7,8 @@ module.exports = function defineSettings(db) {
     'Settings',
     {
       id: id(),
-      key: { type: DataTypes.STRING(20), allowNull: false, defaultValue: 'app' },
+      key: { type: DataTypes.STRING(24), allowNull: false, defaultValue: 'app' },
+      store: { type: DataTypes.STRING(24), field: 'store_id' },
       companyName: { type: DataTypes.STRING(200), allowNull: false, defaultValue: '' },
       address: { type: DataTypes.STRING(300), allowNull: false, defaultValue: '' },
       phone: { type: DataTypes.STRING(40), allowNull: false, defaultValue: '' },

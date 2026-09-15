@@ -22,7 +22,7 @@ import { api } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
 import { useAuthStore } from '@/store/auth';
 import { grantsPermission } from '@/lib/modules';
-import { useStorefrontFilter } from '@/store/storefront';
+import { useStorefrontFilter, useStorefrontStore } from '@/store/storefront';
 import { useLanguage } from '@/components/language-provider';
 
 interface Transporter {
@@ -50,6 +50,8 @@ function TransporterDialog({
   const editing = !!transporter;
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(emptyForm);
+  const currentStoreId = useStorefrontStore((s) => s.currentStoreId);
+  const hasSpecificStore = !!currentStoreId && currentStoreId !== 'ALL';
 
   useEffect(() => {
     if (open) {
@@ -67,16 +69,23 @@ function TransporterDialog({
   }, [open, transporter]);
 
   const save = useMutation({
-    mutationFn: async () =>
-      editing
-        ? (await api.patch(`/transporters/${transporter!.id}`, form)).data
-        : (await api.post('/transporters', form)).data,
+    mutationFn: async () => {
+      if (!editing && !hasSpecificStore) {
+        throw new Error('Select a specific store from the header before adding a transporter.');
+      }
+      return (
+        editing
+          ? await api.patch(`/transporters/${transporter!.id}`, form)
+          : await api.post('/transporters', { ...form, store: currentStoreId })
+      ).data;
+    },
     onSuccess: () => {
       toast.success(editing ? 'Transporter updated' : 'Transporter created');
       qc.invalidateQueries({ queryKey: ['transporters'] });
       setOpen(false);
     },
-    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Could not save transporter'),
+    onError: (e: any) =>
+      toast.error(e?.response?.data?.message ?? e?.message ?? 'Could not save transporter'),
   });
 
   return (
@@ -131,13 +140,19 @@ function TransporterDialog({
               onChange={(e) => setForm({ ...form, address: e.target.value })}
             />
           </div>
+          {!editing && !hasSpecificStore && (
+            <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+              {t('Select a specific store from the header before adding a transporter.')}
+            </p>
+          )}
+
           <div className="flex justify-end gap-2 pt-2">
             <DialogClose asChild>
               <Button type="button" variant="outline">
                 {t('Cancel')}
               </Button>
             </DialogClose>
-            <Button type="submit" disabled={save.isPending}>
+            <Button type="submit" disabled={save.isPending || (!editing && !hasSpecificStore)}>
               {save.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
               {t('Save')}
             </Button>

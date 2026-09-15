@@ -6,7 +6,7 @@ const journalService = require('./journalService');
 const stockService = require('./stockService');
 const { parseReportDate, formatReportDate } = require('../utils/reportDate');
 const { normalizeQuantity } = require('../utils/quantity');
-const { resolveWarehouseScope, warehouseWhere, actorStoreId } = require('../utils/storeScope');
+const { resolveWarehouseScope, warehouseWhere, resolveStoreScope } = require('../utils/storeScope');
 
 /**
  * Reporting: date-range aggregations over transactional data and the ledger.
@@ -435,19 +435,21 @@ async function runReport(type, params) {
   // is only for meta display, and only fetched on the legacy single-warehouse
   // path (a store's own warehouse list is its own meta.store instead).
   const { warehouseIds } = await resolveWarehouseScope(params);
-  // A store-restricted actor's own store always wins over the `store`/
-  // `warehouse` query params for the report's store/warehouse metadata too.
-  const effectiveStoreParam = actorStoreId(params.actor) || params.store;
+  // A store-restricted actor's own store(s) always win over the `store`/
+  // `warehouse` query params — resolveStoreScope throws if an explicit
+  // `store` param isn't one of theirs, so a multi-store actor can't widen
+  // (or hop sideways) into another tenant's store by passing its id here.
+  const { storeIds } = await resolveStoreScope({ store: params.store, actor: params.actor });
   let warehouse = null;
   let store = null;
-  if (effectiveStoreParam) {
-    store = await Store.findByPk(effectiveStoreParam, { attributes: ['id', 'name', 'code'] });
-  } else if (params.warehouse) {
+  if (storeIds && storeIds.length === 1) {
+    store = await Store.findByPk(storeIds[0], { attributes: ['id', 'name', 'code'] });
+  } else if (!storeIds && params.warehouse) {
     warehouse = await Warehouse.findByPk(params.warehouse);
     if (!warehouse) throw ApiError.notFound('Warehouse not found');
   }
 
-  const report = await fn({ ...params, warehouseIds, store: store ? store.id : null });
+  const report = await fn({ ...params, warehouseIds, store: storeIds });
   return {
     ...report,
     meta: {

@@ -6,6 +6,7 @@ const createWarehouseValidator = [
   body('name').trim().notEmpty().withMessage('Name is required').isLength({ max: 120 }),
   body('location').optional({ values: 'falsy' }).trim().isLength({ max: 120 }),
   body('address').optional({ values: 'falsy' }).trim().isLength({ max: 300 }),
+  body('store').optional({ values: 'falsy' }).isMongoId().withMessage('Invalid store'),
   body('isDefault').optional().isBoolean().withMessage('isDefault must be a boolean'),
   body('isActive').optional().isBoolean().withMessage('isActive must be a boolean'),
 ];

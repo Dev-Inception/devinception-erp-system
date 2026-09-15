@@ -1,1 +1,12 @@
-module.exports = [require('./001-initial-schema'), require('./002-bootstrap-data')];
+module.exports = [
+  require('./001-initial-schema'),
+  require('./002-bootstrap-data'),
+  require('./003-store-admins-and-subscriptions'),
+  require('./004-catalog-store-scope'),
+  require('./005-store-scoped-roles-and-settings'),
+  require('./006-widen-settings-key'),
+  require('./007-admin-stores-manage'),
+  require('./008-store-scoped-role-names'),
+  require('./009-admin-expense-approve-and-pe-price'),
+  require('./010-vendor-supplier-transporter-labour-store-scope'),
+];

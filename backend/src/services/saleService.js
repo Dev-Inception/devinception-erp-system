@@ -1,7 +1,6 @@
 const { Op } = require('sequelize');
 const { getPostgres } = require('../db/postgres');
 const { initializeModels } = require('../db/models');
-const { isValidId } = require('../db/id');
 const ApiError = require('../utils/ApiError');
 const { toPaisa, toRupees } = require('../utils/money');
 const { ACCOUNT, REF, PAYMENT_METHOD, BANK_METHODS } = require('../utils/finance');
@@ -14,7 +13,8 @@ const { normalizeQuantity, requirePositiveQuantity } = require('../utils/quantit
 const {
   resolveWarehouseScope,
   warehouseWhere,
-  actorStoreId,
+  resolveStoreScope,
+  storeWhere,
   assertStoreAccess,
 } = require('../utils/storeScope');
 const gatePassService = require('./gatePassService');
@@ -70,7 +70,13 @@ function resolveSettlement({ method, total, cashReceived, onlineReceived }) {
 // lines — validating stock per (product, warehouse) pair rather than
 // assuming one warehouse for the whole cart. Shared by createSale (fresh
 // stock) and updateSale (stock already reversed by the caller first).
-async function resolveSaleLineItems(items, defaultWarehouse, warehouseService, transaction) {
+async function resolveSaleLineItems(
+  items,
+  defaultWarehouse,
+  warehouseService,
+  storeId,
+  transaction,
+) {
   const { Product, Vendor, StockLevel } = initializeModels();
   const unresolvedLines = [];
   const requestedByKey = new Map();
@@ -92,6 +98,9 @@ async function resolveSaleLineItems(items, defaultWarehouse, warehouseService, t
     if (it.vendor) {
       vendorDoc = await Vendor.findByPk(it.vendor, { transaction });
       if (!vendorDoc) throw ApiError.notFound(`Vendor not found: ${it.vendor}`);
+      if (String(vendorDoc.store) !== String(storeId)) {
+        throw ApiError.badRequest(`Vendor not found: ${it.vendor}`);
+      }
     }
     const source = vendorDoc ? 'VENDOR' : 'WAREHOUSE';
 
@@ -205,11 +214,13 @@ async function reverseSaleJournalEntries(sale, actor, when, transaction) {
 // Looks up an optional Transporter reference — a sale is free to have none
 // at all (the free-text transport.driverName/driverPhone still works
 // standalone), but if an id is given it must resolve to a real transporter.
-async function resolveTransporter(transporterId, transaction) {
+async function resolveTransporter(transporterId, storeId, transaction) {
   if (!transporterId) return null;
   const { Transporter } = initializeModels();
   const transporter = await Transporter.findByPk(transporterId, { transaction });
-  if (!transporter) throw ApiError.notFound('Transporter not found');
+  if (!transporter || String(transporter.store) !== String(storeId)) {
+    throw ApiError.notFound('Transporter not found');
+  }
   return transporter;
 }
 
@@ -404,7 +415,7 @@ async function createSale(actor, input) {
       ? await warehouseService.getWarehouseById(warehouse, transaction)
       : await stockService.ensureDefaultWarehouse(transaction);
 
-    const saleLabour = await labourService.resolveLabourLines(labour, transaction);
+    const saleLabour = await labourService.resolveLabourLines(labour, storeDoc.id, transaction);
     const labourRentPaisa = saleLabour.reduce((s, l) => s + l.rent, 0);
 
     // Build line items (paisa) and pre-check stock so we never half-sell. A
@@ -416,6 +427,7 @@ async function createSale(actor, input) {
       items,
       defaultWarehouse,
       warehouseService,
+      storeDoc.id,
       transaction,
     );
     // A fully vendor-sourced sale has no warehouse-sourced line to derive a
@@ -438,7 +450,7 @@ async function createSale(actor, input) {
     const transportFarePaisa = toPaisa(transportFare || 0);
     const total = itemsTotal + transportFarePaisa + labourRentPaisa;
 
-    const transporterDoc = await resolveTransporter(transporter, transaction);
+    const transporterDoc = await resolveTransporter(transporter, storeDoc.id, transaction);
     // Validated (and funds checked) up front, before any stock is touched —
     // an insufficient-funds problem should reject the whole sale.
     const transportFareResolved = await resolveTransportFarePayment(
@@ -710,7 +722,7 @@ async function updateSale(actor, saleId, input) {
     let saleLabour = originalLabour;
     let labourRentPaisa = sale.labourRent;
     if (labour !== undefined) {
-      saleLabour = await labourService.resolveLabourLines(labour, transaction);
+      saleLabour = await labourService.resolveLabourLines(labour, sale.store, transaction);
       labourRentPaisa = saleLabour.reduce((s, l) => s + l.rent, 0);
     }
 
@@ -737,6 +749,7 @@ async function updateSale(actor, saleId, input) {
       items,
       defaultWarehouse,
       warehouseService,
+      sale.store,
       transaction,
     );
     const wh = primaryWarehouse || defaultWarehouse;
@@ -754,7 +767,7 @@ async function updateSale(actor, saleId, input) {
     const transportFarePaisa = toPaisa(transportFare || 0);
     const total = itemsTotal + transportFarePaisa + labourRentPaisa;
 
-    const transporterDoc = await resolveTransporter(transporter, transaction);
+    const transporterDoc = await resolveTransporter(transporter, sale.store, transaction);
     // Validated (and funds checked) up front — before the reversal below
     // posts anything — same fail-fast placement as createSale.
     const transportFareResolved = await resolveTransportFarePayment(
@@ -1001,9 +1014,9 @@ async function listSales({
   // Every sale now records its own storefront directly — filter on that
   // rather than the indirect (and looser) warehouse-membership scoping. A
   // store-restricted actor's own store always wins over the query param.
-  const effectiveStore = actorStoreId(actor) || store;
-  if (effectiveStore && isValidId(effectiveStore)) {
-    where.store = effectiveStore;
+  const { storeIds } = await resolveStoreScope({ store, actor });
+  if (storeIds) {
+    Object.assign(where, storeWhere(storeIds));
   } else if (warehouse) {
     const { warehouseIds } = await resolveWarehouseScope({ warehouse, actor });
     Object.assign(where, warehouseWhere(warehouseIds));

@@ -37,8 +37,10 @@ import { DayBookPage } from '@/pages/day-book';
 import { WarehousesPage } from '@/pages/warehouses';
 import { StoresPage } from '@/pages/stores';
 import { PermissionsPage } from '@/pages/permissions';
+import { UsersPage } from '@/pages/users';
 import { GatePassesPage } from '@/pages/gate-passes';
 import { RolePage } from '@/pages/roles';
+import { SubscriptionsPage } from '@/pages/subscriptions';
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { refetchOnWindowFocus: false, retry: 1 } },
@@ -95,7 +97,9 @@ const MODULE_ROUTES: { path: string; element: React.ReactElement }[] = [
   { path: 'cash', element: <CashPage /> },
   { path: 'settings', element: <SettingsPage /> },
   { path: 'permissions', element: <PermissionsPage /> },
+  { path: 'users', element: <UsersPage /> },
   { path: 'gate-passes', element: <GatePassesPage /> },
+  { path: 'subscriptions', element: <SubscriptionsPage /> },
 ];
 
 export default function App() {

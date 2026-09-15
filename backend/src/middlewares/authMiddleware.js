@@ -29,7 +29,9 @@ const protect = asyncHandler(async (req, _res, next) => {
   }
 
   const { User } = initializeModels();
-  const user = await User.scope('withSecrets').findByPk(payload.sub);
+  const user = await User.scope('withSecrets').findByPk(payload.sub, {
+    include: [{ association: 'adminStores', attributes: ['id'] }],
+  });
   if (!user) {
     throw ApiError.unauthorized('User belonging to this token no longer exists');
   }

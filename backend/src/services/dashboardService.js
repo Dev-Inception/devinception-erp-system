@@ -1,10 +1,9 @@
 const { QueryTypes } = require('sequelize');
 const { getPostgres } = require('../db/postgres');
-const { isValidId } = require('../db/id');
 const journalService = require('./journalService');
 const stockService = require('./stockService');
 const { ACCOUNT, naturalBalance } = require('../utils/finance');
-const { resolveWarehouseScope, actorStoreId } = require('../utils/storeScope');
+const { resolveWarehouseScope, resolveStoreScope } = require('../utils/storeScope');
 
 /**
  * Dashboard overview: the handful of headline figures and mini-charts shown on
@@ -24,14 +23,21 @@ const { resolveWarehouseScope, actorStoreId } = require('../utils/storeScope');
 const TREND_DAYS = 30;
 const TOP_PRODUCTS = 5;
 
-// Builds a `sales` WHERE fragment for the store/warehouse scope: a store
-// filters on the sale's own `store_id`; otherwise a resolved warehouse-id
-// list filters on `warehouse_id` (an empty list — a real store with no
-// warehouses — correctly matches nothing via `IN (NULL)`); no scope at all
-// leaves every sale in view. `alias` is the table alias to qualify the
-// column with (e.g. `'s.'` when sales is joined under that alias).
-function scopeCondition(storeId, warehouseIds, alias = '') {
-  if (storeId) return { clause: `${alias}store_id = :storeId`, replacements: { storeId } };
+// Builds a `sales` WHERE fragment for the store/warehouse scope: one or more
+// stores filter on the sale's own `store_id`; otherwise a resolved
+// warehouse-id list filters on `warehouse_id` (an empty list — a restricted
+// actor with no stores/warehouses yet — correctly matches nothing via
+// `IN (NULL)`); no scope at all leaves every sale in view. `alias` is the
+// table alias to qualify the column with (e.g. `'s.'` when sales is joined
+// under that alias).
+function scopeCondition(storeIds, warehouseIds, alias = '') {
+  if (Array.isArray(storeIds)) {
+    if (storeIds.length === 0) return { clause: 'FALSE', replacements: {} };
+    if (storeIds.length === 1) {
+      return { clause: `${alias}store_id = :storeId`, replacements: { storeId: storeIds[0] } };
+    }
+    return { clause: `${alias}store_id IN (:storeIds)`, replacements: { storeIds } };
+  }
   if (warehouseIds)
     return { clause: `${alias}warehouse_id IN (:warehouseIds)`, replacements: { warehouseIds } };
   return { clause: 'TRUE', replacements: {} };
@@ -74,8 +80,8 @@ async function salesTrend(scope, fromDate) {
 }
 
 // Best-selling products by revenue (sum of line totals, paisa).
-async function topProducts(storeId, warehouseIds) {
-  const scope = scopeCondition(storeId, warehouseIds, 's.');
+async function topProducts(storeIds, warehouseIds) {
+  const scope = scopeCondition(storeIds, warehouseIds, 's.');
   const rows = await getPostgres().query(
     `SELECT si.product_id AS product, MIN(si.name) AS name,
             SUM(si.quantity) AS quantity, SUM(si.line_total) AS revenue
@@ -96,9 +102,11 @@ async function topProducts(storeId, warehouseIds) {
 }
 
 // Sum of the positive natural balances under an account kind (paisa): total
-// money owed to us (AR) or by us (AP), ignoring any party in credit.
-async function outstanding(account) {
-  const balances = await journalService.balancesByRef(account);
+// money owed to us (AR) or by us (AP), ignoring any party in credit. Scoped
+// to `storeIds` when given (null/omitted = every store — only ever true for
+// an unrestricted actor with no explicit filter).
+async function outstanding(account, storeIds) {
+  const balances = await journalService.balancesByRef(account, { store: storeIds });
   let sum = 0;
   for (const bal of balances.values()) {
     if (bal > 0) sum += bal;
@@ -117,10 +125,10 @@ async function summary({ warehouse, store, actor } = {}) {
   // store link (Products own a single warehouse, not a store), so it always
   // resolves through warehouse membership.
   const { warehouseIds } = await resolveWarehouseScope({ warehouse, store, actor });
-  // A store-restricted actor's own store always wins over the query param.
-  const validStore = actorStoreId(actor) || (store && isValidId(store) ? store : null);
-  const scope = scopeCondition(validStore, validStore ? null : warehouseIds);
-  const ledgerScope = validStore ? { store: validStore } : {};
+  // A store-restricted actor's own store(s) always win over the query param.
+  const { storeIds } = await resolveStoreScope({ store, actor });
+  const scope = scopeCondition(storeIds, storeIds ? null : warehouseIds);
+  const ledgerScope = storeIds ? { store: storeIds } : {};
 
   const now = new Date();
   const startOfToday = new Date(
@@ -151,10 +159,10 @@ async function summary({ warehouse, store, actor } = {}) {
     journalService
       .accountTotals(ACCOUNT.OPERATING_EXPENSE, null, ledgerScope)
       .then((t) => naturalBalance(ACCOUNT.OPERATING_EXPENSE, t.debit, t.credit)),
-    outstanding(ACCOUNT.AR),
-    outstanding(ACCOUNT.AP),
+    outstanding(ACCOUNT.AR, storeIds),
+    outstanding(ACCOUNT.AP, storeIds),
     salesTrend(scope, trendStart),
-    topProducts(validStore, validStore ? null : warehouseIds),
+    topProducts(storeIds, storeIds ? null : warehouseIds),
   ]);
 
   return {

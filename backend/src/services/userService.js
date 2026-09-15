@@ -2,6 +2,7 @@ const { Op } = require('sequelize');
 const { initializeModels } = require('../db/models');
 const ApiError = require('../utils/ApiError');
 const { ROLES } = require('../utils/constants');
+const { assertStoreAccess, resolveStoreScope, storeWhere } = require('../utils/storeScope');
 
 /**
  * Admin-facing user management. Authorization (who may call these) is
@@ -30,12 +31,26 @@ async function assertAssignableRole(actor, roleName, excludeUserId = null) {
       throw ApiError.badRequest('A super admin already exists — only one is allowed');
     }
   }
+  // The admin (store-owner) role is only ever granted through the
+  // subscription provisioning flow (see subscriptionService.js) — a store's
+  // own admin manages *their* staff, not the roster of other store owners.
+  if (role.name === ROLES.ADMIN && actor.role !== ROLES.SUPER_ADMIN) {
+    throw ApiError.forbidden('Only a super admin can assign the admin role');
+  }
+  // A custom (non-built-in) role can only be assigned by the store it
+  // belongs to — never another tenant's staff, even if they somehow learned
+  // its name (see roleService.js — custom roles are visibility-scoped the
+  // same way).
+  if (!role.isSystem) {
+    assertStoreAccess(actor, role.store);
+  }
   return role;
 }
 
-async function listUsers({ page = 1, limit = 20, role, search }) {
+async function listUsers({ page = 1, limit = 20, role, search, store, actor } = {}) {
   const { User } = initializeModels();
-  const where = {};
+  const { storeIds } = await resolveStoreScope({ store, actor });
+  const where = { ...storeWhere(storeIds) };
   if (role) where.role = role;
   if (search) {
     where[Op.or] = [
@@ -59,19 +74,24 @@ async function listUsers({ page = 1, limit = 20, role, search }) {
   return { users, total, page: Number(page), limit: Number(limit) };
 }
 
-async function getUserById(id) {
+async function getUserById(actor, id) {
   const { User } = initializeModels();
   const user = await User.findByPk(id, {
     include: [{ association: 'storeInfo', attributes: ['id', 'name', 'code'] }],
   });
   if (!user) throw ApiError.notFound('User not found');
+  if (user.store) assertStoreAccess(actor, user.store);
   return user;
 }
 
-// Admin creates a user with an explicit role (e.g. onboarding staff). Every
-// role except super_admin is confined to one storefront: they never see or
-// act on another store's data (see utils/storeScope.js), so the store they
-// belong to has to be decided at creation time.
+// Admin creates a user with an explicit role (e.g. onboarding staff). Staff
+// roles (cashier/accountant/manager) are confined to one storefront: they
+// never see or act on another store's data (see utils/storeScope.js), so the
+// store they belong to has to be decided at creation time, and must be one
+// of the actor's own stores if the actor is itself store-restricted. ADMIN
+// (store owner) accounts don't take a `store` here at all — their store
+// ownership comes from subscriptionService's provisioning flow instead
+// (see store_admins).
 async function createUser(actor, { name, email, password, role, store }) {
   const { User, Store } = initializeModels();
   const roleName = role || ROLES.CASHIER;
@@ -81,10 +101,11 @@ async function createUser(actor, { name, email, password, role, store }) {
   if (existing) throw ApiError.conflict('Email is already registered');
 
   let storeId = null;
-  if (roleName !== ROLES.SUPER_ADMIN) {
+  if (roleName !== ROLES.SUPER_ADMIN && roleName !== ROLES.ADMIN) {
     if (!store) throw ApiError.badRequest('A store is required for this role');
     const storeDoc = await Store.findByPk(store);
     if (!storeDoc) throw ApiError.badRequest('Store not found');
+    assertStoreAccess(actor, storeDoc.id);
     storeId = storeDoc.id;
   }
 
@@ -103,6 +124,7 @@ async function updateUserRole(actor, targetId, newRole) {
   const { User } = initializeModels();
   const target = await User.findByPk(targetId);
   if (!target) throw ApiError.notFound('User not found');
+  if (target.store) assertStoreAccess(actor, target.store);
 
   // Demoting/changing an existing super admin is also super-admin-only.
   if (target.role === ROLES.SUPER_ADMIN && actor.role !== ROLES.SUPER_ADMIN) {
@@ -124,6 +146,7 @@ async function setUserActive(actor, targetId, isActive) {
   const { User } = initializeModels();
   const target = await User.findByPk(targetId);
   if (!target) throw ApiError.notFound('User not found');
+  if (target.store) assertStoreAccess(actor, target.store);
 
   if (target.role === ROLES.SUPER_ADMIN && actor.role !== ROLES.SUPER_ADMIN) {
     throw ApiError.forbidden('Only a super admin can manage super admins');
@@ -143,6 +166,7 @@ async function setUserPassword(actor, targetId, newPassword) {
   const { User } = initializeModels();
   const target = await User.findByPk(targetId);
   if (!target) throw ApiError.notFound('User not found');
+  if (target.store) assertStoreAccess(actor, target.store);
 
   if (target.role === ROLES.SUPER_ADMIN && actor.role !== ROLES.SUPER_ADMIN) {
     throw ApiError.forbidden('Only a super admin can manage super admins');
@@ -158,6 +182,7 @@ async function updateUser(actor, targetId, { name, email }) {
   const { User } = initializeModels();
   const target = await User.findByPk(targetId);
   if (!target) throw ApiError.notFound('User not found');
+  if (target.store) assertStoreAccess(actor, target.store);
 
   if (target.role === ROLES.SUPER_ADMIN && actor.role !== ROLES.SUPER_ADMIN) {
     throw ApiError.forbidden('Only a super admin can manage super admins');
@@ -181,6 +206,7 @@ async function deleteUser(actor, targetId) {
   const { User } = initializeModels();
   const target = await User.findByPk(targetId);
   if (!target) throw ApiError.notFound('User not found');
+  if (target.store) assertStoreAccess(actor, target.store);
 
   if (target.role === ROLES.SUPER_ADMIN && actor.role !== ROLES.SUPER_ADMIN) {
     throw ApiError.forbidden('Only a super admin can delete super admins');

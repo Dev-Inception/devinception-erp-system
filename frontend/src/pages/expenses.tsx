@@ -196,7 +196,7 @@ function ExpenseDialog({
           )}
           {!editing && !isSuperAdmin && (
             <p className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-600">
-              {t('This will be sent to the super admin for approval before it affects the books.')}
+              {t('This will need approval before it affects the books.')}
             </p>
           )}
 
@@ -404,7 +404,7 @@ export function ExpensesPage() {
   const { t } = useLanguage();
   const authUser = useAuthStore((s) => s.user);
   const canManage = grantsPermission(authUser?.permissions, 'expenses:manage');
-  const isSuperAdmin = authUser?.role === 'SUPER_ADMIN';
+  const canApprove = grantsPermission(authUser?.permissions, 'expenses:approve');
   const storefront = useStorefrontFilter();
 
   const [categoryFilter, setCategoryFilter] = useState('');
@@ -619,7 +619,7 @@ export function ExpensesPage() {
                     </td>
                     <td className="px-4 py-3 text-right">
                       <div className="flex justify-end gap-1">
-                        {isSuperAdmin && e.status !== 'APPROVED' && (
+                        {canApprove && e.status !== 'APPROVED' && (
                           <Button
                             size="icon"
                             variant="ghost"
@@ -633,7 +633,7 @@ export function ExpensesPage() {
                             <Check className="h-4 w-4" />
                           </Button>
                         )}
-                        {isSuperAdmin && e.status !== 'REJECTED' && (
+                        {canApprove && e.status !== 'REJECTED' && (
                           <Button
                             size="icon"
                             variant="ghost"

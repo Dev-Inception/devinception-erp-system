@@ -22,7 +22,7 @@ import { api } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
 import { useAuthStore } from '@/store/auth';
 import { grantsPermission } from '@/lib/modules';
-import { useStorefrontFilter } from '@/store/storefront';
+import { useStorefrontFilter, useStorefrontStore } from '@/store/storefront';
 import { useLanguage } from '@/components/language-provider';
 
 interface Supplier {
@@ -45,6 +45,8 @@ function SupplierDialog({ supplier, trigger }: { supplier?: Supplier; trigger: R
   const editing = !!supplier;
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(emptyForm);
+  const currentStoreId = useStorefrontStore((s) => s.currentStoreId);
+  const hasSpecificStore = !!currentStoreId && currentStoreId !== 'ALL';
 
   // Reset the form to the supplier's values (or blank) each time the dialog opens.
   useEffect(() => {
@@ -64,16 +66,23 @@ function SupplierDialog({ supplier, trigger }: { supplier?: Supplier; trigger: R
   }, [open, supplier]);
 
   const save = useMutation({
-    mutationFn: async () =>
-      editing
-        ? (await api.patch(`/suppliers/${supplier!.id}`, form)).data
-        : (await api.post('/suppliers', form)).data,
+    mutationFn: async () => {
+      if (!editing && !hasSpecificStore) {
+        throw new Error('Select a specific store from the header before adding a supplier.');
+      }
+      return (
+        editing
+          ? await api.patch(`/suppliers/${supplier!.id}`, form)
+          : await api.post('/suppliers', { ...form, store: currentStoreId })
+      ).data;
+    },
     onSuccess: () => {
       toast.success(editing ? 'Supplier updated' : 'Supplier created');
       qc.invalidateQueries({ queryKey: ['suppliers'] });
       setOpen(false);
     },
-    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Could not save supplier'),
+    onError: (e: any) =>
+      toast.error(e?.response?.data?.message ?? e?.message ?? 'Could not save supplier'),
   });
 
   return (
@@ -139,13 +148,19 @@ function SupplierDialog({ supplier, trigger }: { supplier?: Supplier; trigger: R
               onChange={(e) => setForm({ ...form, address: e.target.value })}
             />
           </div>
+          {!editing && !hasSpecificStore && (
+            <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+              {t('Select a specific store from the header before adding a supplier.')}
+            </p>
+          )}
+
           <div className="flex justify-end gap-2 pt-2">
             <DialogClose asChild>
               <Button type="button" variant="outline">
                 {t('Cancel')}
               </Button>
             </DialogClose>
-            <Button type="submit" disabled={save.isPending}>
+            <Button type="submit" disabled={save.isPending || (!editing && !hasSpecificStore)}>
               {save.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
               {t('Save')}
             </Button>

@@ -4,14 +4,22 @@ const ApiError = require('../utils/ApiError');
 const journalService = require('./journalService');
 const { ACCOUNT } = require('../utils/finance');
 const { toPaisa } = require('../utils/money');
+const {
+  requireWriteStore,
+  resolveStoreScope,
+  storeWhere,
+  assertStoreAccess,
+} = require('../utils/storeScope');
 
 // Overlays each labourer's live payable balance (rent charged on sales that
 // hasn't been paid out yet) — same pattern as vendorService.listVendors.
-async function listLabour() {
+async function listLabour(query = {}) {
   const { Labour } = initializeModels();
+  const { storeIds } = await resolveStoreScope({ store: query.store, actor: query.actor });
+  const where = storeWhere(storeIds);
   const [docs, balances] = await Promise.all([
-    Labour.findAll({ order: [['createdAt', 'DESC']] }),
-    journalService.balancesByRef(ACCOUNT.AP_LABOUR),
+    Labour.findAll({ where, order: [['createdAt', 'DESC']] }),
+    journalService.balancesByRef(ACCOUNT.AP_LABOUR, { store: storeIds }),
   ]);
   return docs.map((l) => {
     const json = l.toJSON();
@@ -19,29 +27,33 @@ async function listLabour() {
   });
 }
 
-async function getLabourById(id) {
+async function getLabourById(actor, id) {
   const { Labour } = initializeModels();
   const labour = await Labour.findByPk(id);
   if (!labour) throw ApiError.notFound('Labour not found');
+  assertStoreAccess(actor, labour.store);
   return labour;
 }
 
-async function createLabour({ name, phoneNumber }) {
-  const { Labour } = initializeModels();
-  // Check for duplicate phone number
-  const existing = await Labour.findOne({ where: { phoneNumber } });
+async function createLabour(actor, { name, phoneNumber, store }) {
+  const { Store, Labour } = initializeModels();
+  const storeId = requireWriteStore(actor, store);
+  const storeDoc = await Store.findByPk(storeId);
+  if (!storeDoc) throw ApiError.badRequest('Store not found');
+
+  // Check for duplicate phone number within this store
+  const existing = await Labour.findOne({ where: { store: storeDoc.id, phoneNumber } });
   if (existing) throw ApiError.conflict('Labour with this phone number already exists');
 
-  return Labour.create({ name, phoneNumber });
+  return Labour.create({ name, phoneNumber, store: storeDoc.id });
 }
 
-async function updateLabour(id, { name, phoneNumber }) {
-  const { Labour } = initializeModels();
-  const labour = await getLabourById(id);
+async function updateLabour(actor, id, { name, phoneNumber }) {
+  const labour = await getLabourById(actor, id);
 
-  // Check if phone number is being changed and already exists
+  // Check if phone number is being changed and already exists in this store
   if (phoneNumber && phoneNumber !== labour.phoneNumber) {
-    const existing = await Labour.findOne({ where: { phoneNumber } });
+    const existing = await Labour.findOne({ where: { store: labour.store, phoneNumber } });
     if (existing) throw ApiError.conflict('Labour with this phone number already exists');
     labour.phoneNumber = phoneNumber;
   }
@@ -52,8 +64,8 @@ async function updateLabour(id, { name, phoneNumber }) {
   return labour;
 }
 
-async function deleteLabour(id) {
-  const labour = await getLabourById(id);
+async function deleteLabour(actor, id) {
+  const labour = await getLabourById(actor, id);
   await labour.destroy();
   return labour;
 }
@@ -65,7 +77,7 @@ async function deleteLabour(id) {
  * (rent in paisa). Shared by any flow that charges labour on a document
  * (POS sales, stock receiving).
  */
-async function resolveLabourLines(labourInput) {
+async function resolveLabourLines(labourInput, storeId, transaction) {
   const { Labour } = initializeModels();
   const input = Array.isArray(labourInput) ? labourInput : [];
   const ids = Array.from(
@@ -76,8 +88,10 @@ async function resolveLabourLines(labourInput) {
         .map(String),
     ),
   );
-  const docs = ids.length ? await Labour.findAll({ where: { id: { [Op.in]: ids } } }) : [];
-  if (docs.length !== ids.length) {
+  const docs = ids.length
+    ? await Labour.findAll({ where: { id: { [Op.in]: ids } }, transaction })
+    : [];
+  if (docs.length !== ids.length || docs.some((doc) => String(doc.store) !== String(storeId))) {
     throw ApiError.badRequest('One or more labour entries are invalid');
   }
   const rentById = new Map(

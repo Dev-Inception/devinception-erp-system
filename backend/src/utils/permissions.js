@@ -43,6 +43,14 @@ const PERMISSIONS = {
   TRANSPORTERS_UPDATE: 'transporters:update',
   TRANSPORTERS_DELETE: 'transporters:delete',
 
+  // Labour management (labourers charged for loading/unloading on a sale or
+  // stock receipt) — previously reused sales:create for reads and was
+  // super-admin-only to write; now scoped like vendors/suppliers/transporters.
+  LABOUR_READ: 'labour:read',
+  LABOUR_CREATE: 'labour:create',
+  LABOUR_UPDATE: 'labour:update',
+  LABOUR_DELETE: 'labour:delete',
+
   // Customer management
   CUSTOMERS_READ: 'customers:read',
   CUSTOMERS_CREATE: 'customers:create',
@@ -84,6 +92,14 @@ const PERMISSIONS = {
   // day-to-day spend without also being able to manage bank accounts, cash
   // entries, or vendor/supplier/labour/transport payments.
   EXPENSES_MANAGE: 'expenses:manage',
+  // Sign-off (approve/reject) is kept separate from EXPENSES_MANAGE so a
+  // role can record expenses without also being able to authorize spend.
+  EXPENSES_APPROVE: 'expenses:approve',
+
+  // Pricing a pending entity (vendor-sourced sale line or supplier stock
+  // receipt line) is what actually creates the party's payable, so it's
+  // kept separate from the general finance:read visibility over PEs.
+  PENDING_ENTITIES_PRICE: 'pending-entities:price',
 
   // Reports
   REPORTS_READ: 'reports:read',
@@ -91,6 +107,10 @@ const PERMISSIONS = {
   // Company settings
   SETTINGS_READ: 'settings:read',
   SETTINGS_MANAGE: 'settings:manage',
+
+  // Subscriptions (super admin sells stores to tenant admins) — granted only
+  // via the super_admin wildcard, never assigned to a custom/system role.
+  SUBSCRIPTIONS_MANAGE: 'subscriptions:manage',
 };
 
 const PERMISSION_VALUES = Object.values(PERMISSIONS);

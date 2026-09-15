@@ -18,12 +18,15 @@ import {
 } from '@/components/ui/dialog';
 import { api } from '@/lib/api';
 import { useAuthStore } from '@/store/auth';
+import { useStorefrontFilter } from '@/store/storefront';
 import { useLanguage } from '@/components/language-provider';
 
 interface Role {
   id: string;
-  name: string;
+  name: string; // technical key — never display this, see `label`
+  label: string;
   description: string;
+  isSystem: boolean;
 }
 const SEARCH_FETCH_LIMIT = 200;
 const PAGE_SIZE = 20;
@@ -40,10 +43,26 @@ function RoleDialog({
   const qc = useQueryClient();
   const { t } = useLanguage();
   const isEditing = !!editing;
-  const [form, setForm] = useState({ name: '', description: '' });
+  const [form, setForm] = useState({ name: '', description: '', store: '' });
+
+  const { data: stores = [] } = useQuery<{ id: string; name: string; code?: string }[]>({
+    queryKey: ['stores'],
+    queryFn: async () => (await api.get('/stores')).data,
+    enabled: open && !isEditing,
+  });
+
   useEffect(() => {
-    if (open) setForm({ name: editing?.name ?? '', description: editing?.description ?? '' });
+    if (open) {
+      setForm({ name: editing?.label ?? '', description: editing?.description ?? '', store: '' });
+    }
   }, [open, editing]);
+
+  useEffect(() => {
+    if (!isEditing && stores.length === 1 && !form.store) {
+      setForm((f) => ({ ...f, store: stores[0].id }));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stores]);
 
   const save = useMutation({
     mutationFn: async () =>
@@ -100,6 +119,31 @@ function RoleDialog({
               placeholder="What this role is for"
             />
           </div>
+          {!isEditing && (
+            <div className="space-y-1.5">
+              <Label htmlFor="new-role-store">Store *</Label>
+              <select
+                id="new-role-store"
+                required
+                value={form.store}
+                onChange={(e) => setForm({ ...form, store: e.target.value })}
+                className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
+              >
+                <option value="" disabled>
+                  Select store…
+                </option>
+                {stores.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}
+                    {s.code ? ` (${s.code})` : ''}
+                  </option>
+                ))}
+              </select>
+              <p className="text-xs text-muted-foreground">
+                Only visible to this store — other stores never see it.
+              </p>
+            </div>
+          )}
 
           <div className="flex justify-end gap-2 pt-1">
             <DialogClose asChild>
@@ -122,7 +166,17 @@ export function RolePage() {
   const qc = useQueryClient();
   const { t } = useLanguage();
   const role = useAuthStore((s) => s.user?.role);
-  const canManage = role === 'SUPER_ADMIN';
+  const isSuperAdmin = role === 'SUPER_ADMIN';
+  const storefront = useStorefrontFilter();
+  // Super admin sees every built-in + every tenant's custom roles only while
+  // on "All Stores"; picking one specific store from the header switcher
+  // (super admin or a real store admin alike) shows exactly what that
+  // store's own admin would see — its own custom roles, no built-ins.
+  const viewingAllStores = isSuperAdmin && !storefront.store;
+  // A store admin can add roles and manage their own — never a built-in
+  // role, which every tenant using it shares (see backend roleService.js).
+  const canManage = isSuperAdmin || role === 'ADMIN';
+  const canEditRow = (r: Role) => isSuperAdmin || !r.isSystem;
   const [search, setSearch] = useState('');
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
@@ -133,16 +187,21 @@ export function RolePage() {
   const fetchPage = isSearching ? 1 : page;
   const fetchLimit = isSearching ? SEARCH_FETCH_LIMIT : PAGE_SIZE;
 
-  const { data: roles = [], isLoading } = useQuery<Role[]>({
-    queryKey: ['roles'],
-    queryFn: async () => (await api.get('/roles')).data,
+  const { data: allRoles = [], isLoading } = useQuery<Role[]>({
+    queryKey: ['roles', storefront.store],
+    queryFn: async () => (await api.get('/roles', { params: storefront })).data,
   });
+  // This page manages roles, not staff — only the "All Stores" overview
+  // shows built-ins (they're shared by every tenant using them, so they're
+  // not "theirs" to manage). Assigning a built-in role to staff still works
+  // from the Users page, which fetches the unfiltered list.
+  const roles = viewingAllStores ? allRoles : allRoles.filter((r) => !r.isSystem);
 
   const filtered = useMemo(
     () =>
       isSearching
         ? roles.filter(
-            (r) => r.name.toLowerCase().includes(q) || r.description.toLowerCase().includes(q),
+            (r) => r.label.toLowerCase().includes(q) || r.description.toLowerCase().includes(q),
           )
         : roles,
     [roles, isSearching, q],
@@ -166,7 +225,7 @@ export function RolePage() {
   });
 
   const remove = (l: Role) => {
-    if (window.confirm(`Delete role "${l.name}"? This cannot be undone.`)) del.mutate(l.id);
+    if (window.confirm(`Delete role "${l.label}"? This cannot be undone.`)) del.mutate(l.id);
   };
 
   return (
@@ -226,10 +285,17 @@ export function RolePage() {
                     <td className="px-4 py-3 font-medium">
                       <div className="flex items-center gap-2">
                         <HardHat className="h-4 w-4 text-muted-foreground" />
-                        {l.name}
+                        {l.label}
                       </div>
                     </td>
-                    <td className="px-4 py-3 text-muted-foreground">{l.description}</td>
+                    <td className="px-4 py-3 text-muted-foreground">
+                      {l.description}
+                      {l.isSystem && (
+                        <span className="ml-2 rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
+                          Built-in
+                        </span>
+                      )}
+                    </td>
                     {canManage && (
                       <td className="px-4 py-3 text-right">
                         <div className="flex justify-end gap-1">
@@ -237,7 +303,12 @@ export function RolePage() {
                             size="icon"
                             variant="ghost"
                             className="h-8 w-8"
-                            title={t('Edit')}
+                            title={
+                              canEditRow(l)
+                                ? t('Edit')
+                                : 'Only a super admin can edit a built-in role'
+                            }
+                            disabled={!canEditRow(l)}
                             onClick={() => {
                               setEditing(l);
                               setDialogOpen(true);
@@ -250,7 +321,7 @@ export function RolePage() {
                             variant="ghost"
                             className="h-8 w-8"
                             title={t('Delete')}
-                            disabled={del.isPending}
+                            disabled={del.isPending || l.isSystem}
                             onClick={() => remove(l)}
                           >
                             <Trash2 className="h-4 w-4 text-destructive" />

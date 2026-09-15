@@ -2,6 +2,9 @@ const { Op } = require('sequelize');
 const { getPostgres } = require('../db/postgres');
 const { initializeModels } = require('../db/models');
 const ApiError = require('../utils/ApiError');
+const { ROLES } = require('../utils/constants');
+const { resolveStoreScope, assertStoreAccess } = require('../utils/storeScope');
+const { assertWarehouseAccess } = require('./warehouseService');
 
 /**
  * Store CRUD. Exactly one store carries isDefault=true (also enforced by a
@@ -15,9 +18,21 @@ const ApiError = require('../utils/ApiError');
 
 const WAREHOUSE_INCLUDE = { association: 'warehouses', attributes: ['id', 'name', 'location'] };
 
-async function listStores() {
+// Every authenticated user needs to populate the mandatory login picker and
+// header switcher, but only with the store(s) they actually belong to — a
+// store-restricted actor (staff, or an ADMIN owning one or more stores) only
+// ever sees their own; an unrestricted actor (super admin) sees every store.
+async function listStores(actor) {
   const { Store } = initializeModels();
-  return Store.findAll({ order: [['createdAt', 'ASC']], include: [WAREHOUSE_INCLUDE] });
+  const { storeIds } = await resolveStoreScope({ actor });
+  // storeIds filters the Store model's own `id` here (unlike storeWhere,
+  // which filters *other* models' `store` foreign key column).
+  const where = storeIds ? { id: { [Op.in]: storeIds } } : {};
+  return Store.findAll({
+    where,
+    order: [['createdAt', 'ASC']],
+    include: [WAREHOUSE_INCLUDE],
+  });
 }
 
 async function getStoreById(id, transaction) {
@@ -25,6 +40,11 @@ async function getStoreById(id, transaction) {
   const store = await Store.findByPk(id, { include: [WAREHOUSE_INCLUDE], transaction });
   if (!store) throw ApiError.notFound('Store not found');
   return store;
+}
+
+async function getStoreForActor(actor, id) {
+  assertStoreAccess(actor, id);
+  return getStoreById(id);
 }
 
 async function assertWarehousesExist(ids, transaction) {
@@ -64,8 +84,15 @@ async function createStore({ name, code, address, warehouses, isDefault, isActiv
   });
 }
 
-async function updateStore(id, { name, code, address, warehouses, isDefault, isActive }) {
+// A store admin manages their own store's own details (name/address/code,
+// which warehouses it groups) — the same store-scoped update everything
+// else in this app already grants them — but never `isDefault` (a
+// platform-wide setting only super admin should touch) or another tenant's
+// warehouse (each id is re-checked against the actor's own reach, since the
+// list comes straight off the request body).
+async function updateStore(actor, id, { name, code, address, warehouses, isDefault, isActive }) {
   const { Store } = initializeModels();
+  assertStoreAccess(actor, id);
   return getPostgres().transaction(async (transaction) => {
     const store = await Store.findByPk(id, { transaction });
     if (!store) throw ApiError.notFound('Store not found');
@@ -74,10 +101,13 @@ async function updateStore(id, { name, code, address, warehouses, isDefault, isA
     if (address !== undefined) store.address = address;
     if (warehouses !== undefined) {
       const warehouseIds = await assertWarehousesExist(warehouses, transaction);
+      for (const warehouseId of warehouseIds) {
+        await assertWarehouseAccess(actor, warehouseId);
+      }
       await store.setWarehouses(warehouseIds, { transaction });
     }
     if (isActive !== undefined) store.isActive = isActive;
-    if (isDefault === true) {
+    if (isDefault === true && actor.role === ROLES.SUPER_ADMIN) {
       await Store.update(
         { isDefault: false },
         { where: { id: { [Op.ne]: store.id } }, transaction },
@@ -100,6 +130,7 @@ async function deleteStore(id) {
 module.exports = {
   listStores,
   getStoreById,
+  getStoreForActor,
   createStore,
   updateStore,
   deleteStore,

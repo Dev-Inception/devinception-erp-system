@@ -1,12 +1,16 @@
 const { Op } = require('sequelize');
 const { initializeModels } = require('../db/models');
-const { isValidId } = require('../db/id');
 const ApiError = require('../utils/ApiError');
 const journalService = require('./journalService');
 const { ACCOUNT } = require('../utils/finance');
 const { toRupees } = require('../utils/money');
 const { parsePagination } = require('../utils/query');
-const { actorStoreId, assertStoreAccess } = require('../utils/storeScope');
+const {
+  requireWriteStore,
+  resolveStoreScope,
+  storeWhere,
+  assertStoreAccess,
+} = require('../utils/storeScope');
 
 /**
  * Customer management. Authorization is enforced by route middleware; here we
@@ -34,7 +38,8 @@ async function listCustomers(query = {}) {
   // The POS customer picker and the Customers page consume the full list (no
   // pagination UI), so allow a far larger page size than the default cap.
   const { page, limit, skip } = parsePagination(query, { defaultLimit: 1000, maxLimit: 100000 });
-  const where = {};
+  const { storeIds } = await resolveStoreScope({ store: query.store, actor: query.actor });
+  const where = { ...storeWhere(storeIds) };
   if (query.search) {
     const term = `%${escapeLike(query.search)}%`;
     where[Op.or] = [
@@ -48,7 +53,7 @@ async function listCustomers(query = {}) {
   const [docs, total, balances] = await Promise.all([
     Customer.findAll({ where, order: [['createdAt', 'DESC']], offset: skip, limit }),
     Customer.count({ where }),
-    journalService.balancesByRef(ACCOUNT.AR, { store: query.store }),
+    journalService.balancesByRef(ACCOUNT.AR, { store: storeIds }),
   ]);
 
   // Show the live receivable from the ledger (rupees) as outstanding.
@@ -60,10 +65,11 @@ async function listCustomers(query = {}) {
   return { customers, total, page, limit };
 }
 
-async function getCustomerById(id) {
+async function getCustomerById(actor, id) {
   const { Customer } = initializeModels();
   const customer = await Customer.findByPk(id);
   if (!customer) throw ApiError.notFound('Customer not found');
+  if (customer.store) assertStoreAccess(actor, customer.store);
   return customer;
 }
 
@@ -73,26 +79,22 @@ async function createCustomer(actor, data) {
   // restricted user (cashier, manager, ...) always gets their own store
   // regardless of what (if anything) they sent; an unrestricted actor
   // (super admin) must pick one explicitly, from the header's store switcher.
-  const restricted = actorStoreId(actor);
-  const storeId = restricted || data.store;
-  if (!storeId) throw ApiError.badRequest('A store is required');
-  if (!isValidId(storeId)) throw ApiError.badRequest('Invalid store');
+  const storeId = requireWriteStore(actor, data.store);
   const storeDoc = await Store.findByPk(storeId);
   if (!storeDoc) throw ApiError.badRequest('Store not found');
-  assertStoreAccess(actor, storeDoc.id);
 
   return Customer.create({ ...pickWritable(data), store: storeDoc.id });
 }
 
-async function updateCustomer(id, data) {
-  const customer = await getCustomerById(id);
+async function updateCustomer(actor, id, data) {
+  const customer = await getCustomerById(actor, id);
   Object.assign(customer, pickWritable(data));
   await customer.save();
   return customer;
 }
 
-async function deleteCustomer(id) {
-  const customer = await getCustomerById(id);
+async function deleteCustomer(actor, id) {
+  const customer = await getCustomerById(actor, id);
   const balance = await journalService.accountBalance(ACCOUNT.AR, customer.id);
   if (balance > 0) {
     throw ApiError.badRequest('Customer has an outstanding balance and cannot be deleted');

@@ -2,13 +2,13 @@ const storeService = require('../services/storeService');
 const asyncHandler = require('../utils/asyncHandler');
 const { sendSuccess } = require('../utils/ApiResponse');
 
-const listStores = asyncHandler(async (_req, res) => {
-  const stores = await storeService.listStores();
+const listStores = asyncHandler(async (req, res) => {
+  const stores = await storeService.listStores(req.user);
   return sendSuccess(res, 200, 'Stores fetched', { stores });
 });
 
 const getStore = asyncHandler(async (req, res) => {
-  const store = await storeService.getStoreById(req.params.id);
+  const store = await storeService.getStoreForActor(req.user, req.params.id);
   return sendSuccess(res, 200, 'Store fetched', { store });
 });
 
@@ -18,7 +18,7 @@ const createStore = asyncHandler(async (req, res) => {
 });
 
 const updateStore = asyncHandler(async (req, res) => {
-  const store = await storeService.updateStore(req.params.id, req.body);
+  const store = await storeService.updateStore(req.user, req.params.id, req.body);
   return sendSuccess(res, 200, 'Store updated', { store });
 });
 

@@ -87,16 +87,16 @@ function VendorDialog({ vendor, trigger }: { vendor?: Vendor; trigger: React.Rea
 
   const save = useMutation({
     mutationFn: async () => {
-      if (hasBalanceEntry && !hasSpecificStore) {
-        throw new Error(
-          editing
-            ? 'Select a specific store from the header before adjusting the balance.'
-            : 'Select a specific store from the header before adding an opening balance.',
-        );
+      if (!editing && !hasSpecificStore) {
+        throw new Error('Select a specific store from the header before adding a vendor.');
       }
-      const payload = hasBalanceEntry
-        ? { ...form, weOweAmount, theyOweAmount, store: currentStoreId }
-        : form;
+      if (hasBalanceEntry && !hasSpecificStore) {
+        throw new Error('Select a specific store from the header before adjusting the balance.');
+      }
+      const balanceFields = hasBalanceEntry ? { weOweAmount, theyOweAmount } : {};
+      const payload = editing
+        ? { ...form, ...balanceFields, ...(hasBalanceEntry ? { store: currentStoreId } : {}) }
+        : { ...form, ...balanceFields, store: currentStoreId };
       return (
         editing
           ? await api.patch(`/vendors/${vendor!.id}`, payload)
@@ -244,6 +244,12 @@ function VendorDialog({ vendor, trigger }: { vendor?: Vendor; trigger: React.Rea
             )}
           </div>
 
+          {!editing && !hasSpecificStore && (
+            <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+              {t('Select a specific store from the header before adding a vendor.')}
+            </p>
+          )}
+
           <div className="flex justify-end gap-2 pt-2">
             <DialogClose asChild>
               <Button type="button" variant="outline">
@@ -252,7 +258,11 @@ function VendorDialog({ vendor, trigger }: { vendor?: Vendor; trigger: React.Rea
             </DialogClose>
             <Button
               type="submit"
-              disabled={save.isPending || (hasBalanceEntry && !hasSpecificStore)}
+              disabled={
+                save.isPending ||
+                (hasBalanceEntry && !hasSpecificStore) ||
+                (!editing && !hasSpecificStore)
+              }
             >
               {save.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
               {t('Save')}

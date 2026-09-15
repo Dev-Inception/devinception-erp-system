@@ -19,6 +19,8 @@ import {
 } from '@/components/ui/dialog';
 import { api } from '@/lib/api';
 import { useAuthStore } from '@/store/auth';
+import { grantsPermission } from '@/lib/modules';
+import { useStorefrontFilter, useStorefrontStore } from '@/store/storefront';
 import { useLanguage } from '@/components/language-provider';
 
 interface Labour {
@@ -43,21 +45,30 @@ function LabourDialog({
   const { t } = useLanguage();
   const isEditing = !!editing;
   const [form, setForm] = useState({ name: '', phoneNumber: '' });
+  const currentStoreId = useStorefrontStore((s) => s.currentStoreId);
+  const hasSpecificStore = !!currentStoreId && currentStoreId !== 'ALL';
   useEffect(() => {
     if (open) setForm({ name: editing?.name ?? '', phoneNumber: editing?.phoneNumber ?? '' });
   }, [open, editing]);
 
   const save = useMutation({
-    mutationFn: async () =>
-      isEditing
-        ? (await api.patch(`/labour/${editing!.id}`, form)).data
-        : (await api.post('/labour', form)).data,
+    mutationFn: async () => {
+      if (!isEditing && !hasSpecificStore) {
+        throw new Error('Select a specific store from the header before adding labour.');
+      }
+      return (
+        isEditing
+          ? await api.patch(`/labour/${editing!.id}`, form)
+          : await api.post('/labour', { ...form, store: currentStoreId })
+      ).data;
+    },
     onSuccess: () => {
       toast.success(isEditing ? 'Labour updated' : 'Labour created');
       qc.invalidateQueries({ queryKey: ['labour'] });
       onOpenChange(false);
     },
-    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Could not save labour'),
+    onError: (e: any) =>
+      toast.error(e?.response?.data?.message ?? e?.message ?? 'Could not save labour'),
   });
 
   return (
@@ -96,13 +107,19 @@ function LabourDialog({
               placeholder="e.g. 0300-1234567"
             />
           </div>
+          {!isEditing && !hasSpecificStore && (
+            <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+              {t('Select a specific store from the header before adding labour.')}
+            </p>
+          )}
+
           <div className="flex justify-end gap-2 pt-1">
             <DialogClose asChild>
               <Button type="button" variant="outline">
                 {t('Cancel')}
               </Button>
             </DialogClose>
-            <Button type="submit" disabled={save.isPending}>
+            <Button type="submit" disabled={save.isPending || (!isEditing && !hasSpecificStore)}>
               {save.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
               {t('Save')}
             </Button>
@@ -117,10 +134,11 @@ export function LabourPage() {
   const qc = useQueryClient();
   const navigate = useNavigate();
   const { t } = useLanguage();
-  const role = useAuthStore((s) => s.user?.role);
-  // Unlike other Partner modules, the backend gates labour create/update/delete
-  // by role (super admin only) rather than a permission string.
-  const canManage = role === 'SUPER_ADMIN';
+  const perms = useAuthStore((s) => s.user?.permissions);
+  const canCreate = grantsPermission(perms, 'labour:create');
+  const canUpdate = grantsPermission(perms, 'labour:update');
+  const canDelete = grantsPermission(perms, 'labour:delete');
+  const showActions = canUpdate || canDelete;
   const [search, setSearch] = useState('');
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
@@ -131,9 +149,10 @@ export function LabourPage() {
   const fetchPage = isSearching ? 1 : page;
   const fetchLimit = isSearching ? SEARCH_FETCH_LIMIT : PAGE_SIZE;
 
+  const storefront = useStorefrontFilter();
   const { data: labour = [], isLoading } = useQuery<Labour[]>({
-    queryKey: ['labour'],
-    queryFn: async () => (await api.get('/labour')).data,
+    queryKey: ['labour', storefront.store],
+    queryFn: async () => (await api.get('/labour', { params: storefront })).data,
   });
 
   const filtered = useMemo(
@@ -148,6 +167,7 @@ export function LabourPage() {
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<Labour | null>(null);
+  const colSpan = showActions ? 3 : 2;
   const total = filtered.length;
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const pageItems = isSearching
@@ -185,7 +205,7 @@ export function LabourPage() {
           </div>
           <p className="pb-2 text-sm text-muted-foreground">{total} labour(s)</p>
         </div>
-        {canManage && (
+        {canCreate && (
           <Button
             onClick={() => {
               setEditing(null);
@@ -204,13 +224,15 @@ export function LabourPage() {
               <tr className="border-b bg-muted/50 text-left text-xs uppercase tracking-wide text-muted-foreground">
                 <th className="px-4 py-3 font-medium">{t('Name')}</th>
                 <th className="px-4 py-3 font-medium">{t('Phone Number')}</th>
-                {canManage && <th className="px-4 py-3 text-right font-medium">{t('Actions')}</th>}
+                {showActions && (
+                  <th className="px-4 py-3 text-right font-medium">{t('Actions')}</th>
+                )}
               </tr>
             </thead>
             <tbody>
               {isLoading && (
                 <tr>
-                  <td colSpan={3} className="px-4 py-10 text-center text-muted-foreground">
+                  <td colSpan={colSpan} className="px-4 py-10 text-center text-muted-foreground">
                     Loading…
                   </td>
                 </tr>
@@ -229,31 +251,35 @@ export function LabourPage() {
                       </div>
                     </td>
                     <td className="px-4 py-3 text-muted-foreground">{l.phoneNumber}</td>
-                    {canManage && (
+                    {showActions && (
                       <td className="px-4 py-3 text-right" onClick={(e) => e.stopPropagation()}>
                         <div className="flex justify-end gap-1">
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            className="h-8 w-8"
-                            title={t('Edit')}
-                            onClick={() => {
-                              setEditing(l);
-                              setDialogOpen(true);
-                            }}
-                          >
-                            <Pencil className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            className="h-8 w-8"
-                            title={t('Delete')}
-                            disabled={del.isPending}
-                            onClick={() => remove(l)}
-                          >
-                            <Trash2 className="h-4 w-4 text-destructive" />
-                          </Button>
+                          {canUpdate && (
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="h-8 w-8"
+                              title={t('Edit')}
+                              onClick={() => {
+                                setEditing(l);
+                                setDialogOpen(true);
+                              }}
+                            >
+                              <Pencil className="h-4 w-4" />
+                            </Button>
+                          )}
+                          {canDelete && (
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="h-8 w-8"
+                              title={t('Delete')}
+                              disabled={del.isPending}
+                              onClick={() => remove(l)}
+                            >
+                              <Trash2 className="h-4 w-4 text-destructive" />
+                            </Button>
+                          )}
                         </div>
                       </td>
                     )}
@@ -261,7 +287,7 @@ export function LabourPage() {
                 ))}
               {!isLoading && pageItems.length === 0 && (
                 <tr>
-                  <td colSpan={3} className="px-4 py-10 text-center text-muted-foreground">
+                  <td colSpan={colSpan} className="px-4 py-10 text-center text-muted-foreground">
                     {isSearching ? 'No labour match your search.' : 'No labour records yet.'}
                   </td>
                 </tr>

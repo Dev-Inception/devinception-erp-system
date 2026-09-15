@@ -9,6 +9,7 @@ const counterService = require('./counterService');
 const gatePassService = require('./gatePassService');
 const { requirePositiveQuantity, normalizeQuantity } = require('../utils/quantity');
 const { parsePagination, escapeLike } = require('../utils/query');
+const { resolveStoreScope, storeWhere, assertStoreAccess } = require('../utils/storeScope');
 
 /**
  * Product returns against a completed sale. Each return is its own numbered
@@ -62,6 +63,7 @@ async function createReturn(actor, saleId, { items, note }) {
       lock: transaction.LOCK.UPDATE,
     });
     if (!sale) throw ApiError.notFound('Sale not found');
+    assertStoreAccess(actor, sale.store);
     if (!sale.customer) {
       throw ApiError.badRequest('Returns require the sale to have a customer on file');
     }
@@ -233,8 +235,12 @@ async function createReturn(actor, saleId, { items, note }) {
   });
 }
 
-async function listReturnsForSale(saleId) {
-  const { SaleReturn, SaleReturnItem, ReturnWarehouseGatePass } = initializeModels();
+async function listReturnsForSale(actor, saleId) {
+  const { Sale, SaleReturn, SaleReturnItem, ReturnWarehouseGatePass } = initializeModels();
+  const sale = await Sale.findByPk(saleId, { attributes: ['id', 'store'] });
+  if (!sale) throw ApiError.notFound('Sale not found');
+  assertStoreAccess(actor, sale.store);
+
   return SaleReturn.findAll({
     where: { sale: saleId },
     include: [
@@ -248,8 +254,8 @@ async function listReturnsForSale(saleId) {
 // All returns across every sale — the "Sale Returns" tab's feed, so it's
 // filterable the same way the Sales list is (customer, date range, and a
 // free-text match on the return/sale number or the snapshotted customer name).
-async function listReturns({ customer, from, to, search, ...query } = {}) {
-  const { SaleReturn } = initializeModels();
+async function listReturns({ customer, store, from, to, search, actor, ...query } = {}) {
+  const { Sale, SaleReturn } = initializeModels();
   const { page, limit, skip } = parsePagination(query);
   const where = {};
   if (customer) where.customer = customer;
@@ -267,14 +273,23 @@ async function listReturns({ customer, from, to, search, ...query } = {}) {
     ];
   }
 
+  // A return has no store column of its own — scope it through the sale it
+  // was returned against, same boundary as the Sales list itself.
+  const { storeIds } = await resolveStoreScope({ store, actor });
+  const include = storeIds
+    ? [{ model: Sale, attributes: [], where: storeWhere(storeIds), required: true }]
+    : [];
+
   const { rows, count } = await SaleReturn.findAndCountAll({
     where,
+    include,
     order: [
       ['date', 'DESC'],
       ['createdAt', 'DESC'],
     ],
     offset: skip,
     limit,
+    distinct: true,
   });
 
   return { returns: rows, total: count, page, limit };

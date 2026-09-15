@@ -5,6 +5,8 @@ function associateModels(models) {
     Store,
     Warehouse,
     StoreWarehouse,
+    StoreAdmin,
+    Subscription,
     Category,
     Brand,
     Unit,
@@ -45,6 +47,28 @@ function associateModels(models) {
   Role.hasMany(User, { foreignKey: 'role', sourceKey: 'name', as: 'users' });
   User.belongsTo(Role, { foreignKey: 'role', targetKey: 'name', as: 'roleInfo' });
   User.belongsTo(Store, { foreignKey: 'store', as: 'storeInfo' });
+
+  // Multi-store ownership: which ADMIN user(s) own which store(s), separate
+  // from the single `store` FK above (which still means "the one store this
+  // staff member works at").
+  User.belongsToMany(Store, {
+    through: StoreAdmin,
+    foreignKey: 'userId',
+    otherKey: 'storeId',
+    as: 'adminStores',
+  });
+  Store.belongsToMany(User, {
+    through: StoreAdmin,
+    foreignKey: 'storeId',
+    otherKey: 'userId',
+    as: 'admins',
+  });
+
+  // Subscriptions: one manually-managed billing record per store.
+  Store.hasOne(Subscription, { foreignKey: 'store', as: 'subscription' });
+  Subscription.belongsTo(Store, { foreignKey: 'store', as: 'storeInfo' });
+  Subscription.belongsTo(User, { foreignKey: 'owner', as: 'ownerInfo' });
+  Subscription.belongsTo(User, { foreignKey: 'createdBy', as: 'creator' });
 
   // Locations / catalog
   Store.belongsToMany(Warehouse, {

@@ -4,7 +4,7 @@ const ApiError = require('../utils/ApiError');
 const { toPaisa } = require('../utils/money');
 const { ACCOUNT, REF } = require('../utils/finance');
 const journalService = require('./journalService');
-const { assertStoreAccess, actorStoreId } = require('../utils/storeScope');
+const { assertStoreAccess, resolveStoreScope, storeWhere } = require('../utils/storeScope');
 
 /**
  * Bank account management. Balances are derived from the BANK journal lines
@@ -21,9 +21,8 @@ const { assertStoreAccess, actorStoreId } = require('../utils/storeScope');
 // actor, whose own store always wins.
 async function listBankAccounts({ store, actor } = {}) {
   const { BankAccount } = initializeModels();
-  const restricted = actorStoreId(actor);
-  const effectiveStore = restricted || store;
-  const where = effectiveStore ? { store: effectiveStore } : {};
+  const { storeIds } = await resolveStoreScope({ store, actor });
+  const where = storeWhere(storeIds);
   const accounts = await BankAccount.findAll({ where, order: [['createdAt', 'ASC']] });
   // Attach each account's derived balance (paisa).
   return Promise.all(
@@ -93,8 +92,9 @@ async function updateBankAccount(actor, id, { name, bankName, accountNumber, sto
   return account;
 }
 
-async function deleteBankAccount(id) {
+async function deleteBankAccount(actor, id) {
   const account = await getBankAccountById(id);
+  if (account.store) assertStoreAccess(actor, account.store);
   const balance = await journalService.accountBalance(ACCOUNT.BANK, account.id);
   if (balance !== 0)
     throw ApiError.badRequest('Bank account has a non-zero balance and cannot be deleted');

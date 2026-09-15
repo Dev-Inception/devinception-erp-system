@@ -20,13 +20,16 @@ function serialize(settings) {
   };
 }
 
-const getSettings = asyncHandler(async (_req, res) => {
-  const settings = await settingsService.getSettings();
+const getSettings = asyncHandler(async (req, res) => {
+  const settings = await settingsService.getSettings({ store: req.query.store, actor: req.user });
   return sendSuccess(res, 200, 'Settings fetched', serialize(settings));
 });
 
 const updateSettings = asyncHandler(async (req, res) => {
-  const settings = await settingsService.updateSettings(req.body);
+  const settings = await settingsService.updateSettings(
+    { store: req.query.store || req.body.store, actor: req.user },
+    req.body,
+  );
   return sendSuccess(res, 200, 'Settings updated', serialize(settings));
 });
 

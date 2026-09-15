@@ -135,10 +135,8 @@ function ReceiptDialog({ receipt, onClose }: { receipt?: StockReceipt; onClose: 
   const qc = useQueryClient();
   const { t } = useLanguage();
   const editing = !!receipt;
-  // The backend gates labour create by role (super admin only), not a
-  // permission string — see labour.tsx for the same pattern.
-  const role = useAuthStore((s) => s.user?.role);
-  const canCreateLabour = role === 'SUPER_ADMIN';
+  const authUserPerms = useAuthStore((s) => s.user?.permissions);
+  const canCreateLabour = grantsPermission(authUserPerms, 'labour:create');
   const { warehouses, currentId: defaultWarehouseId } = useWarehouses();
   const currentStoreId = useStorefrontStore((s) => s.currentStoreId);
   // A delivery is always received for one physical store — required on
@@ -201,20 +199,35 @@ function ReceiptDialog({ receipt, onClose }: { receipt?: StockReceipt; onClose: 
   }, [editing, warehouseId, defaultWarehouseId]);
 
   const { data: suppliers = [] } = useQuery<Supplier[]>({
-    queryKey: ['suppliers-select'],
-    queryFn: async () => (await api.get('/suppliers')).data,
+    queryKey: ['suppliers-select', hasSpecificStore ? currentStoreId : null],
+    queryFn: async () =>
+      (
+        await api.get('/suppliers', {
+          params: { store: hasSpecificStore ? currentStoreId : undefined },
+        })
+      ).data,
   });
   const { data: transporters = [] } = useQuery<Transporter[]>({
-    queryKey: ['transporters'],
-    queryFn: async () => (await api.get('/transporters')).data,
+    queryKey: ['transporters', hasSpecificStore ? currentStoreId : null],
+    queryFn: async () =>
+      (
+        await api.get('/transporters', {
+          params: { store: hasSpecificStore ? currentStoreId : undefined },
+        })
+      ).data,
   });
   const { data: products = [] } = useQuery<ProductOption[]>({
     queryKey: ['stock-receipt-products', productSearch],
     queryFn: async () => (await api.get('/products', { params: { search: productSearch } })).data,
   });
   const { data: labourList = [] } = useQuery<LabourOption[]>({
-    queryKey: ['labour'],
-    queryFn: async () => (await api.get('/labour')).data,
+    queryKey: ['labour', hasSpecificStore ? currentStoreId : null],
+    queryFn: async () =>
+      (
+        await api.get('/labour', {
+          params: { store: hasSpecificStore ? currentStoreId : undefined },
+        })
+      ).data,
   });
   const filteredLabour = labourList.filter(
     (l) =>
@@ -299,6 +312,7 @@ function ReceiptDialog({ receipt, onClose }: { receipt?: StockReceipt; onClose: 
         await api.post('/labour', {
           name: newLabour.name,
           phoneNumber: newLabour.phoneNumber,
+          store: hasSpecificStore ? currentStoreId : undefined,
         })
       ).data,
     onSuccess: (l: LabourOption) => {

@@ -1,10 +1,9 @@
 const express = require('express');
 const expenseController = require('../controllers/expenseController');
 const { protect } = require('../middlewares/authMiddleware');
-const { requirePermission, authorize } = require('../middlewares/roleMiddleware');
+const { requirePermission } = require('../middlewares/roleMiddleware');
 const { validate } = require('../middlewares/validateMiddleware');
 const { PERMISSIONS } = require('../utils/permissions');
-const { ROLES } = require('../utils/constants');
 const {
   createExpenseValidator,
   updateExpenseValidator,
@@ -65,18 +64,19 @@ router.patch(
   validate,
   expenseController.updateExpense,
 );
-// Sign-off is a super-admin-only action, regardless of who else holds
-// finance:manage — see expenseService.approveExpense/rejectExpense.
+// Sign-off is a separate permission from expenses:manage — a store admin
+// may approve/reject only their own store's expenses (see
+// expenseService.approveExpense/rejectExpense's assertStoreAccess check).
 router.post(
   '/:id/approve',
-  authorize(ROLES.SUPER_ADMIN),
+  requirePermission(PERMISSIONS.EXPENSES_APPROVE),
   idParamValidator,
   validate,
   expenseController.approveExpense,
 );
 router.post(
   '/:id/reject',
-  authorize(ROLES.SUPER_ADMIN),
+  requirePermission(PERMISSIONS.EXPENSES_APPROVE),
   rejectExpenseValidator,
   validate,
   expenseController.rejectExpense,

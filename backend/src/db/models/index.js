@@ -8,6 +8,8 @@ const modelFactories = {
   Store: require('./storeModel'),
   Warehouse: require('./warehouseModel'),
   StoreWarehouse: require('./storeWarehouseModel'),
+  StoreAdmin: require('./storeAdminModel'),
+  Subscription: require('./subscriptionModel'),
   Category: require('./categoryModel'),
   Brand: require('./brandModel'),
   Unit: require('./unitModel'),

@@ -13,6 +13,9 @@ const optionalFields = [
   body('category').optional({ values: 'falsy' }).trim().isLength({ max: 80 }),
   body('brand').optional({ values: 'falsy' }).trim().isLength({ max: 80 }),
   body('unit').optional({ values: 'falsy' }).trim().isLength({ max: 80 }),
+  // Only needed when a free-text category/brand/unit name has to be created
+  // under a specific store (a multi-store admin) — see catalogService.
+  body('store').optional({ values: 'falsy' }).isMongoId().withMessage('Invalid store'),
   body('purchasePrice')
     .optional({ values: 'falsy' })
     .isFloat({ min: 0 })

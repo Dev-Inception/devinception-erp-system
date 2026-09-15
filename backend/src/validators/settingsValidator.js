@@ -9,6 +9,7 @@ const updateSettingsValidator = [
   body('taxNumber').optional({ values: 'falsy' }).trim().isLength({ max: 60 }),
   body('currency').optional({ values: 'falsy' }).trim().isLength({ max: 10 }),
   body('invoiceNote').optional({ values: 'falsy' }).trim().isLength({ max: 1000 }),
+  body('store').optional({ values: 'falsy' }).isMongoId().withMessage('Invalid store'),
 ];
 
 module.exports = { updateSettingsValidator };

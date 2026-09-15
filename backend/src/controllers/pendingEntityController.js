@@ -45,6 +45,7 @@ const listPendingEntities = asyncHandler(async (req, res) => {
     search,
     page,
     limit,
+    actor: req.user,
   });
   return sendSuccess(res, 200, 'Pending entities fetched', {
     entities: result.entities.map(out),
@@ -55,7 +56,7 @@ const listPendingEntities = asyncHandler(async (req, res) => {
 });
 
 const getPendingEntity = asyncHandler(async (req, res) => {
-  const entity = await pendingEntityService.getPendingEntityById(req.params.id);
+  const entity = await pendingEntityService.getPendingEntityById(req.user, req.params.id);
   return sendSuccess(res, 200, 'Pending entity fetched', { entity: out(entity) });
 });
 

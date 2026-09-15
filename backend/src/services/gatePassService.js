@@ -3,11 +3,16 @@ const QRCode = require('qrcode');
 const { Op, QueryTypes } = require('sequelize');
 const { getPostgres } = require('../db/postgres');
 const { initializeModels } = require('../db/models');
-const { isValidId } = require('../db/id');
 const ApiError = require('../utils/ApiError');
 const counterService = require('./counterService');
 const { parsePagination } = require('../utils/query');
-const { resolveWarehouseScope, warehouseWhere, actorStoreId } = require('../utils/storeScope');
+const {
+  resolveWarehouseScope,
+  warehouseWhere,
+  resolveStoreScope,
+  storeWhere,
+  assertStoreAccess,
+} = require('../utils/storeScope');
 
 const QR_PREFIX = 'ERP_GATE_PASS:';
 
@@ -517,10 +522,11 @@ async function withSaleExtras(gatePass, transaction) {
   return base;
 }
 
-async function getGatePassById(id, transaction) {
-  if (!transaction) return getPostgres().transaction((t) => getGatePassById(id, t));
+async function getGatePassById(actor, id, transaction) {
+  if (!transaction) return getPostgres().transaction((t) => getGatePassById(actor, id, t));
   const gatePass = await loadFull({ id }, transaction);
   if (!gatePass) throw ApiError.notFound('Gate pass not found');
+  assertStoreAccess(actor, gatePass.store);
   return withSaleExtras(await refreshSourceIfNeeded(gatePass, transaction), transaction);
 }
 
@@ -533,17 +539,18 @@ async function getGatePassByToken(token, transaction) {
   return withSaleExtras(await refreshSourceIfNeeded(gatePass, transaction), transaction);
 }
 
-async function getGatePassBySale(saleId, transaction) {
-  if (!transaction) return getPostgres().transaction((t) => getGatePassBySale(saleId, t));
+async function getGatePassBySale(actor, saleId, transaction) {
+  if (!transaction) return getPostgres().transaction((t) => getGatePassBySale(actor, saleId, t));
   const { Sale, SaleItem } = initializeModels();
   const sale = await Sale.findByPk(saleId, {
     include: [{ model: SaleItem, as: 'items', separate: true, order: [['position', 'ASC']] }],
     transaction,
   });
   if (!sale) throw ApiError.notFound('Sale not found');
+  assertStoreAccess(actor, sale.store);
   // Legacy single-pass lookup — the primary (first/only) warehouse's pass.
   const gatePass = await createForSale(sale, 'CUSTOMER', sale.warehouse, transaction);
-  return getGatePassById(gatePass.id, transaction);
+  return getGatePassById(actor, gatePass.id, transaction);
 }
 
 async function listGatePasses({
@@ -562,9 +569,9 @@ async function listGatePasses({
   // Gate passes copy their `store` from the originating sale — prefer that
   // direct field over the looser warehouse-membership scoping. A store-
   // restricted actor's own store always wins over the query param.
-  const effectiveStore = actorStoreId(actor) || store;
-  if (effectiveStore && isValidId(effectiveStore)) {
-    where.store = effectiveStore;
+  const { storeIds } = await resolveStoreScope({ store, actor });
+  if (storeIds) {
+    Object.assign(where, storeWhere(storeIds));
   } else if (warehouse) {
     const { warehouseIds } = await resolveWarehouseScope({ warehouse, actor });
     Object.assign(where, warehouseWhere(warehouseIds));
@@ -597,12 +604,13 @@ function normalizeToken(value) {
   return raw.startsWith(QR_PREFIX) ? raw.slice(QR_PREFIX.length) : raw;
 }
 
-async function generateQrPng(id) {
+async function generateQrPng(actor, id) {
   const { GatePass } = initializeModels();
   // `token` has no defaultScope hiding it (only toJSON strips it), so a
   // plain findByPk already loads the raw column.
   const gatePass = await GatePass.findByPk(id);
   if (!gatePass) throw ApiError.notFound('Gate pass not found');
+  assertStoreAccess(actor, gatePass.store);
   const png = await QRCode.toBuffer(`${QR_PREFIX}${gatePass.token}`, {
     type: 'png',
     errorCorrectionLevel: 'M',
@@ -702,6 +710,7 @@ async function updateProcessedGatePass(actor, id, payload) {
       lock: transaction.LOCK.UPDATE,
     });
     if (!existing) throw ApiError.notFound('Gate pass not found');
+    assertStoreAccess(actor, existing.store);
     if (!['PROCESSED', 'USED'].includes(existing.status)) {
       throw ApiError.conflict('Only processed gate passes can be edited');
     }

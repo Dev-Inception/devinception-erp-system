@@ -3,32 +3,36 @@ const asyncHandler = require('../utils/asyncHandler');
 const { sendSuccess } = require('../utils/ApiResponse');
 const { view } = require('../utils/money');
 
-const listLabour = asyncHandler(async (_req, res) => {
-  const labour = await labourService.listLabour();
+const listLabour = asyncHandler(async (req, res) => {
+  const { store } = req.query;
+  const labour = await labourService.listLabour({ store, actor: req.user });
   return sendSuccess(res, 200, 'Labour list fetched', {
     labour: labour.map((l) => view(l, ['outstanding'])),
   });
 });
 
 const getLabour = asyncHandler(async (req, res) => {
-  const labour = await labourService.getLabourById(req.params.id);
+  const labour = await labourService.getLabourById(req.user, req.params.id);
   return sendSuccess(res, 200, 'Labour fetched', { labour });
 });
 
 const createLabour = asyncHandler(async (req, res) => {
-  const { name, phoneNumber } = req.body;
-  const labour = await labourService.createLabour({ name, phoneNumber });
+  const { name, phoneNumber, store } = req.body;
+  const labour = await labourService.createLabour(req.user, { name, phoneNumber, store });
   return sendSuccess(res, 201, 'Labour created successfully', { labour });
 });
 
 const updateLabour = asyncHandler(async (req, res) => {
   const { name, phoneNumber } = req.body;
-  const labour = await labourService.updateLabour(req.params.id, { name, phoneNumber });
+  const labour = await labourService.updateLabour(req.user, req.params.id, {
+    name,
+    phoneNumber,
+  });
   return sendSuccess(res, 200, 'Labour updated successfully', { labour });
 });
 
 const deleteLabour = asyncHandler(async (req, res) => {
-  await labourService.deleteLabour(req.params.id);
+  await labourService.deleteLabour(req.user, req.params.id);
   return sendSuccess(res, 200, 'Labour deleted successfully');
 });
 

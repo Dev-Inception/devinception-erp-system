@@ -15,6 +15,9 @@ export interface AuthUser {
   /** The one store this user is confined to. Null/undefined for super admin,
    *  who isn't restricted to a store. */
   storeId?: string | null;
+  /** Every store this user administers (ADMIN role only — an owner can own
+   *  more than one). Undefined/empty for everyone else. */
+  storeIds?: string[];
 }
 
 interface AuthState {
@@ -45,6 +48,8 @@ interface BackendUser {
   permissions?: string[];
   /** Raw store id, or a populated `{ _id, name, code }` object. */
   store?: string | { _id: string } | null;
+  /** Store ids this user (an ADMIN) owns — see subscriptionService. */
+  adminStoreIds?: string[];
 }
 
 function mapUser(u: BackendUser): AuthUser {
@@ -58,6 +63,7 @@ function mapUser(u: BackendUser): AuthUser {
     avatarUrl: u.avatarUrl,
     permissions: u.permissions,
     storeId,
+    storeIds: u.adminStoreIds,
   };
 }
 

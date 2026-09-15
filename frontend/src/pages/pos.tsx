@@ -315,13 +315,23 @@ export function PosPage() {
     enabled: step === 2,
   });
   const { data: vendors = [] } = useQuery<VendorLite[]>({
-    queryKey: ['vendors'],
-    queryFn: async () => (await api.get('/vendors')).data,
+    queryKey: ['vendors', hasSpecificStore ? currentStoreId : null],
+    queryFn: async () =>
+      (
+        await api.get('/vendors', {
+          params: { store: hasSpecificStore ? currentStoreId : undefined },
+        })
+      ).data,
     enabled: step === 2,
   });
   const { data: transporters = [] } = useQuery<TransporterLite[]>({
-    queryKey: ['transporters'],
-    queryFn: async () => (await api.get('/transporters')).data,
+    queryKey: ['transporters', hasSpecificStore ? currentStoreId : null],
+    queryFn: async () =>
+      (
+        await api.get('/transporters', {
+          params: { store: hasSpecificStore ? currentStoreId : undefined },
+        })
+      ).data,
     enabled: step === 3,
   });
   const needsTransportFareBank =
@@ -472,8 +482,13 @@ export function PosPage() {
   const removeLine = (key: string) => setCart((c) => c.filter((l) => l.key !== key));
 
   const { data: labourList = [] } = useQuery<LabourLite[]>({
-    queryKey: ['labour'],
-    queryFn: async () => (await api.get('/labour')).data,
+    queryKey: ['labour', hasSpecificStore ? currentStoreId : null],
+    queryFn: async () =>
+      (
+        await api.get('/labour', {
+          params: { store: hasSpecificStore ? currentStoreId : undefined },
+        })
+      ).data,
     enabled: step === 3,
   });
   const filteredLabour = labourList.filter((l) => {
@@ -495,7 +510,13 @@ export function PosPage() {
   const [labourCreating, setLabourCreating] = useState(false);
   const [labourForm, setLabourForm] = useState({ name: '', phoneNumber: '' });
   const createLabour = useMutation({
-    mutationFn: async () => (await api.post('/labour', labourForm)).data,
+    mutationFn: async () =>
+      (
+        await api.post('/labour', {
+          ...labourForm,
+          store: hasSpecificStore ? currentStoreId : undefined,
+        })
+      ).data,
     onSuccess: (l: LabourLite) => {
       toast.success('Labour added');
       qc.invalidateQueries({ queryKey: ['labour'] });

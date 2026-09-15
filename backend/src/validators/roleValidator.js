@@ -20,6 +20,7 @@ const createRoleValidator = [
     .withMessage('Role name must be at most 100 characters'),
   body('description').optional().trim().isLength({ max: 200 }),
   permissionsRule('permissions').optional(),
+  body('store').optional({ values: 'falsy' }).isMongoId().withMessage('Invalid store'),
 ];
 
 const updateRoleValidator = [

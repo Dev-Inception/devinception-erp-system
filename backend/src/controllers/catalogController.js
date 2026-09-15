@@ -16,8 +16,8 @@ const mapUnit = (u) => ({
   abbreviation: u.abbreviation || u.name,
 });
 
-const getCatalog = asyncHandler(async (_req, res) => {
-  const { categories, brands, units } = await catalogService.listCatalog();
+const getCatalog = asyncHandler(async (req, res) => {
+  const { categories, brands, units } = await catalogService.listCatalog(req.user, req.query.store);
   return sendSuccess(res, 200, 'Catalog fetched', {
     categories: categories.map(mapEntry),
     brands: brands.map(mapEntry),
@@ -26,60 +26,60 @@ const getCatalog = asyncHandler(async (_req, res) => {
 });
 
 const createCategory = asyncHandler(async (req, res) => {
-  const entry = await catalogService.createEntry('category', req.body);
+  const entry = await catalogService.createEntry('category', req.user, req.body);
   return sendSuccess(res, 201, 'Category saved', { category: mapEntry(entry) });
 });
 
 const createBrand = asyncHandler(async (req, res) => {
-  const entry = await catalogService.createEntry('brand', req.body);
+  const entry = await catalogService.createEntry('brand', req.user, req.body);
   return sendSuccess(res, 201, 'Brand saved', { brand: mapEntry(entry) });
 });
 
 const createUnit = asyncHandler(async (req, res) => {
-  const entry = await catalogService.createEntry('unit', {
+  const entry = await catalogService.createEntry('unit', req.user, {
     ...req.body,
     abbreviation: req.body.unit || req.body.abbreviation,
   });
   return sendSuccess(res, 201, 'Unit saved', { unit: mapUnit(entry) });
 });
 
-const listCategories = asyncHandler(async (_req, res) => {
-  const entries = await catalogService.listEntries('category');
+const listCategories = asyncHandler(async (req, res) => {
+  const entries = await catalogService.listEntries('category', req.user, req.query.store);
   return sendSuccess(res, 200, 'Categories fetched', { categories: entries.map(mapEntry) });
 });
 
 const getCategory = asyncHandler(async (req, res) => {
-  const entry = await catalogService.getEntryById('category', req.params.id);
+  const entry = await catalogService.getEntryById('category', req.user, req.params.id);
   return sendSuccess(res, 200, 'Category fetched', { category: mapEntry(entry) });
 });
 
 const updateCategory = asyncHandler(async (req, res) => {
-  const entry = await catalogService.updateEntry('category', req.params.id, req.body);
+  const entry = await catalogService.updateEntry('category', req.user, req.params.id, req.body);
   return sendSuccess(res, 200, 'Category updated', { category: mapEntry(entry) });
 });
 
 const deleteCategory = asyncHandler(async (req, res) => {
-  await catalogService.deleteEntry('category', req.params.id);
+  await catalogService.deleteEntry('category', req.user, req.params.id);
   return sendSuccess(res, 200, 'Category deleted');
 });
 
-const listUnits = asyncHandler(async (_req, res) => {
-  const entries = await catalogService.listEntries('unit');
+const listUnits = asyncHandler(async (req, res) => {
+  const entries = await catalogService.listEntries('unit', req.user, req.query.store);
   return sendSuccess(res, 200, 'Units fetched', { units: entries.map(mapUnit) });
 });
 
 const getUnit = asyncHandler(async (req, res) => {
-  const entry = await catalogService.getEntryById('unit', req.params.id);
+  const entry = await catalogService.getEntryById('unit', req.user, req.params.id);
   return sendSuccess(res, 200, 'Unit fetched', { unit: mapUnit(entry) });
 });
 
 const updateUnit = asyncHandler(async (req, res) => {
-  const entry = await catalogService.updateEntry('unit', req.params.id, req.body);
+  const entry = await catalogService.updateEntry('unit', req.user, req.params.id, req.body);
   return sendSuccess(res, 200, 'Unit updated', { unit: mapUnit(entry) });
 });
 
 const deleteUnit = asyncHandler(async (req, res) => {
-  await catalogService.deleteEntry('unit', req.params.id);
+  await catalogService.deleteEntry('unit', req.user, req.params.id);
   return sendSuccess(res, 200, 'Unit deleted');
 });
 

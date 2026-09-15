@@ -16,6 +16,7 @@ import {
 } from '@/components/ui/dialog';
 import { api } from '@/lib/api';
 import { useAuthStore } from '@/store/auth';
+import { useStorefrontFilter } from '@/store/storefront';
 import { grantsPermission } from '@/lib/modules';
 import { Pagination } from '@/components/ui/pagination';
 import { useLanguage } from '@/components/language-provider';
@@ -41,16 +42,36 @@ function UnitDialog({
   const qc = useQueryClient();
   const { t } = useLanguage();
   const isEditing = !!editing;
-  const [form, setForm] = useState({ name: '', abbreviation: '' });
+  const [form, setForm] = useState({ name: '', abbreviation: '', store: '' });
+
+  const { data: stores = [] } = useQuery<{ id: string; name: string; code?: string }[]>({
+    queryKey: ['stores'],
+    queryFn: async () => (await api.get('/stores')).data,
+    enabled: open && !isEditing,
+  });
 
   useEffect(() => {
-    if (open) setForm({ name: editing?.name ?? '', abbreviation: editing?.abbreviation ?? '' });
+    if (open) {
+      setForm({ name: editing?.name ?? '', abbreviation: editing?.abbreviation ?? '', store: '' });
+    }
   }, [open, editing]);
+
+  useEffect(() => {
+    if (!isEditing && stores.length === 1 && !form.store) {
+      setForm((f) => ({ ...f, store: stores[0].id }));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stores]);
 
   const save = useMutation({
     mutationFn: async () =>
       isEditing
-        ? (await api.patch(`/units/${editing!.id}`, form)).data
+        ? (
+            await api.patch(`/units/${editing!.id}`, {
+              name: form.name,
+              abbreviation: form.abbreviation,
+            })
+          ).data
         : (await api.post('/units', form)).data,
     onSuccess: () => {
       toast.success(isEditing ? 'Unit updated' : 'Unit created');
@@ -97,6 +118,28 @@ function UnitDialog({
               placeholder="e.g. kg"
             />
           </div>
+          {!isEditing && (
+            <div className="space-y-1.5">
+              <Label htmlFor="new-unit-store">Store *</Label>
+              <select
+                id="new-unit-store"
+                required
+                value={form.store}
+                onChange={(e) => setForm({ ...form, store: e.target.value })}
+                className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
+              >
+                <option value="" disabled>
+                  Select store…
+                </option>
+                {stores.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}
+                    {s.code ? ` (${s.code})` : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
           <div className="flex justify-end gap-2 pt-1">
             <DialogClose asChild>
               <Button type="button" variant="outline">
@@ -120,6 +163,7 @@ export function UnitsPage() {
   const perms = useAuthStore((s) => s.user?.permissions);
   // Unit create/update/delete all require inventory:manage on the backend.
   const canManage = grantsPermission(perms, 'inventory:manage');
+  const storefront = useStorefrontFilter();
   const [search, setSearch] = useState('');
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
@@ -131,8 +175,8 @@ export function UnitsPage() {
   const fetchLimit = isSearching ? SEARCH_FETCH_LIMIT : PAGE_SIZE;
 
   const { data: units = [], isLoading } = useQuery<Unit[]>({
-    queryKey: ['units'],
-    queryFn: async () => (await api.get('/units')).data,
+    queryKey: ['units', storefront.store],
+    queryFn: async () => (await api.get('/units', { params: storefront })).data,
   });
 
   const filtered = useMemo(

@@ -14,7 +14,10 @@ const { sendPasswordResetEmail } = require('./emailService');
 async function login({ email, password }) {
   // password/tokenVersion are excluded by the default scope, so opt back in.
   const { User } = initializeModels();
-  const user = await User.scope('withSecrets').findOne({ where: { email } });
+  const user = await User.scope('withSecrets').findOne({
+    where: { email },
+    include: [{ association: 'adminStores', attributes: ['id'] }],
+  });
   if (!user || !(await user.comparePassword(password))) {
     throw ApiError.unauthorized('Invalid email or password');
   }

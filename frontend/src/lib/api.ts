@@ -559,14 +559,15 @@ function mapWarehouse(w: any) {
     stockValue: w.stockValue ?? 0, // backend already serializes to rupees
   };
 }
-async function realWarehouses() {
-  const res = await http.get('/warehouses');
+async function realWarehouses(params?: any) {
+  const res = await http.get('/warehouses', { params });
   return (res.data.warehouses as any[]).map(mapWarehouse);
 }
 async function realCreateWarehouse(body: any) {
   const res = await http.post('/warehouses', {
     name: body.name,
     location: body.location,
+    store: body.store || undefined,
     isDefault: !!body.isDefault,
   });
   return mapWarehouse(res.data.warehouse);
@@ -633,6 +634,65 @@ async function realSetDefaultStore(id: string) {
   // No /set-default route on the backend — PATCH with isDefault=true does it.
   await http.patch(`/stores/${id}`, { isDefault: true });
   return { success: true };
+}
+
+/* ── Subscriptions (superadmin sells stores to tenant admins) ── */
+function mapSubscription(s: any) {
+  return {
+    id: String(s._id ?? s.id),
+    storeId: String(s.storeInfo?._id ?? s.storeInfo?.id ?? s.store ?? ''),
+    storeName: s.storeInfo?.name ?? '',
+    ownerId: String(s.ownerInfo?._id ?? s.ownerInfo?.id ?? s.owner ?? ''),
+    ownerName: s.ownerInfo?.name ?? '',
+    ownerEmail: s.ownerInfo?.email ?? '',
+    amount: s.amount, // backend serializes money to rupees
+    billingCycle: s.billingCycle,
+    status: s.status,
+    startsAt: s.startsAt,
+    endsAt: s.endsAt || null,
+    notes: s.notes || '',
+  };
+}
+function mapOwner(u: any) {
+  return {
+    id: String(u._id ?? u.id),
+    name: u.name,
+    email: u.email,
+    storeIds: (u.adminStores ?? []).map((s: any) => String(s._id ?? s.id)),
+  };
+}
+async function realListSubscriptions(params: any) {
+  const res = await http.get('/subscriptions', { params });
+  return {
+    subscriptions: (res.data.subscriptions as any[]).map(mapSubscription),
+    total: res.data.total,
+    page: res.data.page,
+    limit: res.data.limit,
+  };
+}
+async function realListOwners(params: any) {
+  const res = await http.get('/subscriptions/owners', { params });
+  return (res.data.owners as any[]).map(mapOwner);
+}
+async function realProvisionSubscription(body: any) {
+  const res = await http.post('/subscriptions/provision', body);
+  return {
+    owner: mapOwner(res.data.owner),
+    stores: (res.data.stores as any[]).map(mapStore),
+    subscriptions: (res.data.subscriptions as any[]).map(mapSubscription),
+  };
+}
+async function realAddStoreToOwner(ownerId: string, body: any) {
+  const res = await http.post(`/subscriptions/owners/${ownerId}/stores`, body);
+  return { store: mapStore(res.data.store), subscription: mapSubscription(res.data.subscription) };
+}
+async function realAttachExistingStore(ownerId: string, storeId: string) {
+  await http.post(`/subscriptions/owners/${ownerId}/attach-existing-store`, { storeId });
+  return { success: true };
+}
+async function realUpdateSubscription(id: string, body: any) {
+  const res = await http.patch(`/subscriptions/${id}`, body);
+  return mapSubscription(res.data.subscription);
 }
 
 /* ── Products ── */
@@ -738,14 +798,15 @@ async function realCatalog() {
 function mapCategory(c: any) {
   return { id: String(c._id ?? c.id), name: c.name, description: c.description || undefined };
 }
-async function realCategories() {
-  const res = await http.get('/catalog/categories');
+async function realCategories(params?: any) {
+  const res = await http.get('/catalog/categories', { params });
   return (res.data.categories as any[]).map(mapCategory);
 }
 async function realCreateCategory(body: any) {
   const res = await http.post('/catalog/categories', {
     name: body.name,
     description: body.description,
+    store: body.store || undefined,
   });
   return mapCategory(res.data.category);
 }
@@ -769,14 +830,15 @@ function mapUnitEntry(u: any) {
     abbreviation: u.abbreviation || u.name,
   };
 }
-async function realUnits() {
-  const res = await http.get('/catalog/units');
+async function realUnits(params?: any) {
+  const res = await http.get('/catalog/units', { params });
   return (res.data.units as any[]).map(mapUnitEntry);
 }
 async function realCreateUnit(body: any) {
   const res = await http.post('/catalog/units', {
     name: body.name,
     abbreviation: body.abbreviation,
+    store: body.store || undefined,
   });
   return mapUnitEntry(res.data.unit);
 }
@@ -801,16 +863,24 @@ function mapLabour(l: any) {
     outstanding: l.outstanding ?? 0, // backend serializes to rupees (live AP_LABOUR)
   };
 }
-async function realLabourList() {
-  const res = await http.get('/labour');
+async function realLabourList(params: any = {}) {
+  const res = await http.get('/labour', { params: { store: params.store || undefined } });
   return (res.data.labour as any[]).map(mapLabour);
 }
 async function realCreateLabour(body: any) {
-  const res = await http.post('/labour', { name: body.name, phoneNumber: body.phoneNumber });
+  const res = await http.post('/labour', {
+    name: body.name,
+    phoneNumber: body.phoneNumber,
+    store: body.store || undefined,
+  });
   return mapLabour(res.data.labour);
 }
 async function realCreateRole(body: any) {
-  const res = await http.post('/roles', { name: body.name, description: body.description });
+  const res = await http.post('/roles', {
+    name: body.name,
+    description: body.description,
+    store: body.store || undefined,
+  });
   return mapRole(res.data.role);
 }
 async function realUpdateLabour(id: string, body: any) {
@@ -976,6 +1046,7 @@ async function realCreateSupplier(body: any) {
     email: body.email,
     address: body.address,
     ntn: body.ntn,
+    store: body.store || undefined,
   });
   return mapSupplier(res.data.supplier);
 }
@@ -1022,6 +1093,7 @@ async function realCreateTransporter(body: any) {
     phone: body.phone,
     vehicleNumber: body.vehicleNumber,
     address: body.address,
+    store: body.store || undefined,
   });
   return mapTransporter(res.data.transporter);
 }
@@ -2101,21 +2173,25 @@ async function realUpload(body: FormData) {
   return { url: res.data.url, name: res.data.name, size: res.data.size };
 }
 
-/* ── Settings (flat singleton; backend serializes the exact FE shape) ── */
-async function realSettings() {
-  return (await http.get('/settings')).data;
+/* ── Settings (one row per store; backend serializes the exact FE shape) ── */
+async function realSettings(params: any) {
+  return (await http.get('/settings', { params })).data;
 }
-async function realUpdateSettings(body: any) {
+async function realUpdateSettings(body: any, params: any) {
   return (
-    await http.put('/settings', {
-      companyName: body.companyName,
-      address: body.address,
-      phone: body.phone,
-      email: body.email,
-      taxNumber: body.taxNumber,
-      currency: body.currency,
-      invoiceNote: body.invoiceNote,
-    })
+    await http.put(
+      '/settings',
+      {
+        companyName: body.companyName,
+        address: body.address,
+        phone: body.phone,
+        email: body.email,
+        taxNumber: body.taxNumber,
+        currency: body.currency,
+        invoiceNote: body.invoiceNote,
+      },
+      { params },
+    )
   ).data;
 }
 
@@ -2123,13 +2199,15 @@ async function realUpdateSettings(body: any) {
 function mapRole(r: any) {
   return {
     id: String(r._id ?? r.id),
-    name: r.name as string, // backend role names are lowercase (e.g. 'cashier')
+    name: r.name as string, // technical key `users.role` stores — never display this
+    label: (r.label as string) ?? (r.name as string), // human-readable text to display
     description: (r.description as string) ?? '',
     permissions: (r.permissions as string[]) ?? [],
+    isSystem: !!r.isSystem,
   };
 }
-async function realRoles() {
-  const res = await http.get('/roles');
+async function realRoles(params?: any) {
+  const res = await http.get('/roles', { params });
   return (res.data.roles as any[]).map(mapRole);
 }
 async function realUpdateRole(id: string, body: any) {
@@ -2187,8 +2265,8 @@ function mapManagedUser(u: any) {
     storeName: u.store && typeof u.store === 'object' ? u.store.name : undefined,
   };
 }
-async function realUsers() {
-  const res = await http.get('/users', { params: { limit: 100 } });
+async function realUsers(params?: any) {
+  const res = await http.get('/users', { params: { limit: 100, ...params } });
   return (res.data.users as any[]).map(mapManagedUser);
 }
 async function realCreateUser(body: any) {
@@ -2236,13 +2314,13 @@ async function tryReal(
   const params = config?.params ?? {};
 
   if (method === 'get') {
-    if (url === '/warehouses') return wrap(await realWarehouses());
+    if (url === '/warehouses') return wrap(await realWarehouses(params));
     if (url === '/stores') return wrap(await realListStores());
     if (url === '/products') return wrap(await realProductsList(params));
     if (url === '/catalog') return wrap(await realCatalog());
-    if (url === '/categories') return wrap(await realCategories());
-    if (url === '/units') return wrap(await realUnits());
-    if (url === '/labour') return wrap(await realLabourList());
+    if (url === '/categories') return wrap(await realCategories(params));
+    if (url === '/units') return wrap(await realUnits(params));
+    if (url === '/labour') return wrap(await realLabourList(params));
     if (url === '/customers') return wrap(await realCustomers(params));
     if (url === '/vendors') return wrap(await realVendors(params));
     if (url === '/suppliers') return wrap(await realSuppliers(params));
@@ -2262,14 +2340,16 @@ async function tryReal(
     if (url === '/cash') return wrap(await realCashLedger(params.store as string));
     if (url === '/day-end') return wrap(await realDayEndStatus(params));
     if (url === '/bank/accounts') return wrap(await realBankAccounts(params.store as string));
-    if (url === '/users') return wrap(await realUsers());
-    if (url === '/roles') return wrap(await realRoles());
+    if (url === '/users') return wrap(await realUsers(params));
+    if (url === '/roles') return wrap(await realRoles(params));
+    if (url === '/subscriptions/owners') return wrap(await realListOwners(params));
+    if (url === '/subscriptions') return wrap(await realListSubscriptions(params));
     if (seg[0] === 'gate-passes' && seg[2] === 'qr') return wrap(await realGatePassQr(seg[1]));
     if (url === '/gate-passes') return wrap(await realGatePassList(params));
     if (seg[0] === 'gate-passes' && seg[1] === 'public' && seg.length === 3)
       return wrap(await realPublicGatePass(seg[2]));
     if (seg[0] === 'gate-passes' && seg.length === 2) return wrap(await realGatePassDetail(seg[1]));
-    if (url === '/settings') return wrap(await realSettings());
+    if (url === '/settings') return wrap(await realSettings(params));
     if (url === '/dashboard/kpis') return wrap(await realDashKpis(params.store as string));
     if (url === '/dashboard/sales-trend') return wrap(await realDashTrend(params.store as string));
     if (url === '/dashboard/top-products') return wrap(await realDashTop(params.store as string));
@@ -2326,6 +2406,11 @@ async function tryReal(
     if (url === '/day-end/close') return wrap(await realCloseDay(body));
     if (url === '/day-end/reopen') return wrap(await realReopenDay(body));
     if (url === '/bank/accounts') return wrap(await realCreateBankAccount(body));
+    if (url === '/subscriptions/provision') return wrap(await realProvisionSubscription(body));
+    if (seg[0] === 'subscriptions' && seg[1] === 'owners' && seg[3] === 'stores')
+      return wrap(await realAddStoreToOwner(seg[2], body));
+    if (seg[0] === 'subscriptions' && seg[1] === 'owners' && seg[3] === 'attach-existing-store')
+      return wrap(await realAttachExistingStore(seg[2], body.storeId));
     if (url === '/users') return wrap(await realCreateUser(body));
     if (url === '/uploads') return wrap(await realUpload(body));
     if (seg[0] === 'warehouses' && seg[2] === 'set-default')
@@ -2375,9 +2460,11 @@ async function tryReal(
       return wrap(await realSetPendingEntityPrice(seg[1], body));
     if (seg[0] === 'bank' && seg[1] === 'accounts' && seg[2])
       return wrap(await realUpdateBankAccount(seg[2], body));
+    if (seg[0] === 'subscriptions' && seg[1])
+      return wrap(await realUpdateSubscription(seg[1], body));
   }
   if (method === 'put') {
-    if (url === '/settings') return wrap(await realUpdateSettings(body));
+    if (url === '/settings') return wrap(await realUpdateSettings(body, params));
   }
   if (method === 'delete') {
     if (seg[0] === 'products' && seg[1] && !seg[2]) return wrap(await realDeleteProduct(seg[1]));

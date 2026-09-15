@@ -9,6 +9,7 @@ module.exports = function defineUnit(db) {
       id: id(),
       name: { type: DataTypes.STRING(40), allowNull: false },
       abbreviation: { type: DataTypes.STRING(20), allowNull: false, defaultValue: '' },
+      store: { type: DataTypes.STRING(24), field: 'store_id' },
       isActive: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: true },
     },
     { tableName: 'units' },

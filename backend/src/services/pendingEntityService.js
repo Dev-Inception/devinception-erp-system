@@ -6,6 +6,7 @@ const { toPaisa } = require('../utils/money');
 const { ACCOUNT, REF } = require('../utils/finance');
 const journalService = require('./journalService');
 const { parsePagination, escapeLike } = require('../utils/query');
+const { resolveStoreScope, storeWhere, assertStoreAccess } = require('../utils/storeScope');
 
 /**
  * Tracks items procured from a vendor/supplier whose cost isn't known yet —
@@ -66,15 +67,16 @@ async function listPendingEntities({
   store,
   sourceType,
   search,
+  actor,
   ...query
 } = {}) {
   const { PendingEntity, Vendor, Supplier, Product, Store, Warehouse } = initializeModels();
   const { page, limit, skip } = parsePagination(query);
-  const where = {};
+  const { storeIds } = await resolveStoreScope({ store, actor });
+  const where = { ...storeWhere(storeIds) };
   if (status) where.status = status;
   if (vendor) where.vendor = vendor;
   if (supplier) where.supplier = supplier;
-  if (store) where.store = store;
   if (sourceType) where.sourceType = sourceType;
   if (search) {
     const term = `%${escapeLike(search)}%`;
@@ -142,7 +144,7 @@ async function listByStockReceipts(stockReceiptIds, transaction) {
   return map;
 }
 
-async function getPendingEntityById(id) {
+async function getPendingEntityById(actor, id) {
   const { PendingEntity, Vendor, Supplier, Product, Store, Warehouse } = initializeModels();
   const entity = await PendingEntity.findByPk(id, {
     include: [
@@ -154,6 +156,7 @@ async function getPendingEntityById(id) {
     ],
   });
   if (!entity) throw ApiError.notFound('Pending entity not found');
+  if (entity.store) assertStoreAccess(actor, entity.store);
   return entity;
 }
 
@@ -170,6 +173,7 @@ async function setPurchasePrice(actor, id, purchasePrice) {
   return getPostgres().transaction(async (transaction) => {
     const entity = await PendingEntity.findByPk(id, { transaction, lock: transaction.LOCK.UPDATE });
     if (!entity) throw ApiError.notFound('Pending entity not found');
+    if (entity.store) assertStoreAccess(actor, entity.store);
     if (entity.status === 'PRICED') {
       throw ApiError.badRequest('This entity has already been priced');
     }

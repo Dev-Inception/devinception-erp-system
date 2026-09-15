@@ -13,6 +13,7 @@ module.exports = function defineSupplier(db) {
       ntn: { type: DataTypes.STRING(40), allowNull: false, defaultValue: '' },
       address: { type: DataTypes.STRING(300), allowNull: false, defaultValue: '' },
       outstanding: money(),
+      store: { type: DataTypes.STRING(24), allowNull: false, field: 'store_id' },
     },
     { tableName: 'suppliers' },
   );

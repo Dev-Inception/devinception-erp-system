@@ -1,7 +1,13 @@
+const { Op } = require('sequelize');
 const { initializeModels } = require('../db/models');
 const ApiError = require('../utils/ApiError');
 const { ROLES } = require('../utils/constants');
 const { PERMISSIONS, PERMISSION_VALUES, WILDCARD } = require('../utils/permissions');
+const {
+  resolveStoreScope,
+  resolveOptionalWriteStore,
+  assertStoreAccess,
+} = require('../utils/storeScope');
 
 /**
  * Role management + a small in-process permission cache so authorization
@@ -30,6 +36,7 @@ const SYSTEM_ROLES = [
       PERMISSIONS.ESTIMATES_CREATE,
       PERMISSIONS.FINANCE_MANAGE,
       PERMISSIONS.EXPENSES_MANAGE,
+      PERMISSIONS.LABOUR_READ,
     ],
   },
   {
@@ -40,6 +47,7 @@ const SYSTEM_ROLES = [
       PERMISSIONS.VENDORS_READ,
       PERMISSIONS.SUPPLIERS_READ,
       PERMISSIONS.TRANSPORTERS_READ,
+      PERMISSIONS.LABOUR_READ,
       PERMISSIONS.CUSTOMERS_READ,
       PERMISSIONS.INVENTORY_READ,
       PERMISSIONS.GATE_PASSES_READ,
@@ -65,6 +73,9 @@ const SYSTEM_ROLES = [
       PERMISSIONS.TRANSPORTERS_READ,
       PERMISSIONS.TRANSPORTERS_CREATE,
       PERMISSIONS.TRANSPORTERS_UPDATE,
+      PERMISSIONS.LABOUR_READ,
+      PERMISSIONS.LABOUR_CREATE,
+      PERMISSIONS.LABOUR_UPDATE,
       PERMISSIONS.CUSTOMERS_READ,
       PERMISSIONS.CUSTOMERS_CREATE,
       PERMISSIONS.CUSTOMERS_UPDATE,
@@ -104,6 +115,10 @@ const SYSTEM_ROLES = [
       PERMISSIONS.TRANSPORTERS_CREATE,
       PERMISSIONS.TRANSPORTERS_UPDATE,
       PERMISSIONS.TRANSPORTERS_DELETE,
+      PERMISSIONS.LABOUR_READ,
+      PERMISSIONS.LABOUR_CREATE,
+      PERMISSIONS.LABOUR_UPDATE,
+      PERMISSIONS.LABOUR_DELETE,
       PERMISSIONS.CUSTOMERS_READ,
       PERMISSIONS.CUSTOMERS_CREATE,
       PERMISSIONS.CUSTOMERS_UPDATE,
@@ -121,9 +136,23 @@ const SYSTEM_ROLES = [
       PERMISSIONS.FINANCE_READ,
       PERMISSIONS.FINANCE_MANAGE,
       PERMISSIONS.EXPENSES_MANAGE,
+      PERMISSIONS.EXPENSES_APPROVE,
+      PERMISSIONS.PENDING_ENTITIES_PRICE,
       PERMISSIONS.REPORTS_READ,
       PERMISSIONS.SETTINGS_READ,
       PERMISSIONS.SETTINGS_MANAGE,
+      // A store admin manages their own custom roles (visibility-scoped —
+      // see roleService.js's store-aware list/get/update/delete below), the
+      // same way they already manage their own staff.
+      PERMISSIONS.ROLES_READ,
+      PERMISSIONS.ROLES_CREATE,
+      PERMISSIONS.ROLES_UPDATE,
+      PERMISSIONS.ROLES_DELETE,
+      // Lets an admin edit their own store's name/address/warehouses — the
+      // route itself still keeps *creating*/*deleting* a store super-admin-
+      // only (buying/canceling a store is a subscription action), and
+      // storeService.updateStore only ever lets them touch their own.
+      PERMISSIONS.STORES_MANAGE,
     ],
   },
   {
@@ -162,10 +191,24 @@ async function ensureSystemRoles() {
     // the original upsert's $setOnInsert — an existing row is left alone.
     await Role.findOrCreate({
       where: { name: def.name },
-      defaults: { ...def, isSystem: true },
+      defaults: { ...def, isSystem: true, label: def.name },
     });
   }
   invalidateCache();
+}
+
+// `<storeId>__<slug>` — a technical key that's globally unique by
+// construction (a store id is already unique), so two different stores can
+// each create a role literally called "Cashier" without colliding on the
+// single `roles.name` column `users.role` foreign-keys to.
+function slugify(text) {
+  return (
+    text
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/(^-+|-+$)/g, '')
+      .slice(0, 70) || 'role'
+  );
 }
 
 function validatePermissions(permissions) {
@@ -178,43 +221,76 @@ function validatePermissions(permissions) {
   }
 }
 
-async function listRoles() {
+// Every built-in role, plus whichever custom roles belong to the actor's
+// own store(s) — a store admin never sees another tenant's custom roles.
+// Unrestricted (super admin) with no explicit `store` sees everything; an
+// explicit `store` (e.g. super admin viewing "as" one store from the header
+// switcher) narrows the same way it would for that store's own admin.
+async function listRoles(actor, store) {
   const { Role } = initializeModels();
-  return Role.findAll({ order: [['createdAt', 'ASC']] });
+  const { storeIds } = await resolveStoreScope({ store, actor });
+  const where = storeIds
+    ? { [Op.or]: [{ isSystem: true }, { store: storeIds.length ? { [Op.in]: storeIds } : null }] }
+    : {};
+  return Role.findAll({ where, order: [['createdAt', 'ASC']] });
 }
 
-async function getRoleById(id) {
+// A built-in role is visible to anyone with read access (it's the shared
+// baseline every tenant's staff can be assigned); a custom role is only
+// visible to the store it belongs to.
+async function getRoleById(actor, id) {
   const { Role } = initializeModels();
   const role = await Role.findByPk(id);
   if (!role) throw ApiError.notFound('Role not found');
+  if (!role.isSystem) assertStoreAccess(actor, role.store);
   return role;
 }
 
-async function createRole({ name, description, permissions = [] }) {
+async function createRole(actor, { name, description, permissions = [], store }) {
   const { Role } = initializeModels();
-  const normalized = name.trim().toLowerCase();
-  const existing = await Role.findOne({ where: { name: normalized } });
-  if (existing) throw ApiError.conflict('A role with that name already exists');
+  const label = name.trim();
+  if (!label) throw ApiError.badRequest('A name is required');
 
   validatePermissions(permissions);
+  const storeId = resolveOptionalWriteStore(actor, store);
+
+  // A store-owned role's technical name is namespaced by its own store id
+  // (see slugify above) so it can never collide with another tenant's role
+  // of the same display name; a super-admin-authored global role (no store)
+  // keeps the old plain-name behavior, unique platform-wide.
+  const technicalName = storeId ? `${storeId}__${slugify(label)}` : label.toLowerCase();
+  const existing = await Role.findOne({ where: { name: technicalName } });
+  if (existing) {
+    throw ApiError.conflict(
+      storeId ? 'You already have a role with this name' : 'A role with that name already exists',
+    );
+  }
 
   const role = await Role.create({
-    name: normalized,
+    name: technicalName,
+    label,
     description,
     permissions,
     isSystem: false,
+    store: storeId,
   });
   invalidateCache();
   return role;
 }
 
 // Only description and permissions are editable. `name` is immutable (it is
-// referenced by User.role), and the super_admin role is fully locked.
-async function updateRole(id, { description, permissions }) {
-  const role = await getRoleById(id);
+// referenced by User.role). The super_admin role is fully locked; any other
+// built-in role can only be tuned by a super admin (it's shared by every
+// tenant using it) — a store admin may only edit their own custom roles,
+// already ownership-checked by getRoleById.
+async function updateRole(actor, id, { description, permissions }) {
+  const role = await getRoleById(actor, id);
 
   if (role.name === ROLES.SUPER_ADMIN) {
     throw ApiError.forbidden('The super_admin role cannot be modified');
+  }
+  if (role.isSystem && actor.role !== ROLES.SUPER_ADMIN) {
+    throw ApiError.forbidden('Only a super admin can modify a built-in role');
   }
 
   if (permissions !== undefined) {
@@ -230,9 +306,9 @@ async function updateRole(id, { description, permissions }) {
   return role;
 }
 
-async function deleteRole(id) {
+async function deleteRole(actor, id) {
   const { User } = initializeModels();
-  const role = await getRoleById(id);
+  const role = await getRoleById(actor, id);
 
   if (role.isSystem) {
     throw ApiError.forbidden('Built-in roles cannot be deleted');

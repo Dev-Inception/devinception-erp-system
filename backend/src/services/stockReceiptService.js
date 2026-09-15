@@ -1,7 +1,6 @@
 const { Op } = require('sequelize');
 const { getPostgres } = require('../db/postgres');
 const { initializeModels } = require('../db/models');
-const { isValidId } = require('../db/id');
 const ApiError = require('../utils/ApiError');
 const { ACCOUNT, REF } = require('../utils/finance');
 const journalService = require('./journalService');
@@ -17,7 +16,8 @@ const { parsePagination, escapeLike } = require('../utils/query');
 const {
   resolveWarehouseScope,
   warehouseWhere,
-  actorStoreId,
+  resolveStoreScope,
+  storeWhere,
   assertStoreAccess,
 } = require('../utils/storeScope');
 
@@ -37,11 +37,13 @@ const {
 // Looks up an optional Transporter reference — a receipt is free to have
 // none at all (the free-text truck.driverName/driverPhone still works
 // standalone), but if an id is given it must resolve to a real transporter.
-async function resolveTransporter(transporterId, transaction) {
+async function resolveTransporter(transporterId, storeId, transaction) {
   if (!transporterId) return null;
   const { Transporter } = initializeModels();
   const transporter = await Transporter.findByPk(transporterId, { transaction });
-  if (!transporter) throw ApiError.notFound('Transporter not found');
+  if (!transporter || String(transporter.store) !== String(storeId)) {
+    throw ApiError.notFound('Transporter not found');
+  }
   return transporter;
 }
 
@@ -254,6 +256,9 @@ async function createReceipt(
     const storeDoc = await Store.findByPk(store, { transaction });
     if (!storeDoc) throw ApiError.badRequest('A store is required');
     assertStoreAccess(actor, storeDoc.id);
+    if (String(supplierDoc.store) !== String(storeDoc.id)) {
+      throw ApiError.notFound('Supplier not found');
+    }
     const warehouseDoc = await Warehouse.findByPk(warehouse, { transaction });
     if (!warehouseDoc) throw ApiError.notFound('Warehouse not found');
     // Opening-stock entries (already-in-warehouse stock, no truck) skip the
@@ -264,9 +269,9 @@ async function createReceipt(
     if (!Array.isArray(items) || items.length === 0) {
       throw ApiError.badRequest('At least one product line is required');
     }
-    const receiptLabour = await labourService.resolveLabourLines(labour, transaction);
+    const receiptLabour = await labourService.resolveLabourLines(labour, storeDoc.id, transaction);
     const labourRentPaisa = receiptLabour.reduce((s, l) => s + l.rent, 0);
-    const transporterDoc = await resolveTransporter(transporter, transaction);
+    const transporterDoc = await resolveTransporter(transporter, storeDoc.id, transaction);
     // Validated (and funds checked) up front, before any stock/inventory is
     // touched — an insufficient-funds problem should reject the whole
     // receipt, not leave it half-applied.
@@ -531,7 +536,9 @@ async function updateReceipt(
     assertStoreAccess(actor, receipt.store);
 
     const supplierDoc = await Supplier.findByPk(supplier, { transaction });
-    if (!supplierDoc) throw ApiError.notFound('Supplier not found');
+    if (!supplierDoc || String(supplierDoc.store) !== String(receipt.store)) {
+      throw ApiError.notFound('Supplier not found');
+    }
     const warehouseDoc = await Warehouse.findByPk(warehouse, { transaction });
     if (!warehouseDoc) throw ApiError.notFound('Warehouse not found');
     // Whether a receipt is opening stock is fixed at creation (see the
@@ -563,7 +570,7 @@ async function updateReceipt(
       lines.push({ product, receivedQuantity, damagedQuantity });
     }
 
-    const transporterDoc = await resolveTransporter(transporter, transaction);
+    const transporterDoc = await resolveTransporter(transporter, receipt.store, transaction);
 
     const originalItems = receipt.items.map((it) => it.toJSON());
     await reverseReceiptStock({ ...receipt.toJSON(), items: originalItems }, actor, transaction);
@@ -590,7 +597,11 @@ async function updateReceipt(
       label: 'stock receipt',
       transaction,
     });
-    const receiptLabour = await labourService.resolveLabourLines(labour, transaction);
+    const receiptLabour = await labourService.resolveLabourLines(
+      labour,
+      receipt.store,
+      transaction,
+    );
     const labourRentPaisa = receiptLabour.reduce((s, l) => s + l.rent, 0);
 
     const when = date ? new Date(date) : receipt.date;
@@ -806,7 +817,8 @@ async function listReceipts({
   actor,
   ...query
 } = {}) {
-  const { StockReceipt, StockReceiptLabour, Warehouse, Store, Transporter } = initializeModels();
+  const { StockReceipt, StockReceiptItem, StockReceiptLabour, Warehouse, Store, Transporter } =
+    initializeModels();
   const { page, limit, skip } = parsePagination(query);
   const where = {};
   if (supplier) where.supplier = supplier;
@@ -814,9 +826,9 @@ async function listReceipts({
   // Every receipt now records its own storefront directly — filter on that
   // rather than the indirect (and looser) warehouse-membership scoping. A
   // store-restricted actor's own store always wins over the query param.
-  const effectiveStore = actorStoreId(actor) || store;
-  if (effectiveStore && isValidId(effectiveStore)) {
-    where.store = effectiveStore;
+  const { storeIds } = await resolveStoreScope({ store, actor });
+  if (storeIds) {
+    Object.assign(where, storeWhere(storeIds));
   } else if (warehouse) {
     const { warehouseIds } = await resolveWarehouseScope({ warehouse, actor });
     Object.assign(where, warehouseWhere(warehouseIds));
@@ -838,6 +850,7 @@ async function listReceipts({
   const { rows, count } = await StockReceipt.findAndCountAll({
     where,
     include: [
+      { model: StockReceiptItem, as: 'items', separate: true, order: [['position', 'ASC']] },
       { model: Warehouse, as: 'warehouseInfo', attributes: ['id', 'name'] },
       { model: Store, as: 'storeInfo', attributes: ['id', 'name', 'code'] },
       {

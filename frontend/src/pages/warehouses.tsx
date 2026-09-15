@@ -27,6 +27,7 @@ import {
 import { api } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
 import { useAuthStore } from '@/store/auth';
+import { useStorefrontFilter } from '@/store/storefront';
 import { grantsPermission } from '@/lib/modules';
 import type { WarehouseRow } from '@/components/layout/warehouse-switcher';
 import { useLanguage } from '@/components/language-provider';
@@ -43,17 +44,33 @@ function WarehouseDialog({
   const { t } = useLanguage();
   const editing = !!warehouse;
   const [open, setOpen] = useState(false);
-  const [form, setForm] = useState({ name: '', location: '', isDefault: false });
+  const [form, setForm] = useState({ name: '', location: '', store: '', isDefault: false });
+
+  const { data: stores = [] } = useQuery<{ id: string; name: string; code?: string }[]>({
+    queryKey: ['stores'],
+    queryFn: async () => (await api.get('/stores')).data,
+    enabled: open && !editing,
+  });
 
   useEffect(() => {
     if (open) {
       setForm({
         name: warehouse?.name ?? '',
         location: warehouse?.location ?? '',
+        store: '',
         isDefault: false,
       });
     }
   }, [open, warehouse]);
+
+  // Once stores load, default to the only one when there's just one — same
+  // convenience the store-scoped backend already applies server-side.
+  useEffect(() => {
+    if (!editing && stores.length === 1 && !form.store) {
+      setForm((f) => ({ ...f, store: stores[0].id }));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stores]);
 
   const save = useMutation({
     mutationFn: async () =>
@@ -109,6 +126,31 @@ function WarehouseDialog({
             />
           </div>
           {!editing && (
+            <div className="space-y-1.5">
+              <Label htmlFor="new-warehouse-store">Store *</Label>
+              <select
+                id="new-warehouse-store"
+                required
+                value={form.store}
+                onChange={(e) => setForm({ ...form, store: e.target.value })}
+                className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
+              >
+                <option value="" disabled>
+                  Select store…
+                </option>
+                {stores.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}
+                    {s.code ? ` (${s.code})` : ''}
+                  </option>
+                ))}
+              </select>
+              <p className="text-xs text-muted-foreground">
+                This warehouse belongs to this store — its stock is only visible from here.
+              </p>
+            </div>
+          )}
+          {!editing && (
             <label className="flex items-center gap-2 text-sm">
               <input
                 type="checkbox"
@@ -142,13 +184,14 @@ export function WarehousesPage() {
   // Warehouse create/update/delete all require inventory:manage on the backend.
   const canManage = grantsPermission(perms, 'inventory:manage');
 
+  const storefront = useStorefrontFilter();
   const [search, setSearch] = useState('');
   const q = search.trim().toLowerCase();
   const isSearching = q.length > 0;
 
   const { data: warehouses = [], isLoading } = useQuery<WarehouseRow[]>({
-    queryKey: ['warehouses'],
-    queryFn: async () => (await api.get('/warehouses')).data,
+    queryKey: ['warehouses', storefront.store],
+    queryFn: async () => (await api.get('/warehouses', { params: storefront })).data,
   });
 
   const filtered = useMemo(

@@ -10,7 +10,12 @@ const counterService = require('./counterService');
 const { findOrCreateByName } = require('./catalogService');
 const { settlementAccount, assertSufficientFunds } = require('./paymentService');
 const { parsePagination, escapeLike } = require('../utils/query');
-const { actorStoreId, assertStoreAccess } = require('../utils/storeScope');
+const {
+  resolveStoreScope,
+  storeWhere,
+  requireWriteStore,
+  assertStoreAccess,
+} = require('../utils/storeScope');
 const { ROLES } = require('../utils/constants');
 
 const EXPENSE_STATUS = { PENDING: 'PENDING', APPROVED: 'APPROVED', REJECTED: 'REJECTED' };
@@ -51,14 +56,9 @@ async function resolveCategory({ category, categoryName }) {
 
 async function requireStore(actor, store, transaction) {
   const { Store } = initializeModels();
-  const restricted = actorStoreId(actor);
-  const storeId = restricted || store;
-  if (!storeId || !isValidId(storeId)) {
-    throw ApiError.badRequest('A store is required');
-  }
+  const storeId = requireWriteStore(actor, store);
   const storeDoc = await Store.findByPk(storeId, { transaction });
   if (!storeDoc) throw ApiError.badRequest('Store not found');
-  assertStoreAccess(actor, storeDoc.id);
   return storeDoc;
 }
 
@@ -300,9 +300,8 @@ async function listExpenses({ category, store, from, to, search, status, actor, 
   const { page, limit, skip } = parsePagination(query);
   const where = {};
 
-  const restricted = actorStoreId(actor);
-  const effectiveStore = restricted || store;
-  if (effectiveStore && isValidId(effectiveStore)) where.store = effectiveStore;
+  const { storeIds } = await resolveStoreScope({ store, actor });
+  Object.assign(where, storeWhere(storeIds));
   if (category && isValidId(category)) where.category = category;
   if (status && Object.values(EXPENSE_STATUS).includes(status)) where.status = status;
   if (from || to) {
@@ -348,11 +347,10 @@ async function listExpenses({ category, store, from, to, search, status, actor, 
 async function categoryTotals({ store, from, to, actor } = {}) {
   const conditions = [`status = 'APPROVED'`];
   const replacements = {};
-  const restricted = actorStoreId(actor);
-  const effectiveStore = restricted || store;
-  if (effectiveStore && isValidId(effectiveStore)) {
-    conditions.push('store_id = :store');
-    replacements.store = effectiveStore;
+  const { storeIds } = await resolveStoreScope({ store, actor });
+  if (storeIds) {
+    conditions.push('store_id IN (:storeIds)');
+    replacements.storeIds = storeIds;
   }
   // Only money that has actually posted counts as "what we're spending" —
   // a still-PENDING expense hasn't touched the books yet.

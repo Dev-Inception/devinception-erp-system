@@ -1,12 +1,16 @@
 const { Op } = require('sequelize');
 const { getPostgres } = require('../db/postgres');
 const { initializeModels } = require('../db/models');
-const { isValidId } = require('../db/id');
 const ApiError = require('../utils/ApiError');
 const counterService = require('./counterService');
 const { calculateInvoiceTotals, resolveUnitPrice } = require('./invoiceCalculationService');
 const { parsePagination, escapeLike } = require('../utils/query');
-const { actorStoreId, assertStoreAccess } = require('../utils/storeScope');
+const {
+  resolveStoreScope,
+  storeWhere,
+  requireWriteStore,
+  assertStoreAccess,
+} = require('../utils/storeScope');
 
 /**
  * Estimates (quotes) for a prospective sale — no stock or ledger effect
@@ -91,14 +95,9 @@ async function createEstimate(actor, input) {
   return getPostgres().transaction(async (transaction) => {
     const { Estimate, EstimateItem, Store } = initializeModels();
 
-    const restricted = actorStoreId(actor);
-    const storeId = restricted || store;
-    if (!storeId || !isValidId(storeId)) {
-      throw ApiError.badRequest('A store is required');
-    }
+    const storeId = requireWriteStore(actor, store);
     const storeDoc = await Store.findByPk(storeId, { transaction });
     if (!storeDoc) throw ApiError.badRequest('Store not found');
-    assertStoreAccess(actor, storeDoc.id);
 
     const customerFields = await resolveCustomer(actor, input, transaction);
     const resolvedItems = await resolveItems(items, transaction);
@@ -264,9 +263,8 @@ async function listEstimates({
   const { page, limit, skip } = parsePagination(query);
   const where = {};
 
-  const restricted = actorStoreId(actor);
-  const effectiveStore = restricted || store;
-  if (effectiveStore && isValidId(effectiveStore)) where.store = effectiveStore;
+  const { storeIds } = await resolveStoreScope({ store, actor });
+  Object.assign(where, storeWhere(storeIds));
 
   // A converted estimate is now a real sale — it's managed from the Sales
   // page (invoice, gate passes, returns) from here on, so the default
