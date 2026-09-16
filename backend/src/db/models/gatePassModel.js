@@ -10,15 +10,16 @@ module.exports = function defineGatePass(db) {
       number: { type: DataTypes.STRING(40), allowNull: false },
       token: { type: DataTypes.STRING(64), allowNull: false },
       sourceType: {
-        type: DataTypes.STRING(10),
+        type: DataTypes.STRING(20),
         allowNull: false,
         defaultValue: 'SALE',
         field: 'source_type',
-        validate: { isIn: [['SALE', 'RETURN', 'PURCHASE']] },
+        validate: { isIn: [['SALE', 'RETURN', 'PURCHASE', 'SUPPLIER_RETURN']] },
       },
       sale: { type: DataTypes.STRING(24), field: 'sale_id' },
       saleReturn: { type: DataTypes.STRING(24), field: 'sale_return_id' },
       stockReceipt: { type: DataTypes.STRING(24), field: 'stock_receipt_id' },
+      damagedStockReturn: { type: DataTypes.STRING(24), field: 'damaged_stock_return_id' },
       kind: {
         type: DataTypes.STRING(10),
         allowNull: false,

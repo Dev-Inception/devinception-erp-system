@@ -229,6 +229,81 @@ async function receiveFromCustomer(
   });
 }
 
+// Receive from a vendor who bought stock from us: Dr Cash|Bank / Cr
+// Vendor-Receivable (vendor). The counterpart of receiveFromCustomer, but
+// against ACCOUNT.AR_VENDOR — independent of whatever we may separately owe
+// that same vendor on the AP side. Payment IN on the vendor-sale ledger.
+async function receiveFromVendorReceivable(
+  actor,
+  { vendor, store, amount, method = PAYMENT_METHOD.CASH, bankAccount, date, note },
+) {
+  const { Vendor } = initializeModels();
+  return getPostgres().transaction(async (transaction) => {
+    const vendorDoc = await Vendor.findByPk(vendor, { transaction });
+    if (!vendorDoc) throw ApiError.notFound('Vendor not found');
+    const storeDoc = await requireStore(actor, store, transaction);
+
+    const amt = toPaisa(amount);
+    if (amt <= 0) throw ApiError.badRequest('Amount must be positive');
+
+    const settle = await settlementAccount(method, bankAccount, storeDoc.id, transaction);
+    const when = date ? new Date(date) : new Date();
+    const number = await counterService.nextDocNumber('RCPT', when.getFullYear(), 4, transaction);
+
+    return journalService.post({
+      date: when,
+      description: note || `Receipt from ${vendorDoc.name}`,
+      refType: REF.RECEIPT,
+      refNo: number,
+      store: storeDoc.id,
+      createdBy: actor ? actor.id : null,
+      lines: [
+        journalService.line(settle.account, { debit: amt, ref: settle.ref }),
+        journalService.line(ACCOUNT.AR_VENDOR, { credit: amt, ref: vendorDoc.id }),
+      ],
+      transaction,
+    });
+  });
+}
+
+// Refund a vendor who bought stock from us: Dr Vendor-Receivable (vendor) /
+// Cr Cash|Bank — e.g. an overpayment or a goodwill refund. Payment OUT on
+// the vendor-sale ledger, distinct from payVendor (which settles the AP
+// side of the same vendor).
+async function refundVendorReceivable(
+  actor,
+  { vendor, store, amount, method = PAYMENT_METHOD.CASH, bankAccount, date, note },
+) {
+  const { Vendor } = initializeModels();
+  return getPostgres().transaction(async (transaction) => {
+    const vendorDoc = await Vendor.findByPk(vendor, { transaction });
+    if (!vendorDoc) throw ApiError.notFound('Vendor not found');
+    const storeDoc = await requireStore(actor, store, transaction);
+
+    const amt = toPaisa(amount);
+    if (amt <= 0) throw ApiError.badRequest('Amount must be positive');
+
+    const settle = await settlementAccount(method, bankAccount, storeDoc.id, transaction);
+    await assertSufficientFunds(settle.account, settle.ref, amt, transaction);
+    const when = date ? new Date(date) : new Date();
+    const number = await counterService.nextDocNumber('PAY', when.getFullYear(), 4, transaction);
+
+    return journalService.post({
+      date: when,
+      description: note || `Refund to ${vendorDoc.name}`,
+      refType: REF.PAYMENT,
+      refNo: number,
+      store: storeDoc.id,
+      createdBy: actor ? actor.id : null,
+      lines: [
+        journalService.line(ACCOUNT.AR_VENDOR, { debit: amt, ref: vendorDoc.id }),
+        journalService.line(settle.account, { credit: amt, ref: settle.ref }),
+      ],
+      transaction,
+    });
+  });
+}
+
 /**
  * Manual cash entry. `direction` is "IN" (cash added to the drawer) or "OUT"
  * (cash removed). The other side is equity, so the books stay balanced.
@@ -312,6 +387,8 @@ module.exports = {
   payLabour,
   payTransport,
   receiveFromCustomer,
+  receiveFromVendorReceivable,
+  refundVendorReceivable,
   cashEntry,
   recordExpense,
   settlementAccount,

@@ -194,8 +194,12 @@ export function RolePage() {
   // This page manages roles, not staff — only the "All Stores" overview
   // shows built-ins (they're shared by every tenant using them, so they're
   // not "theirs" to manage). Assigning a built-in role to staff still works
-  // from the Users page, which fetches the unfiltered list.
-  const roles = viewingAllStores ? allRoles : allRoles.filter((r) => !r.isSystem);
+  // from the Users page, which fetches the unfiltered list. Super Admin is
+  // never shown here at all — it's locked server-side (can't be edited or
+  // deleted, see roleService.js) and there is exactly one, seeded once.
+  const roles = (viewingAllStores ? allRoles : allRoles.filter((r) => !r.isSystem)).filter(
+    (r) => r.name.toUpperCase() !== 'SUPER_ADMIN',
+  );
 
   const filtered = useMemo(
     () =>

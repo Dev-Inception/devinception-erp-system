@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate, useParams, Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Banknote, Printer, QrCode } from 'lucide-react';
+import { ArrowLeft, Banknote, HandCoins, Printer, QrCode, Undo2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -12,8 +12,10 @@ import { cn, formatCurrency } from '@/lib/utils';
 import { useStorefrontFilter } from '@/store/storefront';
 import { useLanguage } from '@/components/language-provider';
 import { PayVendorDialog } from '@/components/pay-vendor-dialog';
+import { VendorReceivablePaymentDialog } from '@/components/vendor-receivable-payment-dialog';
 import { GatePassDialog } from '@/components/gate-pass-dialog';
 import { openSaleInvoicePopup, type SaleForInvoice } from '@/lib/invoicePopup';
+import { VendorSaleDetailDialog, type VendorSale } from '@/pages/vendor-sales';
 
 interface Vendor {
   id: string;
@@ -46,6 +48,7 @@ interface SaleRow {
   id: string;
   saleNumber: string;
   date: string;
+  storeId?: string;
   storeName?: string;
   storeAddress?: string;
   customer?: { name: string; phone?: string };
@@ -66,12 +69,13 @@ interface SaleRow {
   vendorGatePassQrUrl?: string;
 }
 
-const TABS = ['statement', 'purchases', 'sales'] as const;
+const TABS = ['statement', 'purchases', 'sales', 'vendor-sales'] as const;
 type Tab = (typeof TABS)[number];
 const TAB_LABEL: Record<Tab, string> = {
   statement: 'Statement',
   purchases: 'Purchases',
   sales: 'Sales (Vendor Items)',
+  'vendor-sales': 'Sales to Vendor',
 };
 
 export function VendorDetailPage() {
@@ -82,6 +86,8 @@ export function VendorDetailPage() {
   const storefront = useStorefrontFilter();
   const [tab, setTab] = useState<Tab>('statement');
   const [payingVendor, setPayingVendor] = useState(false);
+  const [receivablePayment, setReceivablePayment] = useState<'IN' | 'OUT' | null>(null);
+  const [viewingVendorSale, setViewingVendorSale] = useState<VendorSale | null>(null);
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [viewingGatePass, setViewingGatePass] = useState<{
@@ -106,6 +112,32 @@ export function VendorDetailPage() {
       ).data,
     enabled: !!id && tab === 'statement',
   });
+
+  const { data: receivableLedger } = useQuery<{
+    balance: number;
+    opening: number;
+    entries: LedgerRow[];
+  }>({
+    queryKey: ['vendor-receivable-ledger', id, from, to, storefront.store],
+    queryFn: async () =>
+      (
+        await api.get(`/vendors/${id}/receivable-ledger`, {
+          params: { from: from || undefined, to: to || undefined, ...storefront },
+        })
+      ).data,
+    enabled: !!id && tab === 'vendor-sales',
+  });
+
+  const { data: vendorSalesData, isLoading: vendorSalesLoading } = useQuery<{
+    vendorSales: VendorSale[];
+  }>({
+    queryKey: ['vendor-sales-for-vendor', id, storefront.store],
+    queryFn: async () =>
+      (await api.get('/vendor-sales', { params: { vendorId: id, limit: 200, ...storefront } }))
+        .data,
+    enabled: !!id && tab === 'vendor-sales',
+  });
+  const vendorSalesForVendor = vendorSalesData?.vendorSales ?? [];
 
   const { data: purchasesData, isLoading: purchasesLoading } = useQuery<{
     entities: PendingEntity[];
@@ -438,6 +470,169 @@ export function VendorDetailPage() {
         </Card>
       )}
 
+      {tab === 'vendor-sales' && (
+        <>
+          <Card>
+            <CardContent className="flex flex-wrap items-center justify-between gap-4 pt-6">
+              <div>
+                <p className="text-xs uppercase text-muted-foreground">{t('They owe us')}</p>
+                <p className="text-lg font-semibold">
+                  {formatCurrency(receivableLedger?.balance ?? 0)}
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button onClick={() => setReceivablePayment('IN')} disabled={!vendor}>
+                  <HandCoins className="h-4 w-4" /> {t('Receive Payment')}
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => setReceivablePayment('OUT')}
+                  disabled={!vendor}
+                >
+                  <Undo2 className="h-4 w-4" /> {t('Refund')}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="overflow-hidden">
+            <div className="border-b px-4 py-3 text-sm font-medium">
+              {t('Sales to this vendor')}
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b bg-muted/50 text-left text-xs uppercase tracking-wide text-muted-foreground">
+                    <th className="px-4 py-3 font-medium">{t('Sale #')}</th>
+                    <th className="px-4 py-3 font-medium">{t('Date')}</th>
+                    <th className="px-4 py-3 text-right font-medium">{t('Items')}</th>
+                    <th className="px-4 py-3 text-right font-medium">{t('Total')}</th>
+                    <th className="px-4 py-3 font-medium">{t('Payment')}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {vendorSalesLoading && (
+                    <tr>
+                      <td colSpan={5} className="px-4 py-10 text-center text-muted-foreground">
+                        {t('Loading…')}
+                      </td>
+                    </tr>
+                  )}
+                  {!vendorSalesLoading &&
+                    vendorSalesForVendor.map((s) => (
+                      <tr
+                        key={s.id}
+                        className="cursor-pointer border-b last:border-0 hover:bg-muted/30"
+                        onClick={() => setViewingVendorSale(s)}
+                      >
+                        <td className="px-4 py-3 font-medium">{s.number}</td>
+                        <td className="px-4 py-3 text-muted-foreground">
+                          {new Date(s.date).toLocaleDateString()}
+                        </td>
+                        <td className="px-4 py-3 text-right tabular-nums text-muted-foreground">
+                          {s.items.length}
+                        </td>
+                        <td className="px-4 py-3 text-right tabular-nums font-medium">
+                          {formatCurrency(s.total)}
+                        </td>
+                        <td className="px-4 py-3 text-muted-foreground">{s.paymentMethod}</td>
+                      </tr>
+                    ))}
+                  {!vendorSalesLoading && vendorSalesForVendor.length === 0 && (
+                    <tr>
+                      <td colSpan={5} className="px-4 py-10 text-center text-muted-foreground">
+                        {t('This vendor has not bought anything from us yet.')}
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex flex-row flex-wrap items-end justify-between gap-4 space-y-0">
+              <p className="text-sm text-muted-foreground">
+                {from && (
+                  <>
+                    {t('Opening balance')}:{' '}
+                    <span className="font-medium text-foreground">
+                      {formatCurrency(receivableLedger?.opening ?? 0)}
+                    </span>{' '}
+                    ·{' '}
+                  </>
+                )}
+                {from || to ? t('Closing balance') : t('Current balance')}:{' '}
+                <span className="font-semibold text-foreground">
+                  {formatCurrency(receivableLedger?.balance ?? 0)}
+                </span>
+              </p>
+              <div className="flex items-end gap-2">
+                <div className="space-y-1.5">
+                  <Label className="text-xs">{t('From')}</Label>
+                  <Input
+                    type="date"
+                    value={from}
+                    onChange={(e) => setFrom(e.target.value)}
+                    className="h-8 w-36 text-sm"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">{t('To')}</Label>
+                  <Input
+                    type="date"
+                    value={to}
+                    onChange={(e) => setTo(e.target.value)}
+                    className="h-8 w-36 text-sm"
+                  />
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="p-0">
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-y bg-muted/50 text-left text-xs uppercase text-muted-foreground">
+                      <th className="px-4 py-2 font-medium">{t('Date')}</th>
+                      <th className="px-4 py-2 font-medium">{t('Description')}</th>
+                      <th className="px-4 py-2 text-right font-medium">{t('Debit')}</th>
+                      <th className="px-4 py-2 text-right font-medium">{t('Credit')}</th>
+                      <th className="px-4 py-2 text-right font-medium">{t('Balance')}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(receivableLedger?.entries ?? []).map((e, i) => (
+                      <tr key={i} className="border-b last:border-0">
+                        <td className="px-4 py-2 text-muted-foreground">
+                          {new Date(e.date).toLocaleDateString()}
+                        </td>
+                        <td className="px-4 py-2">{e.description ?? '—'}</td>
+                        <td className="px-4 py-2 text-right">
+                          {e.debit ? formatCurrency(e.debit) : ''}
+                        </td>
+                        <td className="px-4 py-2 text-right">
+                          {e.credit ? formatCurrency(e.credit) : ''}
+                        </td>
+                        <td className="px-4 py-2 text-right font-medium">
+                          {formatCurrency(e.balanceAfter)}
+                        </td>
+                      </tr>
+                    ))}
+                    {receivableLedger && receivableLedger.entries.length === 0 && (
+                      <tr>
+                        <td colSpan={5} className="px-4 py-10 text-center text-muted-foreground">
+                          {t('No transactions yet.')}
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </CardContent>
+          </Card>
+        </>
+      )}
+
       <PayVendorDialog
         vendor={
           vendor ? { id: vendor.id, name: vendor.name, outstanding: vendor.outstanding } : null
@@ -455,6 +650,24 @@ export function VendorDetailPage() {
         open={viewingGatePass !== null}
         onOpenChange={(o) => !o && setViewingGatePass(null)}
       />
+      <VendorReceivablePaymentDialog
+        vendor={
+          vendor
+            ? { id: vendor.id, name: vendor.name, balance: receivableLedger?.balance ?? 0 }
+            : null
+        }
+        direction={receivablePayment ?? 'IN'}
+        open={receivablePayment !== null}
+        onOpenChange={(o) => {
+          if (!o) setReceivablePayment(null);
+        }}
+      />
+      {viewingVendorSale && (
+        <VendorSaleDetailDialog
+          sale={viewingVendorSale}
+          onClose={() => setViewingVendorSale(null)}
+        />
+      )}
     </div>
   );
 }

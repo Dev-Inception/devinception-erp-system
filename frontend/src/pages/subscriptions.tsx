@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Plus, Loader2, Pencil, CreditCard, Search } from 'lucide-react';
+import { Plus, Loader2, Pencil, CreditCard, Search, Store as StoreIcon } from 'lucide-react';
 import { toast } from 'sonner';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -404,17 +404,128 @@ function EditSubscriptionDialog({
   );
 }
 
+interface CustomerGroup {
+  ownerId: string;
+  ownerName: string;
+  ownerEmail: string;
+  subscriptions: Subscription[];
+}
+
+function groupByCustomer(subscriptions: Subscription[]): CustomerGroup[] {
+  const groups = new Map<string, CustomerGroup>();
+  for (const s of subscriptions) {
+    const existing = groups.get(s.ownerId);
+    if (existing) {
+      existing.subscriptions.push(s);
+    } else {
+      groups.set(s.ownerId, {
+        ownerId: s.ownerId,
+        ownerName: s.ownerName,
+        ownerEmail: s.ownerEmail,
+        subscriptions: [s],
+      });
+    }
+  }
+  return Array.from(groups.values());
+}
+
+/** One customer's stores — each still edited individually, since a
+ * subscription (amount/cycle/status) belongs to exactly one store. */
+function CustomerDetailDialog({
+  group,
+  open,
+  onOpenChange,
+}: {
+  group: CustomerGroup;
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+}) {
+  const { t } = useLanguage();
+  const [editing, setEditing] = useState<Subscription | null>(null);
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>{group.ownerName}</DialogTitle>
+          <DialogDescription>
+            {group.ownerEmail} — {group.subscriptions.length} store(s)
+          </DialogDescription>
+        </DialogHeader>
+        <div className="overflow-hidden rounded-md border">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b bg-muted/50 text-left text-xs uppercase tracking-wide text-muted-foreground">
+                <th className="px-4 py-2 font-medium">Store</th>
+                <th className="px-4 py-2 font-medium">Amount</th>
+                <th className="px-4 py-2 font-medium">Cycle</th>
+                <th className="px-4 py-2 font-medium">Status</th>
+                <th className="px-4 py-2 text-right font-medium">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {group.subscriptions.map((s) => (
+                <tr key={s.id} className="border-b last:border-0 hover:bg-muted/30">
+                  <td className="px-4 py-2">{s.storeName}</td>
+                  <td className="px-4 py-2">{s.amount.toLocaleString()}</td>
+                  <td className="px-4 py-2 capitalize">{s.billingCycle.replace('_', ' ')}</td>
+                  <td className="px-4 py-2">
+                    <span
+                      className={`rounded-full px-2 py-0.5 text-xs font-medium capitalize ${STATUS_TINT[s.status]}`}
+                    >
+                      {s.status}
+                    </span>
+                  </td>
+                  <td className="px-4 py-2 text-right">
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="h-8 w-8"
+                      title={t('Edit')}
+                      onClick={() => setEditing(s)}
+                    >
+                      <Pencil className="h-4 w-4" />
+                    </Button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <div className="flex justify-end pt-1">
+          <DialogClose asChild>
+            <Button type="button" variant="outline">
+              {t('Close')}
+            </Button>
+          </DialogClose>
+        </div>
+      </DialogContent>
+      {editing && (
+        <EditSubscriptionDialog
+          key={editing.id}
+          subscription={editing}
+          open={!!editing}
+          onOpenChange={(v) => !v && setEditing(null)}
+        />
+      )}
+    </Dialog>
+  );
+}
+
 export function SubscriptionsPage() {
   const { t } = useLanguage();
   const role = useAuthStore((s) => s.user?.role);
   const [search, setSearch] = useState('');
-  const [editing, setEditing] = useState<Subscription | null>(null);
 
   const { data, isLoading } = useQuery<{ subscriptions: Subscription[]; total: number }>({
     queryKey: ['subscriptions', search],
     queryFn: async () => (await api.get('/subscriptions', { params: { search } })).data,
   });
-  const subscriptions = data?.subscriptions ?? [];
+  // One "Sell Store(s)" sale creates one subscription row per store, but a
+  // customer should read as a single listing here — the per-store breakdown
+  // lives in CustomerDetailDialog instead.
+  const groups = useMemo(() => groupByCustomer(data?.subscriptions ?? []), [data]);
+  const [viewing, setViewing] = useState<CustomerGroup | null>(null);
 
   if (role !== 'SUPER_ADMIN') {
     return <p className="text-sm text-muted-foreground">You don't have access to this page.</p>;
@@ -436,9 +547,7 @@ export function SubscriptionsPage() {
               />
             </div>
           </div>
-          <p className="pb-2 text-sm text-muted-foreground">
-            {subscriptions.length} subscription(s)
-          </p>
+          <p className="pb-2 text-sm text-muted-foreground">{groups.length} customer(s)</p>
         </div>
         <ProvisionDialog />
       </div>
@@ -449,7 +558,7 @@ export function SubscriptionsPage() {
             <thead>
               <tr className="border-b bg-muted/50 text-left text-xs uppercase tracking-wide text-muted-foreground">
                 <th className="px-4 py-3 font-medium">Customer</th>
-                <th className="px-4 py-3 font-medium">Store</th>
+                <th className="px-4 py-3 font-medium">Store(s)</th>
                 <th className="px-4 py-3 font-medium">Amount</th>
                 <th className="px-4 py-3 font-medium">Cycle</th>
                 <th className="px-4 py-3 font-medium">Status</th>
@@ -465,39 +574,72 @@ export function SubscriptionsPage() {
                 </tr>
               )}
               {!isLoading &&
-                subscriptions.map((s) => (
-                  <tr key={s.id} className="border-b last:border-0 hover:bg-muted/30">
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-2 font-medium">
-                        <CreditCard className="h-4 w-4 text-muted-foreground" />
-                        {s.ownerName}
-                      </div>
-                      <p className="text-xs text-muted-foreground">{s.ownerEmail}</p>
-                    </td>
-                    <td className="px-4 py-3">{s.storeName}</td>
-                    <td className="px-4 py-3">{s.amount.toLocaleString()}</td>
-                    <td className="px-4 py-3 capitalize">{s.billingCycle.replace('_', ' ')}</td>
-                    <td className="px-4 py-3">
-                      <span
-                        className={`rounded-full px-2 py-0.5 text-xs font-medium capitalize ${STATUS_TINT[s.status]}`}
-                      >
-                        {s.status}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        className="h-8 w-8"
-                        title={t('Edit')}
-                        onClick={() => setEditing(s)}
-                      >
-                        <Pencil className="h-4 w-4" />
-                      </Button>
-                    </td>
-                  </tr>
-                ))}
-              {!isLoading && subscriptions.length === 0 && (
+                groups.map((g) => {
+                  const totalAmount = g.subscriptions.reduce((sum, s) => sum + s.amount, 0);
+                  const cycles = new Set(g.subscriptions.map((s) => s.billingCycle));
+                  const statuses = new Set(g.subscriptions.map((s) => s.status));
+                  return (
+                    <tr
+                      key={g.ownerId}
+                      className="cursor-pointer border-b last:border-0 hover:bg-muted/30"
+                      onClick={() => setViewing(g)}
+                    >
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-2 font-medium">
+                          <CreditCard className="h-4 w-4 text-muted-foreground" />
+                          {g.ownerName}
+                        </div>
+                        <p className="text-xs text-muted-foreground">{g.ownerEmail}</p>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-1.5">
+                          <StoreIcon className="h-3.5 w-3.5 text-muted-foreground" />
+                          {g.subscriptions.length === 1
+                            ? g.subscriptions[0].storeName
+                            : `${g.subscriptions.length} stores`}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3">
+                        {totalAmount.toLocaleString()}
+                        {g.subscriptions.length > 1 && (
+                          <p className="text-xs text-muted-foreground">
+                            {g.subscriptions.length} store(s)
+                          </p>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 capitalize">
+                        {cycles.size === 1 ? [...cycles][0].replace('_', ' ') : 'Mixed'}
+                      </td>
+                      <td className="px-4 py-3">
+                        {statuses.size === 1 ? (
+                          <span
+                            className={`rounded-full px-2 py-0.5 text-xs font-medium capitalize ${STATUS_TINT[[...statuses][0]]}`}
+                          >
+                            {[...statuses][0]}
+                          </span>
+                        ) : (
+                          <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium">
+                            Mixed
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-8"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setViewing(g);
+                          }}
+                        >
+                          {t('View')}
+                        </Button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              {!isLoading && groups.length === 0 && (
                 <tr>
                   <td colSpan={6} className="px-4 py-10 text-center text-muted-foreground">
                     No subscriptions yet.
@@ -509,12 +651,12 @@ export function SubscriptionsPage() {
         </div>
       </Card>
 
-      {editing && (
-        <EditSubscriptionDialog
-          key={editing.id}
-          subscription={editing}
-          open={!!editing}
-          onOpenChange={(v) => !v && setEditing(null)}
+      {viewing && (
+        <CustomerDetailDialog
+          key={viewing.ownerId}
+          group={viewing}
+          open={!!viewing}
+          onOpenChange={(v) => !v && setViewing(null)}
         />
       )}
     </div>

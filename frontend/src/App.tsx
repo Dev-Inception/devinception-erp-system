@@ -16,6 +16,7 @@ import { CategoriesPage } from '@/pages/categories';
 import { UnitsPage } from '@/pages/units';
 import { VendorsPage } from '@/pages/vendors';
 import { VendorDetailPage } from '@/pages/vendor-detail';
+import { VendorSalesPage } from '@/pages/vendor-sales';
 import { SuppliersPage } from '@/pages/suppliers';
 import { SupplierDetailPage } from '@/pages/supplier-detail';
 import { LabourDetailPage } from '@/pages/labour-detail';
@@ -28,6 +29,7 @@ import { SaleEditPage } from '@/pages/sale-edit';
 import { EstimatesPage } from '@/pages/estimates';
 import { ExpensesPage } from '@/pages/expenses';
 import { StockReceiptsPage } from '@/pages/stock-receipts';
+import { DamagedStockPage } from '@/pages/damaged-stock';
 import { SettingsPage } from '@/pages/settings';
 import { CashPage } from '@/pages/cash';
 import { LedgersPage } from '@/pages/ledgers';
@@ -83,8 +85,10 @@ const MODULE_ROUTES: { path: string; element: React.ReactElement }[] = [
   { path: 'sales', element: <SalesPage /> },
   { path: 'estimates', element: <EstimatesPage /> },
   { path: 'stock-receipts', element: <StockReceiptsPage /> },
+  { path: 'damaged-stock', element: <DamagedStockPage /> },
   { path: 'customers', element: <CustomersPage /> },
   { path: 'vendors', element: <VendorsPage /> },
+  { path: 'vendor-sales', element: <VendorSalesPage /> },
   { path: 'suppliers', element: <SuppliersPage /> },
   { path: 'transporters', element: <TransportersPage /> },
   { path: 'labour', element: <LabourPage /> },

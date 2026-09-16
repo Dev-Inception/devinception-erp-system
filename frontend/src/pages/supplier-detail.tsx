@@ -46,6 +46,7 @@ interface PendingEntity {
 interface StockReceiptRow {
   id: string;
   number: string;
+  storeId?: string;
   storeName?: string;
   date: string;
   items: {
@@ -142,6 +143,7 @@ export function SupplierDetailPage() {
     const payload: StockReceiptForInvoice = {
       receiptNumber: r.number,
       date: r.date,
+      storeId: r.storeId,
       storeName: r.storeName,
       supplierName: supplier?.name ?? '',
       items: r.items.map((it) => ({

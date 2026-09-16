@@ -259,7 +259,7 @@ async function listEstimates({
   actor,
   ...query
 } = {}) {
-  const { Estimate, Store } = initializeModels();
+  const { Estimate, EstimateItem, Store } = initializeModels();
   const { page, limit, skip } = parsePagination(query);
   const where = {};
 
@@ -293,7 +293,10 @@ async function listEstimates({
 
   const { rows, count } = await Estimate.findAndCountAll({
     where,
-    include: [{ model: Store, as: 'storeInfo', attributes: ['id', 'name', 'code'] }],
+    include: [
+      { model: EstimateItem, as: 'items', separate: true, order: [['position', 'ASC']] },
+      { model: Store, as: 'storeInfo', attributes: ['id', 'name', 'code'] },
+    ],
     order: [
       ['date', 'DESC'],
       ['createdAt', 'DESC'],

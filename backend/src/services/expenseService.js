@@ -1,4 +1,4 @@
-const { Op, QueryTypes, fn, col } = require('sequelize');
+const { Op, QueryTypes, fn, col, where: sqlWhere, UniqueConstraintError } = require('sequelize');
 const { getPostgres } = require('../db/postgres');
 const { initializeModels } = require('../db/models');
 const { isValidId } = require('../db/id');
@@ -7,7 +7,6 @@ const { toPaisa, view } = require('../utils/money');
 const { ACCOUNT, REF } = require('../utils/finance');
 const journalService = require('./journalService');
 const counterService = require('./counterService');
-const { findOrCreateByName } = require('./catalogService');
 const { settlementAccount, assertSufficientFunds } = require('./paymentService');
 const { parsePagination, escapeLike } = require('../utils/query');
 const {
@@ -34,10 +33,31 @@ async function listCategories() {
   return ExpenseCategory.findAll({ where: { isActive: true }, order: [['name', 'ASC']] });
 }
 
+// Case-insensitive find-or-create by name. Expense categories aren't
+// store-scoped (unlike product catalog entries), so this can't reuse
+// catalogService.findOrCreateByName — that helper always filters/creates
+// against a `store` column, which this model doesn't have.
+async function findOrCreateCategory(name, extra = {}) {
+  const { ExpenseCategory } = initializeModels();
+  const trimmed = String(name || '').trim();
+  if (!trimmed) return null;
+  const where = sqlWhere(fn('LOWER', col('name')), trimmed.toLowerCase());
+  const existing = await ExpenseCategory.findOne({ where });
+  if (existing) return existing;
+  try {
+    return await ExpenseCategory.create({ name: trimmed, ...extra });
+  } catch (err) {
+    // Lost a create race against the unique index — fetch the winner.
+    if (err instanceof UniqueConstraintError) {
+      return ExpenseCategory.findOne({ where });
+    }
+    throw err;
+  }
+}
+
 async function createCategory(name, description) {
   if (!name || !String(name).trim()) throw ApiError.badRequest('A name is required');
-  const { ExpenseCategory } = initializeModels();
-  return findOrCreateByName(ExpenseCategory, name, { description: (description || '').trim() });
+  return findOrCreateCategory(name, { description: (description || '').trim() });
 }
 
 async function resolveCategory({ category, categoryName }) {
@@ -49,7 +69,7 @@ async function resolveCategory({ category, categoryName }) {
     return doc;
   }
   if (categoryName && categoryName.trim()) {
-    return findOrCreateByName(ExpenseCategory, categoryName);
+    return findOrCreateCategory(categoryName);
   }
   throw ApiError.badRequest('A category is required');
 }

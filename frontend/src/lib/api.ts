@@ -1391,6 +1391,28 @@ async function realPayVendor(body: any) {
   });
   return res.data;
 }
+async function realReceiveVendorReceivable(body: any) {
+  const res = await http.post('/finance/payments/vendor-receivable/receive', {
+    vendor: body.vendor,
+    store: body.store,
+    amount: body.amount,
+    method: body.method || undefined,
+    bankAccount: body.bankAccount || undefined,
+    note: body.note || undefined,
+  });
+  return res.data;
+}
+async function realRefundVendorReceivable(body: any) {
+  const res = await http.post('/finance/payments/vendor-receivable/refund', {
+    vendor: body.vendor,
+    store: body.store,
+    amount: body.amount,
+    method: body.method || undefined,
+    bankAccount: body.bankAccount || undefined,
+    note: body.note || undefined,
+  });
+  return res.data;
+}
 async function realPaySupplier(body: any) {
   const res = await http.post('/finance/payments/supplier', {
     supplier: body.supplier,
@@ -1570,6 +1592,200 @@ async function realRecordStockReceiptPayment(id: string, body: any) {
     note: body.note || undefined,
   });
   return mapStockReceipt(res.data.receipt);
+}
+
+/* ── Damaged stock (goods received damaged on a receipt, tracked separately
+   from sellable stock until sent back to the supplier) ── */
+function mapDamagedStockOutstandingItem(it: any) {
+  return {
+    itemId: String(it.itemId),
+    productId: String(it.productId),
+    name: it.name,
+    damagedQuantity: it.damagedQuantity,
+    returnedQuantity: it.returnedQuantity,
+    outstandingQuantity: it.outstandingQuantity,
+    stockReceiptId: String(it.stockReceiptId),
+    receiptNumber: it.receiptNumber,
+    date: it.date,
+    supplierId: String(it.supplierId),
+    supplierName: it.supplierName || '',
+    storeId: String(it.storeId),
+    warehouseId: String(it.warehouseId),
+  };
+}
+async function realListDamagedStock(params: any = {}) {
+  const res = await http.get('/damaged-stock', {
+    params: {
+      page: params.page || undefined,
+      limit: params.limit || 20,
+      search: params.search || undefined,
+      supplier: params.supplierId || undefined,
+      warehouse: params.warehouseId || undefined,
+      store: params.store || undefined,
+    },
+  });
+  return {
+    items: (res.data.items as any[]).map(mapDamagedStockOutstandingItem),
+    total: res.data.total ?? res.data.items.length,
+    page: res.data.page ?? 1,
+    limit: res.data.limit ?? 20,
+  };
+}
+function mapDamagedStockReturn(r: any) {
+  return {
+    id: String(r._id ?? r.id),
+    number: r.number,
+    supplierId: String(r.supplier?._id ?? r.supplier),
+    supplierName: r.supplierName || '',
+    storeId: r.store ? String(r.store._id ?? r.store) : undefined,
+    storeName: r.store && typeof r.store === 'object' ? r.store.name : undefined,
+    warehouseId: String(r.warehouse?._id ?? r.warehouse),
+    warehouseName: r.warehouse?.name || '',
+    date: r.date,
+    truck: {
+      vehicleNumber: r.truck?.vehicleNumber || '',
+      driverName: r.truck?.driverName || '',
+      driverPhone: r.truck?.driverPhone || '',
+    },
+    items: (r.items ?? []).map((it: any) => ({
+      productId: String(it.product?._id ?? it.product),
+      name: it.name,
+      quantity: it.quantity,
+      unitCost: it.unitCost ?? 0,
+      lineTotal: it.lineTotal ?? 0,
+    })),
+    total: (r.items ?? []).reduce((s: number, it: any) => s + (it.lineTotal ?? 0), 0),
+    note: r.note || '',
+    gatePassId: r.gatePassId,
+    gatePassQrUrl: r.gatePassQrUrl,
+  };
+}
+async function realListDamagedStockReturns(params: any = {}) {
+  const res = await http.get('/damaged-stock/returns', {
+    params: {
+      page: params.page || undefined,
+      limit: params.limit || 20,
+      search: params.search || undefined,
+      supplier: params.supplierId || undefined,
+      warehouse: params.warehouseId || undefined,
+      store: params.store || undefined,
+      from: params.from || undefined,
+      to: params.to || undefined,
+    },
+  });
+  return {
+    returns: (res.data.returns as any[]).map(mapDamagedStockReturn),
+    total: res.data.total ?? res.data.returns.length,
+    page: res.data.page ?? 1,
+    limit: res.data.limit ?? 20,
+  };
+}
+async function realGetDamagedStockReturn(id: string) {
+  const res = await http.get(`/damaged-stock/returns/${id}`);
+  return mapDamagedStockReturn(res.data.damagedStockReturn);
+}
+async function realCreateDamagedStockReturn(body: any) {
+  const res = await http.post('/damaged-stock/returns', {
+    supplier: body.supplierId,
+    store: body.storeId,
+    warehouse: body.warehouseId,
+    date: body.date || undefined,
+    truck: body.truck
+      ? {
+          vehicleNumber: body.truck.vehicleNumber || undefined,
+          driverName: body.truck.driverName || undefined,
+          driverPhone: body.truck.driverPhone || undefined,
+        }
+      : undefined,
+    items: (body.items ?? []).map((it: any) => ({
+      stockReceiptItemId: it.stockReceiptItemId,
+      quantity: it.quantity,
+    })),
+    note: body.note || undefined,
+  });
+  return mapDamagedStockReturn(res.data.damagedStockReturn);
+}
+
+/* ── Vendor sales (a vendor buying stock from us — the mirror of the
+   vendor-sourced items we buy from a vendor during a POS sale) ── */
+function mapVendorSale(v: any) {
+  return {
+    id: String(v._id ?? v.id),
+    number: v.number,
+    vendorId: String(v.vendor?.id ?? v.vendor),
+    vendorName: v.vendorName || v.vendor?.name || '',
+    storeId: v.store ? String(v.store.id ?? v.store) : undefined,
+    storeName: v.store && typeof v.store === 'object' ? v.store.name : undefined,
+    warehouseId: v.warehouse ? String(v.warehouse.id ?? v.warehouse) : undefined,
+    warehouseName: v.warehouse && typeof v.warehouse === 'object' ? v.warehouse.name : undefined,
+    date: v.date,
+    items: (v.items ?? []).map((it: any) => ({
+      productId: String(it.product?._id ?? it.product),
+      name: it.name,
+      quantity: it.quantity,
+      unitPrice: it.unitPrice,
+      lineTotal: it.lineTotal,
+    })),
+    subtotal: v.subtotal ?? 0,
+    discount: v.discount ?? 0,
+    taxPercent: v.taxPercent ?? 0,
+    tax: v.tax ?? 0,
+    total: v.total ?? 0,
+    cost: v.cost ?? 0,
+    paymentMethod: v.paymentMethod,
+    cashAmount: v.cashAmount ?? 0,
+    onlineAmount: v.onlineAmount ?? 0,
+    creditAmount: v.creditAmount ?? 0,
+    bankAccountId: v.bankAccount ? String(v.bankAccount.id ?? v.bankAccount) : undefined,
+    transferReceiptRef: v.transferReceiptRef || '',
+    note: v.note || '',
+  };
+}
+async function realListVendorSales(params: any = {}) {
+  const res = await http.get('/vendor-sales', {
+    params: {
+      page: params.page || undefined,
+      limit: params.limit || 20,
+      search: params.search || undefined,
+      vendor: params.vendorId || undefined,
+      warehouse: params.warehouseId || undefined,
+      store: params.store || undefined,
+      from: params.from || undefined,
+      to: params.to || undefined,
+    },
+  });
+  return {
+    vendorSales: (res.data.vendorSales as any[]).map(mapVendorSale),
+    total: res.data.total ?? res.data.vendorSales.length,
+    page: res.data.page ?? 1,
+    limit: res.data.limit ?? 20,
+  };
+}
+async function realGetVendorSale(id: string) {
+  const res = await http.get(`/vendor-sales/${id}`);
+  return mapVendorSale(res.data.vendorSale);
+}
+async function realCreateVendorSale(body: any) {
+  const res = await http.post('/vendor-sales', {
+    vendor: body.vendorId,
+    store: body.storeId,
+    warehouse: body.warehouseId,
+    date: body.date || undefined,
+    items: (body.items ?? []).map((it: any) => ({
+      product: it.productId,
+      quantity: it.quantity,
+      unitPrice: it.unitPrice ?? undefined,
+    })),
+    discount: body.discount || undefined,
+    taxPercent: body.taxPercent || undefined,
+    paymentMethod: body.paymentMethod,
+    cashAmount: body.cashAmount || undefined,
+    onlineAmount: body.onlineAmount || undefined,
+    bankAccount: body.bankAccountId || undefined,
+    transferReceiptRef: body.transferReceiptRef || undefined,
+    note: body.note || undefined,
+  });
+  return mapVendorSale(res.data.vendorSale);
 }
 
 /* ── Pending entities (unpriced vendor-sourced sale lines, or supplier-
@@ -2189,6 +2405,12 @@ async function realUpdateSettings(body: any, params: any) {
         taxNumber: body.taxNumber,
         currency: body.currency,
         invoiceNote: body.invoiceNote,
+        logoUrl: body.logoUrl,
+        facebook: body.facebook,
+        instagram: body.instagram,
+        gmail: body.gmail,
+        tiktok: body.tiktok,
+        website: body.website,
       },
       { params },
     )
@@ -2221,6 +2443,31 @@ async function realUpdateRole(id: string, body: any) {
     permissions: body.permissions,
   });
   return mapRole(res.data.role);
+}
+
+/* ── Vendor receivable ledger (what a vendor owes us for stock they've
+   bought from us — independent of the vendor's own AP statement above) ── */
+async function realVendorReceivableLedger(id: string, params: any = {}) {
+  const stmt = (
+    await http.get(`/finance/ledgers/vendor-receivable/${id}`, {
+      params: {
+        from: params.from || undefined,
+        to: params.to || undefined,
+        store: params.store || undefined,
+      },
+    })
+  ).data; // { party, opening, closing, rows }
+  return {
+    balance: stmt.closing ?? 0,
+    opening: stmt.opening ?? 0,
+    entries: (stmt.rows as any[]).map((r) => ({
+      date: r.date,
+      description: r.description || undefined,
+      debit: r.debit ?? 0,
+      credit: r.credit ?? 0,
+      balanceAfter: r.balance ?? 0,
+    })),
+  };
 }
 
 /* ── Party ledger (customer/vendor/supplier/labour/transporter statement) ── */
@@ -2334,6 +2581,14 @@ async function tryReal(
     if (url === '/transporters') return wrap(await realTransporters(params));
     if (url === '/sales') return wrap(await realSales(params));
     if (url === '/stock-receipts') return wrap(await realListStockReceipts(params));
+    if (url === '/damaged-stock') return wrap(await realListDamagedStock(params));
+    if (url === '/damaged-stock/returns') return wrap(await realListDamagedStockReturns(params));
+    if (seg[0] === 'damaged-stock' && seg[1] === 'returns' && seg[2])
+      return wrap(await realGetDamagedStockReturn(seg[2]));
+    if (url === '/vendor-sales') return wrap(await realListVendorSales(params));
+    if (seg[0] === 'vendor-sales' && seg[1]) return wrap(await realGetVendorSale(seg[1]));
+    if (seg[0] === 'vendors' && seg[1] && seg[2] === 'receivable-ledger')
+      return wrap(await realVendorReceivableLedger(seg[1], params));
     if (url === '/pending-entities') return wrap(await realListPendingEntities(params));
     if (url === '/sales/returns') return wrap(await realListAllSaleReturns(params));
     if (seg[0] === 'sales' && seg[1] && seg[2] === 'returns')
@@ -2387,6 +2642,7 @@ async function tryReal(
     if (seg[0] === 'transporters' && seg[1] && seg[2] === 'charges')
       return wrap(await realChargeTransport(seg[1], body));
     if (url === '/stock-receipts') return wrap(await realCreateStockReceipt(body));
+    if (url === '/damaged-stock/returns') return wrap(await realCreateDamagedStockReturn(body));
     if (url === '/sales') return wrap(await realCreateSale(body));
     if (seg[0] === 'sales' && seg[1] && seg[2] === 'payments')
       return wrap(await realRecordSalePayment(seg[1], body));
@@ -2394,6 +2650,11 @@ async function tryReal(
       return wrap(await realCreateSaleReturn(seg[1], body));
     if (url === '/finance/payments/customer') return wrap(await realReceiveCustomerPayment(body));
     if (url === '/finance/payments/vendor') return wrap(await realPayVendor(body));
+    if (url === '/finance/payments/vendor-receivable/receive')
+      return wrap(await realReceiveVendorReceivable(body));
+    if (url === '/finance/payments/vendor-receivable/refund')
+      return wrap(await realRefundVendorReceivable(body));
+    if (url === '/vendor-sales') return wrap(await realCreateVendorSale(body));
     if (url === '/finance/payments/supplier') return wrap(await realPaySupplier(body));
     if (url === '/finance/payments/labour') return wrap(await realPayLabour(body));
     if (url === '/finance/payments/transport') return wrap(await realPayTransport(body));

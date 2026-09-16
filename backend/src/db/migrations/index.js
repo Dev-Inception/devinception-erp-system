@@ -10,4 +10,8 @@ module.exports = [
   require('./009-admin-expense-approve-and-pe-price'),
   require('./010-vendor-supplier-transporter-labour-store-scope'),
   require('./011-settings-branding'),
+  require('./012-backfill-custom-role-partner-permissions'),
+  require('./013-backfill-custom-role-sales-estimates-inventory'),
+  require('./014-damaged-stock-returns'),
+  require('./015-vendor-sales'),
 ];

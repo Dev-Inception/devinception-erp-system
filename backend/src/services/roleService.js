@@ -30,6 +30,7 @@ const SYSTEM_ROLES = [
       PERMISSIONS.CUSTOMERS_CREATE,
       PERMISSIONS.INVENTORY_READ,
       PERMISSIONS.GATE_PASSES_READ,
+      PERMISSIONS.DAMAGED_STOCK_READ,
       PERMISSIONS.SALES_READ,
       PERMISSIONS.SALES_CREATE,
       PERMISSIONS.ESTIMATES_READ,
@@ -51,6 +52,7 @@ const SYSTEM_ROLES = [
       PERMISSIONS.CUSTOMERS_READ,
       PERMISSIONS.INVENTORY_READ,
       PERMISSIONS.GATE_PASSES_READ,
+      PERMISSIONS.DAMAGED_STOCK_READ,
       PERMISSIONS.SALES_READ,
       PERMISSIONS.ESTIMATES_READ,
       PERMISSIONS.FINANCE_READ,
@@ -82,6 +84,8 @@ const SYSTEM_ROLES = [
       PERMISSIONS.INVENTORY_READ,
       PERMISSIONS.INVENTORY_MANAGE,
       PERMISSIONS.GATE_PASSES_READ,
+      PERMISSIONS.DAMAGED_STOCK_READ,
+      PERMISSIONS.DAMAGED_STOCK_MANAGE,
       PERMISSIONS.SALES_READ,
       PERMISSIONS.SALES_CREATE,
       PERMISSIONS.SALES_UPDATE,
@@ -126,6 +130,8 @@ const SYSTEM_ROLES = [
       PERMISSIONS.INVENTORY_READ,
       PERMISSIONS.INVENTORY_MANAGE,
       PERMISSIONS.GATE_PASSES_READ,
+      PERMISSIONS.DAMAGED_STOCK_READ,
+      PERMISSIONS.DAMAGED_STOCK_MANAGE,
       PERMISSIONS.SALES_READ,
       PERMISSIONS.SALES_CREATE,
       PERMISSIONS.SALES_UPDATE,
@@ -162,13 +168,15 @@ const SYSTEM_ROLES = [
   },
 ];
 
-let cache = null; // Map<roleName, Set<permission>>
+let cache = null; // Map<roleName, { permissions: Set<permission>, label: string }>
 
 async function getCache() {
   if (cache) return cache;
   const { Role } = initializeModels();
-  const roles = await Role.findAll({ attributes: ['name', 'permissions'] });
-  cache = new Map(roles.map((r) => [r.name, new Set(r.permissions)]));
+  const roles = await Role.findAll({ attributes: ['name', 'label', 'permissions'] });
+  cache = new Map(
+    roles.map((r) => [r.name, { permissions: new Set(r.permissions), label: r.label }]),
+  );
   return cache;
 }
 
@@ -179,7 +187,16 @@ function invalidateCache() {
 // Resolve the permission set for a role name (empty set if unknown).
 async function getPermissions(roleName) {
   const c = await getCache();
-  return c.get(roleName) || new Set();
+  return c.get(roleName)?.permissions || new Set();
+}
+
+// Resolve a role name to its human-typed display label (e.g. a custom
+// role's namespaced technical name `<storeId>__<slug>` back to whatever the
+// admin actually typed, like "Manager") — used so the UI never has to show
+// the raw technical key. Falls back to the name itself for an unknown role.
+async function getRoleLabel(roleName) {
+  const c = await getCache();
+  return c.get(roleName)?.label || roleName;
 }
 
 // Idempotently create any missing built-in roles. Existing system roles are
@@ -329,6 +346,7 @@ module.exports = {
   SYSTEM_ROLES,
   ensureSystemRoles,
   getPermissions,
+  getRoleLabel,
   invalidateCache,
   listRoles,
   getRoleById,

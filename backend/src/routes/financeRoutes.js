@@ -12,6 +12,8 @@ const {
   payLabourValidator,
   payTransportValidator,
   receiveCustomerValidator,
+  receiveVendorReceivableValidator,
+  refundVendorReceivableValidator,
   cashEntryValidator,
   expenseValidator,
   statementParamValidator,
@@ -94,10 +96,25 @@ router.post(
   validate,
   financeController.receiveFromCustomer,
 );
+router.post(
+  '/payments/vendor-receivable/receive',
+  MANAGE,
+  receiveVendorReceivableValidator,
+  validate,
+  financeController.receiveFromVendorReceivable,
+);
+router.post(
+  '/payments/vendor-receivable/refund',
+  MANAGE,
+  refundVendorReceivableValidator,
+  validate,
+  financeController.refundVendorReceivable,
+);
 
 /* Ledgers (party statements) */
 router.get('/ledgers/customers', READ, financeController.customerLedgers);
 router.get('/ledgers/vendors', READ, financeController.vendorLedgers);
+router.get('/ledgers/vendor-receivables', READ, financeController.vendorReceivableLedgers);
 router.get('/ledgers/suppliers', READ, financeController.supplierLedgers);
 router.get('/ledgers/labour', READ, financeController.labourLedgers);
 router.get('/ledgers/transport', READ, financeController.transporterLedgers);

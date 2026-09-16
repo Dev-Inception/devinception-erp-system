@@ -40,7 +40,16 @@ const PAGE_SIZE = 20;
 const emptyForm = { name: '', phone: '', email: '', address: '', ntn: '' };
 
 /** Create (no `vendor`) or edit (with `vendor`) a vendor. */
-function VendorDialog({ vendor, trigger }: { vendor?: Vendor; trigger: React.ReactNode }) {
+export function VendorDialog({
+  vendor,
+  trigger,
+  onCreated,
+}: {
+  vendor?: Vendor;
+  trigger: React.ReactNode;
+  /** Called with the newly created vendor once a create (not edit) succeeds. */
+  onCreated?: (vendor: Vendor) => void;
+}) {
   const qc = useQueryClient();
   const { t } = useLanguage();
   const editing = !!vendor;
@@ -103,11 +112,12 @@ function VendorDialog({ vendor, trigger }: { vendor?: Vendor; trigger: React.Rea
           : await api.post('/vendors', payload)
       ).data;
     },
-    onSuccess: () => {
+    onSuccess: (saved: Vendor) => {
       toast.success(editing ? 'Vendor updated' : 'Vendor created');
       qc.invalidateQueries({ queryKey: ['vendors'] });
       qc.invalidateQueries({ queryKey: ['vendor-ledger'] });
       setOpen(false);
+      if (!editing) onCreated?.(saved);
     },
     onError: (e: any) =>
       toast.error(e?.response?.data?.message ?? e?.message ?? 'Could not save vendor'),

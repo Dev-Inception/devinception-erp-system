@@ -905,7 +905,7 @@ function ReceiptDialog({ receipt, onClose }: { receipt?: StockReceipt; onClose: 
                   <thead>
                     <tr className="border-b bg-muted/50 text-left text-xs uppercase text-muted-foreground">
                       <th className="px-3 py-2 font-medium">{t('Product')}</th>
-                      <th className="px-3 py-2 font-medium">{t('Qty Received')}</th>
+                      <th className="px-3 py-2 font-medium">{t('Qty Good')}</th>
                       <th className="px-3 py-2 font-medium">{t('Qty Damaged')}</th>
                       {isOpeningStock && (
                         <th className="px-3 py-2 font-medium">{t('Unit Cost (optional)')}</th>
@@ -1086,7 +1086,7 @@ function ReceiptDetailDialog({
             <thead>
               <tr className="border-b bg-muted/50 text-left text-xs uppercase text-muted-foreground">
                 <th className="px-3 py-2 font-medium">{t('Product')}</th>
-                <th className="px-3 py-2 text-right font-medium">{t('Qty Received')}</th>
+                <th className="px-3 py-2 text-right font-medium">{t('Qty Good')}</th>
                 <th className="px-3 py-2 text-right font-medium">{t('Qty Damaged')}</th>
                 <th className="px-3 py-2 text-right font-medium">{t('Purchase Price')}</th>
                 <th className="px-3 py-2 text-right font-medium">{t('Line Total')}</th>
@@ -1288,6 +1288,7 @@ export function StockReceiptsPage() {
         {
           receiptNumber: r.number,
           date: r.date,
+          storeId: r.storeId,
           storeName: r.storeName,
           supplierName: r.supplierName,
           items: r.items.map((it) => ({
@@ -1370,7 +1371,7 @@ export function StockReceiptsPage() {
                 <th className="px-4 py-3 font-medium">{t('Warehouse')}</th>
                 <th className="px-4 py-3 font-medium">{t('Truck')}</th>
                 <th className="px-4 py-3 text-right font-medium">{t('Items')}</th>
-                <th className="px-4 py-3 text-right font-medium">{t('Qty Received')}</th>
+                <th className="px-4 py-3 text-right font-medium">{t('Qty Good')}</th>
                 <th className="px-4 py-3 text-right font-medium">{t('Qty Damaged')}</th>
                 <th className="px-4 py-3 text-right font-medium">{t('Actions')}</th>
               </tr>

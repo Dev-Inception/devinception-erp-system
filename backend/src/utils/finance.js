@@ -14,6 +14,7 @@ const ACCOUNT = {
   BANK: 'BANK', // a specific bank account (asset), ref = BankAccount
   INVENTORY: 'INVENTORY', // stock at cost (asset)
   AR: 'AR', // accounts receivable (asset), ref = Customer
+  AR_VENDOR: 'AR_VENDOR', // receivable from a vendor who bought stock from us (asset), ref = Vendor
   AP: 'AP', // accounts payable (liability), ref = Vendor
   AP_SUPPLIER: 'AP_SUPPLIER', // payable to a supplier (liability), ref = Supplier
   AP_LABOUR: 'AP_LABOUR', // payable to a labourer (liability), ref = Labour
@@ -35,6 +36,7 @@ const DEBIT_NORMAL = new Set([
   ACCOUNT.BANK,
   ACCOUNT.INVENTORY,
   ACCOUNT.AR,
+  ACCOUNT.AR_VENDOR,
   ACCOUNT.COGS,
   ACCOUNT.OPERATING_EXPENSE,
 ]);
@@ -51,6 +53,7 @@ function naturalBalance(kind, debit, credit) {
 const REF = {
   SALE: 'SALE',
   SALE_RETURN: 'SALE_RETURN', // goods returned against a sale
+  VENDOR_SALE: 'VENDOR_SALE', // goods sold to a vendor (vendor acting as buyer)
   PURCHASE: 'PURCHASE',
   PAYMENT: 'PAYMENT', // money paid to a vendor
   RECEIPT: 'RECEIPT', // money received from a customer

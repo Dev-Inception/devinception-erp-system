@@ -64,6 +64,19 @@ const PERMISSIONS = {
   // Gate passes (truck dispatch authorization for sold/delivered stock)
   GATE_PASSES_READ: 'gate-passes:read',
 
+  // Damaged stock (goods received damaged on a stock receipt, tracked
+  // separately from sellable warehouse stock until sent back to the
+  // supplier)
+  DAMAGED_STOCK_READ: 'damaged-stock:read',
+  DAMAGED_STOCK_MANAGE: 'damaged-stock:manage',
+
+  // Vendor sales (a vendor buying stock from us — the mirror of the vendor
+  // payable tracked under vendors:*). Payments/statements for this ledger
+  // reuse FINANCE_READ/FINANCE_MANAGE below, same as the existing vendor AP
+  // payments.
+  VENDOR_SALES_READ: 'vendor-sales:read',
+  VENDOR_SALES_MANAGE: 'vendor-sales:manage',
+
   // Store management (storefront groupings of warehouses). Listing stores is
   // open to any authenticated user (see storeRoutes.js) since every user must
   // be able to populate the login picker and header switcher — only

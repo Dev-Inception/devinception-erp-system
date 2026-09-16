@@ -46,6 +46,18 @@ async function vendorLedgers(actor) {
   return vendors.map((v) => ({ ...v.toJSON(), balance: balances.get(String(v.id)) || 0 }));
 }
 
+// List of vendors with their vendor-sale receivable balance (what they owe
+// us for stock they've bought), independent of the AP balance above.
+async function vendorReceivableLedgers(actor) {
+  const { Vendor } = initializeModels();
+  const { storeIds } = await resolveStoreScope({ actor });
+  const [vendors, balances] = await Promise.all([
+    Vendor.findAll({ where: storeWhere(storeIds), order: [['name', 'ASC']] }),
+    journalService.balancesByRef(ACCOUNT.AR_VENDOR, { store: storeIds }),
+  ]);
+  return vendors.map((v) => ({ ...v.toJSON(), balance: balances.get(String(v.id)) || 0 }));
+}
+
 // List of suppliers with their payable balance, scoped to the actor's own
 // store(s).
 async function supplierLedgers(actor) {
@@ -98,6 +110,9 @@ async function partyStatement(actor, kind, id, { store, ...range } = {}) {
   } else if (kind === 'vendor') {
     party = await Vendor.findByPk(id);
     account = ACCOUNT.AP;
+  } else if (kind === 'vendor-receivable') {
+    party = await Vendor.findByPk(id);
+    account = ACCOUNT.AR_VENDOR;
   } else if (kind === 'supplier') {
     party = await Supplier.findByPk(id);
     account = ACCOUNT.AP_SUPPLIER;
@@ -109,7 +124,7 @@ async function partyStatement(actor, kind, id, { store, ...range } = {}) {
     account = ACCOUNT.AP_TRANSPORT;
   } else {
     throw ApiError.badRequest(
-      "Ledger kind must be 'customer', 'vendor', 'supplier', 'labour', or 'transport'",
+      "Ledger kind must be 'customer', 'vendor', 'vendor-receivable', 'supplier', 'labour', or 'transport'",
     );
   }
   if (!party) throw ApiError.notFound(`${kind} not found`);
@@ -151,6 +166,7 @@ async function bankLedger(actor, id, { store, ...range } = {}) {
 module.exports = {
   customerLedgers,
   vendorLedgers,
+  vendorReceivableLedgers,
   supplierLedgers,
   labourLedgers,
   transporterLedgers,

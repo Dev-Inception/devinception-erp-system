@@ -31,6 +31,10 @@ function associateModels(models) {
     StockReceipt,
     StockReceiptItem,
     StockReceiptLabour,
+    DamagedStockReturn,
+    DamagedStockReturnItem,
+    VendorSale,
+    VendorSaleItem,
     Estimate,
     EstimateItem,
     EstimateFollowUp,
@@ -164,6 +168,30 @@ function associateModels(models) {
   StockReceipt.belongsTo(User, { foreignKey: 'createdBy', as: 'creator' });
   StockReceipt.belongsTo(GatePass, { foreignKey: 'gatePass', as: 'gatePassInfo' });
 
+  // Damaged stock returns (goods physically leaving a warehouse back to a
+  // supplier) — the purchase-side mirror of a Sale Return.
+  DamagedStockReturn.hasMany(DamagedStockReturnItem, {
+    foreignKey: 'damagedStockReturnId',
+    as: 'items',
+  });
+  DamagedStockReturnItem.belongsTo(DamagedStockReturn, { foreignKey: 'damagedStockReturnId' });
+  DamagedStockReturnItem.belongsTo(Product, { foreignKey: 'product', as: 'productInfo' });
+  DamagedStockReturn.belongsTo(Supplier, { foreignKey: 'supplier', as: 'supplierInfo' });
+  DamagedStockReturn.belongsTo(Store, { foreignKey: 'store', as: 'storeInfo' });
+  DamagedStockReturn.belongsTo(Warehouse, { foreignKey: 'warehouse', as: 'warehouseInfo' });
+  DamagedStockReturn.belongsTo(User, { foreignKey: 'createdBy', as: 'creator' });
+  DamagedStockReturn.belongsTo(GatePass, { foreignKey: 'gatePass', as: 'gatePassInfo' });
+
+  VendorSale.hasMany(VendorSaleItem, { foreignKey: 'vendorSaleId', as: 'items' });
+  VendorSaleItem.belongsTo(VendorSale, { foreignKey: 'vendorSaleId' });
+  VendorSaleItem.belongsTo(Product, { foreignKey: 'product', as: 'productInfo' });
+  VendorSale.belongsTo(Vendor, { foreignKey: 'vendor', as: 'vendorInfo' });
+  VendorSale.belongsTo(Store, { foreignKey: 'store', as: 'storeInfo' });
+  VendorSale.belongsTo(Warehouse, { foreignKey: 'warehouse', as: 'warehouseInfo' });
+  VendorSale.belongsTo(BankAccount, { foreignKey: 'bankAccount', as: 'bankAccountInfo' });
+  VendorSale.belongsTo(User, { foreignKey: 'createdBy', as: 'creator' });
+  VendorSale.belongsTo(User, { foreignKey: 'lastEditedBy', as: 'lastEditor' });
+
   // Estimates
   Estimate.hasMany(EstimateItem, { foreignKey: 'estimateId', as: 'items' });
   EstimateItem.belongsTo(Estimate, { foreignKey: 'estimateId' });
@@ -194,6 +222,10 @@ function associateModels(models) {
   GatePass.belongsTo(Sale, { foreignKey: 'sale', as: 'saleInfo' });
   GatePass.belongsTo(SaleReturn, { foreignKey: 'saleReturn', as: 'saleReturnInfo' });
   GatePass.belongsTo(StockReceipt, { foreignKey: 'stockReceipt', as: 'stockReceiptInfo' });
+  GatePass.belongsTo(DamagedStockReturn, {
+    foreignKey: 'damagedStockReturn',
+    as: 'damagedStockReturnInfo',
+  });
   GatePass.belongsTo(Store, { foreignKey: 'store', as: 'storeInfo' });
   GatePass.belongsTo(Warehouse, { foreignKey: 'warehouse', as: 'warehouseInfo' });
   GatePass.belongsTo(User, { foreignKey: 'processedBy', as: 'processor' });

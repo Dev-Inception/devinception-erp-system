@@ -59,6 +59,12 @@ function RoleSelect({
   disabled?: boolean;
   title?: string;
 }) {
+  // A custom role can share a built-in's display name (e.g. a store's own
+  // "Manager"), so tag non-system ones only when a built-in is actually
+  // sitting alongside it in this same list — a store admin whose list is
+  // entirely their own custom roles has nothing to disambiguate from.
+  const hasBuiltIns = roles.some((r) => r.isSystem);
+
   return (
     <div className="relative" title={title}>
       <select
@@ -70,11 +76,8 @@ function RoleSelect({
       >
         {roles.map((r) => (
           <option key={r.name} value={r.name}>
-            {/* A custom role can share a built-in's display name (e.g. a
-                store's own "Manager"), so tag non-system ones to keep them
-                from looking like an exact duplicate in the list. */}
             {roleLabel(r.label)}
-            {r.isSystem === false ? ' (Custom)' : ''}
+            {hasBuiltIns && r.isSystem === false ? ' (Custom)' : ''}
           </option>
         ))}
       </select>
@@ -110,6 +113,11 @@ function CreateUserDialog({
   // utils/storeScope.js on the backend) — the store to lock them to is
   // decided here, at creation time.
   const isSuperAdmin = form.role.toUpperCase() === 'SUPER_ADMIN';
+  // Built-in roles' permissions can only be tuned by a super admin (see
+  // Module Access / roleService.js) — a store admin can't actually customize
+  // Cashier/Manager/Accountant for their own store, so they only get offered
+  // the roles they *can* configure: their own store's custom roles.
+  const actorIsSuperAdmin = useAuthStore((s) => s.user?.role) === 'SUPER_ADMIN';
   const { data: stores = [] } = useQuery<{ id: string; name: string; code?: string }[]>({
     queryKey: ['stores'],
     queryFn: async () => (await api.get('/stores')).data,
@@ -117,11 +125,17 @@ function CreateUserDialog({
   });
 
   // A custom role belongs to exactly one store, so once a store is picked,
-  // only offer built-ins plus that store's own custom roles — otherwise every
-  // tenant's identically-named "Cashier"/"Manager" would show at once.
+  // only offer that store's own custom roles (plus built-ins, for a super
+  // admin) — otherwise every tenant's identically-named "Cashier"/"Manager"
+  // would show at once.
   const availableRoles = useMemo(
-    () => roles.filter((r) => r.isSystem || r.store === form.store),
-    [roles, form.store],
+    () =>
+      roles.filter((r) =>
+        actorIsSuperAdmin
+          ? r.isSystem || r.store === form.store
+          : !r.isSystem && r.store === form.store,
+      ),
+    [roles, form.store, actorIsSuperAdmin],
   );
 
   // Once roles load (or the store selection narrows them), make sure the
@@ -259,7 +273,14 @@ function CreateUserDialog({
             />
             {!isSuperAdmin && !form.store && (
               <p className="text-xs text-muted-foreground">
-                Showing built-in roles only — select a store above to also see its custom roles.
+                {actorIsSuperAdmin
+                  ? 'Showing built-in roles only — select a store above to also see its custom roles.'
+                  : 'Select a store above to see its roles.'}
+              </p>
+            )}
+            {!isSuperAdmin && !actorIsSuperAdmin && form.store && availableRoles.length === 0 && (
+              <p className="text-xs text-muted-foreground">
+                No custom roles yet for this store — add one on the Roles page first.
               </p>
             )}
           </div>
@@ -465,19 +486,32 @@ export function UsersPage() {
   // super admin may grant the `admin` (store-owner) role at all — that's how
   // a store gets provisioned in the first place (see Subscriptions), not
   // something one store's admin should be able to mint for someone else.
+  const actorIsSuperAdmin = currentUser?.role === 'SUPER_ADMIN';
   const hasSuperAdmin = users.some((u) => u.role === 'SUPER_ADMIN');
+  // A store admin can't tune a built-in role's permissions (only a super
+  // admin can, see Module Access / roleService.js), so built-ins aren't
+  // "theirs" to hand out — they only get offered their own store's custom
+  // roles. A super admin still sees the shared built-ins everywhere.
   const grantableRoles = roles.filter((r) => {
+    if (!actorIsSuperAdmin) return r.isSystem === false;
     const name = r.name.toUpperCase();
     if (name === 'SUPER_ADMIN' && hasSuperAdmin) return false;
-    if (name === 'ADMIN' && currentUser?.role !== 'SUPER_ADMIN') return false;
     return true;
   });
   // A custom role only belongs to the one store it was created for — a
   // multi-store admin's "Cashier" in Store A is a different role than their
   // "Cashier" in Store B, so only one store's worth should ever show at once.
-  // Built-ins (isSystem) have no store and apply everywhere.
-  const rolesForStore = (storeId?: string) =>
-    grantableRoles.filter((r) => r.isSystem || r.store === storeId);
+  // Built-ins (isSystem) have no store and apply everywhere. A user already
+  // holding a built-in role that's no longer offered (store admin case above)
+  // still needs it present so their current value renders correctly.
+  const rolesForStore = (storeId?: string, currentRoleName?: string) => {
+    const scoped = grantableRoles.filter((r) => r.isSystem || r.store === storeId);
+    if (currentRoleName && !scoped.some((r) => r.name === currentRoleName)) {
+      const current = roles.find((r) => r.name === currentRoleName);
+      if (current) return [current, ...scoped];
+    }
+    return scoped;
+  };
 
   const setRole = useMutation({
     mutationFn: async ({ id, role }: { id: string; role: string }) =>
@@ -550,7 +584,7 @@ export function UsersPage() {
                         <RoleSelect
                           value={u.role.toLowerCase()}
                           onChange={(role) => updateUser(u.id, { role })}
-                          roles={rolesForStore(u.storeId)}
+                          roles={rolesForStore(u.storeId, u.role.toLowerCase())}
                           disabled={isSelf && isSuperAdmin}
                           title={
                             isSelf && isSuperAdmin

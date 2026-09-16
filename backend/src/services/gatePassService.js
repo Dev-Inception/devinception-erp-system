@@ -81,10 +81,11 @@ async function saleSnapshot(sale, kind = 'CUSTOMER', warehouseId = null, transac
 }
 
 function needsSnapshotRefresh(gatePass) {
-  // A return is an append-only correction, never edited after the fact — its
-  // gate pass is built complete at creation time and never needs refreshing
-  // (unlike a SALE pass, which can be re-snapshotted if the sale is edited).
-  if (gatePass.sourceType === 'RETURN') return false;
+  // A return (or a damaged-stock return to a supplier) is an append-only
+  // correction, never edited after the fact — its gate pass is built
+  // complete at creation time and never needs refreshing (unlike a SALE
+  // pass, which can be re-snapshotted if the sale is edited).
+  if (gatePass.sourceType === 'RETURN' || gatePass.sourceType === 'SUPPLIER_RETURN') return false;
   if (['PROCESSED', 'USED'].includes(gatePass.status)) return false;
   const items = gatePass.items || [];
   return (
@@ -449,6 +450,78 @@ async function createForReceipt(stockReceipt, transaction) {
   return reloadWithItems(gatePass.id, transaction);
 }
 
+// Snapshot for a SUPPLIER_RETURN gate pass — damaged units physically
+// leaving the warehouse back to the supplier that delivered them. Unlike a
+// PURCHASE pass (goods coming in), this is goods going out, so it's given
+// kind 'VENDOR' the same way a sale's vendor-sourced portion is — see
+// gatePassSerializer's direction ternary.
+function damagedStockReturnSnapshot(damagedReturn) {
+  return {
+    sourceType: 'SUPPLIER_RETURN',
+    kind: 'VENDOR',
+    damagedStockReturn: damagedReturn.id,
+    documentNumber: damagedReturn.number,
+    partyName: damagedReturn.supplierName || '',
+    store: refId(damagedReturn.store) || null,
+    warehouse: refId(damagedReturn.warehouse),
+    saleDate: damagedReturn.date,
+    items: (damagedReturn.items || []).map((item) => ({
+      product: refId(item.product),
+      name: item.name,
+      sku: '',
+      barcode: '',
+      quantity: item.quantity,
+      loadedQuantity: null,
+      loadConfirmed: false,
+    })),
+    createdBy: refId(damagedReturn.createdBy) || null,
+  };
+}
+
+// Creates the one SUPPLIER_RETURN gate pass for a damaged stock return.
+// Always mints a brand-new document — like a sale return, this is
+// append-only and never re-edited.
+async function createForSupplierReturn(damagedReturn, transaction) {
+  if (!transaction) {
+    return getPostgres().transaction((t) => createForSupplierReturn(damagedReturn, t));
+  }
+  const { GatePass } = initializeModels();
+  const snapshot = damagedStockReturnSnapshot(damagedReturn);
+  if (snapshot.items.length === 0) return null;
+
+  const when = damagedReturn.date ? new Date(damagedReturn.date) : new Date();
+  const number = await counterService.nextDocNumber('GATE', when.getFullYear(), 6, transaction);
+  try {
+    const gatePass = await GatePass.create(
+      {
+        number,
+        token: crypto.randomBytes(32).toString('hex'),
+        sourceType: 'SUPPLIER_RETURN',
+        kind: 'VENDOR',
+        damagedStockReturn: snapshot.damagedStockReturn,
+        documentNumber: snapshot.documentNumber,
+        partyName: snapshot.partyName,
+        store: snapshot.store,
+        warehouse: snapshot.warehouse,
+        saleDate: snapshot.saleDate,
+        createdBy: snapshot.createdBy,
+      },
+      { transaction },
+    );
+    await replaceItems(gatePass.id, snapshot.items, transaction);
+    return reloadWithItems(gatePass.id, transaction);
+  } catch (error) {
+    if (error.name === 'SequelizeUniqueConstraintError') {
+      const existing = await GatePass.findOne({
+        where: { sourceType: 'SUPPLIER_RETURN', damagedStockReturn: damagedReturn.id },
+        transaction,
+      });
+      if (existing) return reloadWithItems(existing.id, transaction);
+    }
+    throw error;
+  }
+}
+
 // Refreshes/backfills the sale that backs a gate pass. Shared by every
 // lookup path (id, token, post-scan) so gate passes self-heal on read.
 async function refreshSourceIfNeeded(gatePass, transaction) {
@@ -729,8 +802,14 @@ async function updateProcessedGatePass(actor, id, payload) {
 // "View Gate Pass" button never points at a 404 afterward.
 async function deleteGatePass(id, transaction) {
   if (!transaction) return getPostgres().transaction((t) => deleteGatePass(id, t));
-  const { GatePass, Sale, SaleWarehouseGatePass, ReturnWarehouseGatePass, StockReceipt } =
-    initializeModels();
+  const {
+    GatePass,
+    Sale,
+    SaleWarehouseGatePass,
+    ReturnWarehouseGatePass,
+    StockReceipt,
+    DamagedStockReturn,
+  } = initializeModels();
   const gatePass = await GatePass.findByPk(id, { transaction });
   if (!gatePass) throw ApiError.notFound('Gate pass not found');
 
@@ -743,6 +822,11 @@ async function deleteGatePass(id, transaction) {
     await StockReceipt.update(
       { gatePass: null },
       { where: { id: gatePass.stockReceipt, gatePass: gatePass.id }, transaction },
+    );
+  } else if (gatePass.damagedStockReturn) {
+    await DamagedStockReturn.update(
+      { gatePass: null },
+      { where: { id: gatePass.damagedStockReturn, gatePass: gatePass.id }, transaction },
     );
   } else if (gatePass.sale) {
     if (gatePass.kind === 'VENDOR') {
@@ -773,6 +857,7 @@ module.exports = {
   createForReturn,
   createGatePassesForReturn,
   createForReceipt,
+  createForSupplierReturn,
   getGatePassById,
   getGatePassByToken,
   getGatePassBySale,

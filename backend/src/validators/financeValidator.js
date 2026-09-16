@@ -95,6 +95,32 @@ const receiveCustomerValidator = [
   body('note').optional({ values: 'falsy' }).trim().isLength({ max: 200 }),
 ];
 
+const receiveVendorReceivableValidator = [
+  body('vendor').isMongoId().withMessage('A valid vendor is required'),
+  body('store').isMongoId().withMessage('A store is required'),
+  body('amount').isFloat({ gt: 0 }).withMessage('Amount must be positive'),
+  body('method')
+    .optional({ values: 'falsy' })
+    .isIn(PAYMENT_METHODS)
+    .withMessage('Invalid payment method'),
+  body('bankAccount').optional({ values: 'falsy' }).isMongoId().withMessage('Invalid bank account'),
+  body('date').optional({ values: 'falsy' }).isISO8601().withMessage('Invalid date'),
+  body('note').optional({ values: 'falsy' }).trim().isLength({ max: 200 }),
+];
+
+const refundVendorReceivableValidator = [
+  body('vendor').isMongoId().withMessage('A valid vendor is required'),
+  body('store').isMongoId().withMessage('A store is required'),
+  body('amount').isFloat({ gt: 0 }).withMessage('Amount must be positive'),
+  body('method')
+    .optional({ values: 'falsy' })
+    .isIn(PAYMENT_METHODS)
+    .withMessage('Invalid payment method'),
+  body('bankAccount').optional({ values: 'falsy' }).isMongoId().withMessage('Invalid bank account'),
+  body('date').optional({ values: 'falsy' }).isISO8601().withMessage('Invalid date'),
+  body('note').optional({ values: 'falsy' }).trim().isLength({ max: 200 }),
+];
+
 const cashEntryValidator = [
   body('direction').isIn(['IN', 'OUT']).withMessage('Direction must be IN or OUT'),
   body('store').isMongoId().withMessage('A store is required'),
@@ -119,8 +145,10 @@ const expenseValidator = [
 /* Ledger statement params */
 const statementParamValidator = [
   param('kind')
-    .isIn(['customer', 'vendor', 'supplier', 'labour', 'transport'])
-    .withMessage("kind must be 'customer', 'vendor', 'supplier', 'labour', or 'transport'"),
+    .isIn(['customer', 'vendor', 'vendor-receivable', 'supplier', 'labour', 'transport'])
+    .withMessage(
+      "kind must be 'customer', 'vendor', 'vendor-receivable', 'supplier', 'labour', or 'transport'",
+    ),
   param('id').isMongoId().withMessage('Invalid party id'),
 ];
 
@@ -134,6 +162,8 @@ module.exports = {
   payLabourValidator,
   payTransportValidator,
   receiveCustomerValidator,
+  receiveVendorReceivableValidator,
+  refundVendorReceivableValidator,
   cashEntryValidator,
   expenseValidator,
   statementParamValidator,

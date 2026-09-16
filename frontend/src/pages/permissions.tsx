@@ -4,7 +4,12 @@ import { api } from '@/lib/api';
 import { toast } from 'sonner';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
-import { CONFIGURABLE_MODULES, MODULE_PERMISSION, grantsPermission } from '@/lib/modules';
+import {
+  CONFIGURABLE_MODULES,
+  MODULE_PERMISSION,
+  MODULE_PERMISSION_BUNDLE,
+  grantsPermission,
+} from '@/lib/modules';
 import { useAuthStore, type Role } from '@/store/auth';
 import { useStorefrontFilter } from '@/store/storefront';
 
@@ -68,9 +73,13 @@ function ModuleAccessCard() {
   const toggle = (rec: RolePermissions, moduleKey: string) => {
     const perm = MODULE_PERMISSION[moduleKey];
     if (!perm) return;
+    // A module with a read/create/update split (see MODULE_PERMISSION_BUNDLE)
+    // grants or revokes the whole bundle together — checking the box means
+    // "let this role manage it," not just "let them view it."
+    const bundle = MODULE_PERMISSION_BUNDLE[moduleKey] ?? [perm];
     const permissions = grantsPermission(rec.permissions, perm)
-      ? rec.permissions.filter((p) => p !== perm)
-      : [...rec.permissions, perm];
+      ? rec.permissions.filter((p) => !bundle.includes(p))
+      : [...new Set([...rec.permissions, ...bundle])];
     update.mutate({ id: rec.id, permissions });
   };
 
@@ -80,8 +89,10 @@ function ModuleAccessCard() {
         <CardTitle>Module Access</CardTitle>
         <CardDescription>
           Controls each role's real permissions on the server — a checked box grants that module's
-          governing permission. Super Admin always has full access. (Dashboard, Reports and Day Book
-          share a permission, so they toggle together.)
+          governing permission, and for most modules that includes add/update, not just viewing. (A
+          few — Roles, Day Book, Gate Passes — only control visibility; managing those stays gated
+          by role/store ownership regardless of this checkbox.) Super Admin always has full access.
+          (Dashboard, Reports and Day Book share a permission, so they toggle together.)
         </CardDescription>
       </CardHeader>
       <CardContent className="px-0 pb-0">

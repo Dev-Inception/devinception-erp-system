@@ -161,12 +161,18 @@ async function getPendingEntityById(actor, id) {
 }
 
 /**
- * Prices a pending entity and posts the real payable:
+ * Prices a pending entity (or revises an already-priced one) and posts the
+ * real payable:
  *  - SALE_ITEM: Dr COGS / Cr AP(vendor) — the cost the sale never booked,
  *    matched against revenue already recorded at checkout.
  *  - STOCK_RECEIPT_ITEM: Dr EQUITY / Cr AP_SUPPLIER(supplier) — reattributes
  *    the receipt's existing inventory funding from equity to supplier debt.
  *    Inventory value itself is untouched.
+ *
+ * Re-pricing an already-PRICED entity first reverses its original posting
+ * (journal entries are append-only, so "correct" always means posting the
+ * opposite entry, never touching the original) before posting the revised
+ * one — same pattern as expenseService's edit flow.
  */
 async function setPurchasePrice(actor, id, purchasePrice) {
   const { PendingEntity } = initializeModels();
@@ -174,9 +180,6 @@ async function setPurchasePrice(actor, id, purchasePrice) {
     const entity = await PendingEntity.findByPk(id, { transaction, lock: transaction.LOCK.UPDATE });
     if (!entity) throw ApiError.notFound('Pending entity not found');
     if (entity.store) assertStoreAccess(actor, entity.store);
-    if (entity.status === 'PRICED') {
-      throw ApiError.badRequest('This entity has already been priced');
-    }
 
     const price = toPaisa(purchasePrice);
     if (price <= 0) throw ApiError.badRequest('Purchase price must be positive');
@@ -184,16 +187,35 @@ async function setPurchasePrice(actor, id, purchasePrice) {
 
     const isSaleItem = entity.sourceType === 'SALE_ITEM';
     const debitAccount = isSaleItem ? ACCOUNT.COGS : ACCOUNT.EQUITY;
+    const payableAccount = isSaleItem ? ACCOUNT.AP : ACCOUNT.AP_SUPPLIER;
+    const payableRef = isSaleItem ? entity.vendor : entity.supplier;
+    const wasPriced = entity.status === 'PRICED';
+
+    if (wasPriced) {
+      await journalService.post({
+        date: new Date(),
+        description: `Reversal of price for ${entity.sourceType === 'SALE_ITEM' ? 'vendor item on sale' : 'stock receipt'} ${entity.sourceNo}`,
+        refType: REF.PENDING_ENTITY,
+        refId: entity.id,
+        refNo: entity.sourceNo,
+        warehouse: entity.warehouse,
+        store: entity.store,
+        createdBy: actor ? actor.id : null,
+        transaction,
+        lines: [
+          journalService.line(payableAccount, { debit: entity.lineTotal, ref: payableRef }),
+          journalService.line(debitAccount, { credit: entity.lineTotal }),
+        ],
+      });
+    }
+
     const description = isSaleItem
       ? `Cost for vendor item on sale ${entity.sourceNo}`
       : `Supplier cost for stock receipt ${entity.sourceNo}`;
-    const payableLine = isSaleItem
-      ? journalService.line(ACCOUNT.AP, { credit: lineTotal, ref: entity.vendor })
-      : journalService.line(ACCOUNT.AP_SUPPLIER, { credit: lineTotal, ref: entity.supplier });
 
     await journalService.post({
       date: new Date(),
-      description,
+      description: wasPriced ? `${description} (revised)` : description,
       refType: REF.PENDING_ENTITY,
       refId: entity.id,
       refNo: entity.sourceNo,
@@ -201,7 +223,10 @@ async function setPurchasePrice(actor, id, purchasePrice) {
       store: entity.store,
       createdBy: actor ? actor.id : null,
       transaction,
-      lines: [journalService.line(debitAccount, { debit: lineTotal }), payableLine],
+      lines: [
+        journalService.line(debitAccount, { debit: lineTotal }),
+        journalService.line(payableAccount, { credit: lineTotal, ref: payableRef }),
+      ],
     });
 
     entity.status = 'PRICED';

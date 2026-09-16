@@ -9,6 +9,10 @@ export interface AuthUser {
   email: string;
   fullName: string;
   role: Role;
+  /** The role's human-typed display label (e.g. "Manager") — a custom
+   *  role's `role` is its namespaced technical name and is never fit to
+   *  show in the UI; this always is. Falls back to `role` if unavailable. */
+  roleLabel: string;
   avatarUrl?: string;
   /** Resolved permission strings for this user's role ('*' = wildcard/super admin). */
   permissions?: string[];
@@ -27,6 +31,13 @@ interface AuthState {
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   refresh: () => Promise<string | null>;
+  /** Re-fetches the current user (role, permissions, roleLabel) from the
+   *  server. A role's permissions only ever change via someone else's
+   *  action (Module Access) — an already-logged-in session has no other
+   *  way to learn about it, since the access token isn't reissued for
+   *  that. Call this on app load so a page reload (not a full re-login)
+   *  is enough to pick up a permission change. */
+  refreshUser: () => Promise<void>;
   changePassword: (currentPassword: string, newPassword: string) => Promise<void>;
   hasRole: (...roles: Role[]) => boolean;
 }
@@ -44,6 +55,7 @@ interface BackendUser {
   name?: string;
   fullName?: string;
   role: string;
+  roleLabel?: string;
   avatarUrl?: string;
   permissions?: string[];
   /** Raw store id, or a populated `{ _id, name, code }` object. */
@@ -60,6 +72,7 @@ function mapUser(u: BackendUser): AuthUser {
     email: u.email,
     fullName: u.name ?? u.fullName ?? u.email,
     role: String(u.role).toUpperCase() as Role,
+    roleLabel: u.roleLabel ?? u.role,
     avatarUrl: u.avatarUrl,
     permissions: u.permissions,
     storeId,
@@ -124,6 +137,18 @@ export const useAuthStore = create<AuthState>()(
         const res = await http.patch('/auth/change-password', { currentPassword, newPassword });
         const { accessToken } = res.data as { accessToken: string };
         set({ accessToken });
+      },
+
+      refreshUser: async () => {
+        if (!get().user) return;
+        try {
+          const res = await http.get('/auth/me');
+          const { user } = res.data as { user: BackendUser };
+          set({ user: mapUser(user) });
+        } catch {
+          // A transient failure here shouldn't sign anyone out — 401s are
+          // already handled by the http client's own refresh/logout flow.
+        }
       },
 
       hasRole: (...roles) => {

@@ -57,6 +57,42 @@ export interface SaleForInvoice {
 
 const COMPANY = { name: 'DevInception Retail', address: 'HQ, Lahore', phone: '+92 300 1234567' };
 
+interface CompanyInfo {
+  name: string;
+  address?: string;
+  phone?: string;
+  email?: string;
+  taxNumber?: string;
+  logoUrl?: string;
+}
+
+// The company identity (name, address, contact, tax number, logo) configured
+// once on the Settings page — printed at the top of every invoice/receipt so
+// a change there is reflected everywhere without touching each template.
+// Falls back to the generic placeholder identity if the lookup fails, so a
+// Settings hiccup never blocks printing.
+//
+// `storeId` must be passed whenever the document belongs to a specific store:
+// an admin who manages more than one store has no "current store" on the
+// backend without it, and GET /settings 400s ("Select a store first") —
+// silently caught below, which otherwise looks like Settings was just empty.
+async function companyInfo(storeId?: string): Promise<CompanyInfo> {
+  try {
+    const s = (await api.get('/settings', storeId ? { params: { store: storeId } } : undefined))
+      .data;
+    return {
+      name: s?.companyName || COMPANY.name,
+      address: s?.address || COMPANY.address,
+      phone: s?.phone || COMPANY.phone,
+      email: s?.email || undefined,
+      taxNumber: s?.taxNumber || undefined,
+      logoUrl: s?.logoUrl || undefined,
+    };
+  } catch {
+    return { name: COMPANY.name, address: COMPANY.address, phone: COMPANY.phone };
+  }
+}
+
 // The issuing store's active bank account(s), formatted as a one-line note
 // so a customer can settle any remaining balance by transfer. Silently
 // omitted (never blocks printing) if the store has none set up yet, or the
@@ -95,16 +131,24 @@ async function invoiceFooterNote(): Promise<string | undefined> {
 }
 
 async function buildInvoiceHtml(sale: SaleForInvoice) {
-  // The invoice header identifies the physical storefront the sale happened
-  // at, not a single generic company block — falls back to the generic
-  // identity only for legacy sales that predate the store field.
-  const company = sale.storeName
-    ? { name: sale.storeName, address: sale.storeAddress || COMPANY.address, phone: COMPANY.phone }
-    : COMPANY;
-  const [bankNote, footerNote] = await Promise.all([
+  const [bankNote, footerNote, settings] = await Promise.all([
     bankNoteFor(sale.storeId),
     invoiceFooterNote(),
+    companyInfo(sale.storeId),
   ]);
+  // The invoice header identifies the physical storefront the sale happened
+  // at, not a single generic company block — falls back to the configured
+  // company identity (name/address) only for legacy sales that predate the
+  // store field. Contact details, tax number and logo always come from
+  // Settings, since those aren't captured per-store-snapshot.
+  const company = {
+    name: sale.storeName || settings.name,
+    address: sale.storeAddress || settings.address,
+    phone: settings.phone,
+    email: settings.email,
+    taxNumber: settings.taxNumber,
+    logoUrl: settings.logoUrl,
+  };
   return renderTemplate('INVOICE_A4', {
     company,
     number: sale.saleNumber,
@@ -185,6 +229,7 @@ export async function openSaleInvoicePopup(sale: SaleForInvoice, target?: Window
 export interface StockReceiptForInvoice {
   receiptNumber: string;
   date: string;
+  storeId?: string;
   storeName?: string;
   supplierName: string;
   items: {
@@ -206,10 +251,16 @@ export interface StockReceiptForInvoice {
   labourRentTotal?: number | string;
 }
 
-function buildReceiptInvoiceHtml(receipt: StockReceiptForInvoice) {
-  const company = receipt.storeName
-    ? { name: receipt.storeName, address: COMPANY.address, phone: COMPANY.phone }
-    : COMPANY;
+async function buildReceiptInvoiceHtml(receipt: StockReceiptForInvoice) {
+  const settings = await companyInfo(receipt.storeId);
+  const company = {
+    name: receipt.storeName || settings.name,
+    address: settings.address,
+    phone: settings.phone,
+    email: settings.email,
+    taxNumber: settings.taxNumber,
+    logoUrl: settings.logoUrl,
+  };
   const hasUnpriced = receipt.items.some((i) => i.pricingStatus !== 'PRICED');
   const truckFare = Number(receipt.truckFare ?? 0);
   const labourRentTotal = Number(receipt.labourRentTotal ?? 0);
@@ -255,7 +306,150 @@ export async function openStockReceiptInvoicePopup(
   receipt: StockReceiptForInvoice,
   target?: Window | null,
 ) {
-  if (!writeHtmlPopup(buildReceiptInvoiceHtml(receipt), target)) {
+  const win =
+    target && !target.closed ? target : window.open('', '_blank', 'width=850,height=1000');
+  if (!win) throw new Error('POPUP_BLOCKED');
+  const html = await buildReceiptInvoiceHtml(receipt);
+  if (!writeHtmlPopup(html, win)) {
+    throw new Error('POPUP_BLOCKED');
+  }
+}
+
+/** A debit note for damaged goods handed back to a supplier — same
+ * INVOICE_A4 template, headed "Debit Note" since it documents value going
+ * back out rather than a purchase coming in. */
+export interface DamagedStockReturnForInvoice {
+  returnNumber: string;
+  date: string;
+  storeId?: string;
+  storeName?: string;
+  supplierName: string;
+  items: {
+    name: string;
+    quantity: number | string;
+    unitCost?: number | string;
+    lineTotal?: number | string;
+  }[];
+  total: number | string;
+  truck?: { driverName?: string; driverPhone?: string; vehicleNumber?: string };
+  note?: string;
+}
+
+async function buildDamagedStockReturnInvoiceHtml(damagedReturn: DamagedStockReturnForInvoice) {
+  const settings = await companyInfo(damagedReturn.storeId);
+  const company = {
+    name: damagedReturn.storeName || settings.name,
+    address: settings.address,
+    phone: settings.phone,
+    email: settings.email,
+    taxNumber: settings.taxNumber,
+    logoUrl: settings.logoUrl,
+  };
+  return renderTemplate('INVOICE_A4', {
+    company,
+    docTitle: 'Debit Note',
+    docNumberLabel: 'Return #',
+    number: damagedReturn.returnNumber,
+    date: new Date(damagedReturn.date).toLocaleString(),
+    partyName: damagedReturn.supplierName,
+    invoiceType: 'Damaged Goods Returned',
+    items: damagedReturn.items.map((i) => ({
+      name: i.name,
+      qty: Number(i.quantity),
+      price: i.unitCost !== undefined ? Number(i.unitCost) : 0,
+      amount: i.lineTotal !== undefined ? Number(i.lineTotal) : 0,
+    })),
+    subtotal: Number(damagedReturn.total),
+    tax: 0,
+    total: Number(damagedReturn.total),
+    transport:
+      damagedReturn.truck?.driverName || damagedReturn.truck?.vehicleNumber
+        ? damagedReturn.truck
+        : undefined,
+    notes: damagedReturn.note || undefined,
+  });
+}
+
+export async function openDamagedStockReturnInvoicePopup(
+  damagedReturn: DamagedStockReturnForInvoice,
+  target?: Window | null,
+) {
+  const win =
+    target && !target.closed ? target : window.open('', '_blank', 'width=850,height=1000');
+  if (!win) throw new Error('POPUP_BLOCKED');
+  const html = await buildDamagedStockReturnInvoiceHtml(damagedReturn);
+  if (!writeHtmlPopup(html, win)) {
+    throw new Error('POPUP_BLOCKED');
+  }
+}
+
+/** A customer-facing printout of a quote — same INVOICE_A4 template as
+ * sales, headed "Estimate" instead of "Invoice" and with none of the
+ * payment/transport/labour/returns sections a real sale can have (the
+ * estimate schema carries no such data, so the template simply omits
+ * those sections rather than needing a forked layout). */
+export interface EstimateForInvoice {
+  estimateNumber: string;
+  date: string;
+  storeId?: string;
+  storeName?: string;
+  storeAddress?: string;
+  customer?: { name: string; phone?: string };
+  items: SaleItemForInvoice[];
+  subtotal: number | string;
+  taxTotal: number | string;
+  discountTotal: number | string;
+  grandTotal: number | string;
+  notes?: string;
+}
+
+async function buildEstimateInvoiceHtml(estimate: EstimateForInvoice) {
+  const [bankNote, footerNote, settings] = await Promise.all([
+    bankNoteFor(estimate.storeId),
+    invoiceFooterNote(),
+    companyInfo(estimate.storeId),
+  ]);
+  const company = {
+    name: estimate.storeName || settings.name,
+    address: estimate.storeAddress || settings.address,
+    phone: settings.phone,
+    email: settings.email,
+    taxNumber: settings.taxNumber,
+    logoUrl: settings.logoUrl,
+  };
+  return renderTemplate('INVOICE_A4', {
+    company,
+    docTitle: 'Estimate',
+    docNumberLabel: 'Estimate #',
+    number: estimate.estimateNumber,
+    date: new Date(estimate.date).toLocaleString(),
+    partyName: estimate.customer?.name ?? 'Walk-in Customer',
+    partyPhone: estimate.customer?.phone || undefined,
+    items: estimate.items.map((i) => ({
+      name: i.name,
+      qty: Number(i.quantity),
+      price: Number(i.unitPrice),
+      amount: Number(i.amount),
+    })),
+    subtotal: Number(estimate.subtotal),
+    tax: Number(estimate.taxTotal),
+    discount: Number(estimate.discountTotal),
+    total: Number(estimate.grandTotal),
+    notes: estimate.notes || undefined,
+    bankNote,
+    footerNote,
+  });
+}
+
+export async function openEstimateInvoicePopup(
+  estimate: EstimateForInvoice,
+  target?: Window | null,
+) {
+  const win =
+    target && !target.closed ? target : window.open('', '_blank', 'width=850,height=1000');
+  if (!win) throw new Error('POPUP_BLOCKED');
+  const html = await buildEstimateInvoiceHtml(estimate);
+  if (!writeHtmlPopup(html, win)) {
     throw new Error('POPUP_BLOCKED');
   }
 }
@@ -272,10 +466,11 @@ export interface LabourForInvoice {
   }[];
 }
 
-function buildLabourInvoiceHtml(labour: LabourForInvoice) {
+async function buildLabourInvoiceHtml(labour: LabourForInvoice) {
+  const settings = await companyInfo();
   const total = labour.jobs.reduce((sum, j) => sum + Number(j.rent), 0);
   return renderTemplate('INVOICE_A4', {
-    company: COMPANY,
+    company: settings,
     number: '',
     date: new Date().toLocaleString(),
     partyName: labour.labourName,
@@ -293,7 +488,11 @@ function buildLabourInvoiceHtml(labour: LabourForInvoice) {
 }
 
 export async function openLabourInvoicePopup(labour: LabourForInvoice, target?: Window | null) {
-  if (!writeHtmlPopup(buildLabourInvoiceHtml(labour), target)) {
+  const win =
+    target && !target.closed ? target : window.open('', '_blank', 'width=850,height=1000');
+  if (!win) throw new Error('POPUP_BLOCKED');
+  const html = await buildLabourInvoiceHtml(labour);
+  if (!writeHtmlPopup(html, win)) {
     throw new Error('POPUP_BLOCKED');
   }
 }

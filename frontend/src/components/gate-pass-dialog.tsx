@@ -11,20 +11,31 @@ import {
 import { Button } from '@/components/ui/button';
 import { api } from '@/lib/api';
 import { buildGatePassScanQr } from '@/lib/gatePass';
-import { useLanguage } from '@/components/language-provider';
+import { renderGatePassTemplate } from '@/lib/printing';
 
 interface GatePassDetail {
   id: string;
   number: string;
-  sourceType?: 'SALE' | 'PURCHASE' | 'RETURN';
+  storeId?: string;
+  sourceType?: 'SALE' | 'PURCHASE' | 'RETURN' | 'SUPPLIER_RETURN';
   direction?: 'IN' | 'OUT';
+  partyName?: string;
   saleNumber: string;
   saleDate: string;
-  items: { name: string; quantity: number; loadedQuantity?: number; returnedQuantity?: number }[];
+  items: {
+    name: string;
+    quantity: number;
+    loadedQuantity?: number;
+    returnedQuantity?: number;
+    sku?: string;
+    barcode?: string;
+  }[];
+  driver?: { name?: string; phone?: string; vehicleNumber?: string };
   status: 'PENDING' | 'PROCESSED' | 'CANCELLED';
   processedAt?: string;
   processedBy?: { name?: string };
   scannedBy?: { name?: string };
+  createdBy?: { name?: string };
 }
 
 const STATUS_STYLE: Record<string, string> = {
@@ -50,7 +61,6 @@ export function GatePassDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
-  const { t } = useLanguage();
   const { data, isLoading, isError } = useQuery<GatePassDetail>({
     queryKey: ['gate-pass', gatePassId],
     queryFn: async () => (await api.get(`/gate-passes/${gatePassId}`)).data,
@@ -61,6 +71,14 @@ export function GatePassDialog({
     queryKey: ['gate-pass-scan-qr', gatePassId],
     queryFn: () => buildGatePassScanQr(gatePassQrUrl as string),
     enabled: open && Boolean(gatePassId) && Boolean(gatePassQrUrl),
+  });
+
+  const { data: settings } = useQuery({
+    queryKey: ['settings-for-gate-pass-print', data?.storeId],
+    queryFn: async () =>
+      (await api.get('/settings', data?.storeId ? { params: { store: data.storeId } } : undefined))
+        .data,
+    enabled: open && Boolean(data),
   });
 
   const copyLink = async () => {
@@ -79,42 +97,44 @@ export function GatePassDialog({
 
   const printGatePass = () => {
     if (!data) return;
-    const win = window.open('', '_blank', 'width=320,height=640');
+    const win = window.open('', '_blank', 'width=850,height=1000');
     if (!win) return;
-    const itemRows = data.items
-      .map(
-        (it) =>
-          `<tr><td>${it.name}${it.returnedQuantity ? ` (${it.returnedQuantity} returned)` : ''}</td><td style="text-align:right">${it.quantity}</td></tr>`,
-      )
-      .join('');
-    win.document.write(`<!doctype html><html><head><title>${data.number}</title>
-      <style>
-        @page { size: 80mm auto; margin: 3mm; }
-        * { font-family: 'Courier New', monospace; }
-        html { background: #e5e7eb; }
-        body { width: 74mm; margin: 0 auto; padding: 3mm; color: #000; font-size: 12px; background: #fff; }
-        h1 { font-size: 14px; text-align: center; margin: 0 0 2mm; }
-        p { margin: 1mm 0; text-align: center; }
-        .line { border-top: 1px dashed #000; margin: 2mm 0; }
-        table { width: 100%; border-collapse: collapse; }
-        th, td { padding: 1mm 0; text-align: left; font-size: 11px; }
-        img { display: block; margin: 2mm auto; }
-        .center { text-align: center; word-break: break-all; }
-        @media print { html { background: #fff; } body { padding: 0; } }
-      </style>
-      </head><body>
-        <h1>GATE PASS</h1>
-        <p>${data.number}</p>
-        <div class="line"></div>
-        <p>${docLabel} ${data.saleNumber}</p>
-        <p>Status: ${data.status}</p>
-        <div class="line"></div>
-        <table><thead><tr><th>${t('Product')}</th><th style="text-align:right">${t('Qty')}</th></tr></thead>
-          <tbody>${itemRows}</tbody>
-        </table>
-        <div class="line"></div>
-        ${qr ? `<img src="${qr.qrDataUrl}" width="120" height="120" />` : ''}
-      </body></html>`);
+    const html = renderGatePassTemplate({
+      company: {
+        name: settings?.companyName || 'DevInception Retail',
+        address: settings?.address,
+        phone: settings?.phone,
+        email: settings?.email,
+        taxNumber: settings?.taxNumber,
+        logoUrl: settings?.logoUrl,
+      },
+      number: data.number,
+      date: new Date(data.saleDate || Date.now()).toLocaleDateString(),
+      direction:
+        data.direction ?? (isSupplierReturn ? 'OUT' : isPurchase || isReturn ? 'IN' : 'OUT'),
+      partyName:
+        data.partyName || (isPurchase || isSupplierReturn ? 'Supplier' : 'Walk-in Customer'),
+      documentLabel: docLabel,
+      documentNumber: data.saleNumber,
+      contactPerson: data.driver?.name,
+      reference: data.driver?.vehicleNumber ? `Vehicle: ${data.driver.vehicleNumber}` : undefined,
+      purpose: `${directionLabel.charAt(0).toUpperCase()}${directionLabel.slice(1)}`,
+      items: data.items.map((it) => ({
+        name: it.name,
+        quantity: it.quantity,
+        serialRef: it.sku || it.barcode,
+        remarks: it.returnedQuantity
+          ? `${it.returnedQuantity} returned`
+          : it.loadedQuantity != null && it.loadedQuantity !== it.quantity
+            ? `${it.loadedQuantity} loaded`
+            : undefined,
+      })),
+      preparedBy: data.createdBy?.name,
+      authorizedBy: data.processedBy?.name ?? data.scannedBy?.name,
+      authorizedAt: data.processedAt ? new Date(data.processedAt).toLocaleString() : undefined,
+      qrDataUrl: qr?.qrDataUrl,
+    });
+    win.document.write(html);
     win.document.close();
     win.focus();
     win.print();
@@ -122,12 +142,15 @@ export function GatePassDialog({
 
   const isPurchase = data?.sourceType === 'PURCHASE';
   const isReturn = data?.sourceType === 'RETURN';
-  const docLabel = isPurchase ? 'Purchase #' : isReturn ? 'Return #' : 'Sale #';
-  const directionLabel = isReturn
-    ? 'goods coming back in'
-    : isPurchase
-      ? 'goods coming in'
-      : 'goods going out';
+  const isSupplierReturn = data?.sourceType === 'SUPPLIER_RETURN';
+  const docLabel = isPurchase ? 'Purchase #' : isReturn || isSupplierReturn ? 'Return #' : 'Sale #';
+  const directionLabel = isSupplierReturn
+    ? 'damaged goods going back out to the supplier'
+    : isReturn
+      ? 'goods coming back in'
+      : isPurchase
+        ? 'goods coming in'
+        : 'goods going out';
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

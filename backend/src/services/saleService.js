@@ -3,13 +3,14 @@ const { getPostgres } = require('../db/postgres');
 const { initializeModels } = require('../db/models');
 const ApiError = require('../utils/ApiError');
 const { toPaisa, toRupees } = require('../utils/money');
-const { ACCOUNT, REF, PAYMENT_METHOD, BANK_METHODS } = require('../utils/finance');
+const { ACCOUNT, REF } = require('../utils/finance');
 const journalService = require('./journalService');
 const stockService = require('./stockService');
 const counterService = require('./counterService');
 const { calculateInvoiceTotals, resolveUnitPrice } = require('./invoiceCalculationService');
 const { parsePagination } = require('../utils/query');
 const { normalizeQuantity, requirePositiveQuantity } = require('../utils/quantity');
+const { resolveSettlement } = require('../utils/paymentSplit');
 const {
   resolveWarehouseScope,
   warehouseWhere,
@@ -31,40 +32,6 @@ const dayEndService = require('./dayEndService');
  * payables, pending-entity creation, and gate-pass creation — runs inside one
  * transaction, so a failure anywhere rolls back the whole sale.
  */
-
-// Work out the cash / online / credit split (paisa) for the chosen method.
-function resolveSettlement({ method, total, cashReceived, onlineReceived }) {
-  let cash = 0;
-  let online = 0;
-
-  if (method === PAYMENT_METHOD.CASH) {
-    cash = total;
-  } else if (BANK_METHODS.has(method)) {
-    online = total;
-  } else if (method === PAYMENT_METHOD.MIXED) {
-    cash = toPaisa(cashReceived || 0);
-    online = toPaisa(onlineReceived || 0);
-    // The POS "Mixed" mode splits the full total across cash + online and has
-    // no on-account remainder, but it allows over-tender (and shows change).
-    // Reject a short tender; treat any excess as change by capping the booked
-    // amounts at the total (online first, then cash — the drawer gives change
-    // from cash), instead of erroring on an exact-match mismatch.
-    if (cash + online < total) {
-      throw ApiError.badRequest('Mixed payment: cash + online must cover the sale total');
-    }
-    online = Math.min(online, total);
-    cash = total - online;
-  } else if (method === PAYMENT_METHOD.CREDIT) {
-    // entirely on account
-  } else {
-    throw ApiError.badRequest('Unsupported payment method');
-  }
-
-  if (cash < 0 || online < 0) throw ApiError.badRequest('Payment amounts cannot be negative');
-  const credit = total - cash - online;
-  if (credit < 0) throw ApiError.badRequest('Amount tendered exceeds the sale total');
-  return { cash, online, credit };
-}
 
 // Resolves a raw `items` request array into priced, warehouse-checked sale
 // lines — validating stock per (product, warehouse) pair rather than

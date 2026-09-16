@@ -14,7 +14,18 @@ interface LineItem {
   amount: number;
 }
 interface DocData {
-  company: { name: string; address?: string; phone?: string };
+  company: {
+    name: string;
+    address?: string;
+    phone?: string;
+    email?: string;
+    taxNumber?: string;
+    logoUrl?: string;
+  };
+  // Lets non-sale documents (e.g. an Estimate) relabel the A4 template's
+  // header without forking it — defaults to "Invoice"/"Invoice #" below.
+  docTitle?: string;
+  docNumberLabel?: string;
   number: string;
   date: string;
   partyName?: string;
@@ -95,7 +106,8 @@ const a4Styles = `
     .section-label { font-size: 8.5px; font-weight: 700; color: ${NAVY}; text-transform: uppercase; letter-spacing: 0.4px; margin: 0 0 3px; }
     .head { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; padding-bottom: 6px; }
     .brand { display: flex; align-items: center; gap: 8px; }
-    .logo { width: 30px; height: 30px; min-width: 30px; border-radius: 6px; border: 2px solid ${NAVY}; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700; color: ${NAVY}; }
+    .logo { width: 30px; height: 30px; min-width: 30px; border-radius: 6px; border: 2px solid ${NAVY}; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700; color: ${NAVY}; overflow: hidden; }
+    .logo img { width: 100%; height: 100%; object-fit: contain; }
     h1 { margin: 0; font-size: 13px; color: #111; letter-spacing: 0.2px; }
     .brand .muted { margin: 1px 0 0; font-size: 8px; color: #555; line-height: 1.3; }
     .doc-title { text-align: right; font-size: 20px; font-weight: 800; color: ${NAVY}; letter-spacing: 1px; line-height: 1; }
@@ -279,6 +291,8 @@ export function renderTemplate(type: TemplateType, d: DocData): string {
   // A4 invoice
   const totalItems = d.items.reduce((sum, i) => sum + (Number(i.qty) || 0), 0);
   const logoInitial = (d.company.name || '?').trim().charAt(0).toUpperCase();
+  const logoHtml = d.company.logoUrl ? `<img src="${d.company.logoUrl}" alt="" />` : logoInitial;
+  const companyContactLine = [d.company.phone, d.company.email].filter(Boolean).join(' | ');
 
   const hasInvoiceDetails =
     !!d.invoiceType || d.previousBalance != null || d.totalRemaining != null;
@@ -291,16 +305,16 @@ export function renderTemplate(type: TemplateType, d: DocData): string {
     <div class="sheet">
       <div class="head">
         <div class="brand">
-          <div class="logo">${logoInitial}</div>
+          <div class="logo">${logoHtml}</div>
           <div>
             <h1>${d.company.name}</h1>
-            <p class="muted">${d.company.address ?? ''}${d.company.phone ? `<br/>${d.company.phone}` : ''}</p>
+            <p class="muted">${d.company.address ?? ''}${companyContactLine ? `<br/>${companyContactLine}` : ''}${d.company.taxNumber ? `<br/>NTN/STRN: ${d.company.taxNumber}` : ''}</p>
           </div>
         </div>
         <div>
-          <div class="doc-title">Invoice</div>
+          <div class="doc-title">${d.docTitle ?? 'Invoice'}</div>
           <div class="inv-meta">
-            <div class="row"><span class="label">Invoice #</span><span class="value">${d.number}</span></div>
+            <div class="row"><span class="label">${d.docNumberLabel ?? 'Invoice #'}</span><span class="value">${d.number}</span></div>
             <div class="row"><span class="label">Date</span><span class="value">${d.date}</span></div>
           </div>
         </div>
@@ -396,6 +410,172 @@ export function renderTemplate(type: TemplateType, d: DocData): string {
         </div>
       </div>
       <div class="thankyou">${d.footerNote ? `<strong>${d.footerNote}</strong>` : '<strong>Thank you for your business!</strong>'}</div>
+    </div>
+  </body></html>`;
+}
+
+/* ── Gate Pass (A4, full-page challan-style layout) ────────────────────── */
+
+export interface GatePassDocData {
+  company: {
+    name: string;
+    address?: string;
+    phone?: string;
+    email?: string;
+    taxNumber?: string;
+    logoUrl?: string;
+  };
+  number: string;
+  date: string;
+  direction: 'IN' | 'OUT';
+  partyName: string;
+  documentLabel: string; // e.g. "Sale #", "Purchase #", "Return #"
+  documentNumber: string;
+  contactPerson?: string;
+  reference?: string;
+  address?: string;
+  purpose: string;
+  items: {
+    name: string;
+    brandModel?: string;
+    quantity: number;
+    unit?: string;
+    serialRef?: string;
+    remarks?: string;
+  }[];
+  preparedBy?: string;
+  authorizedBy?: string;
+  authorizedAt?: string;
+  qrDataUrl?: string;
+}
+
+const gatePassStyles = `
+  <style>
+    @page { size: A4; margin: 12mm; }
+    * { font-family: Inter, Arial, sans-serif; box-sizing: border-box; }
+    html, body { width: 186mm; }
+    body { margin: 0; padding: 0; color: #111; font-size: 10px; }
+    .fill-bg { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+    .gp-sheet { border: 1px solid #d1d5db; border-radius: 6px; padding: 12px 14px; }
+    .section-label { font-size: 9.5px; font-weight: 700; color: ${NAVY}; text-transform: uppercase; letter-spacing: 0.4px; margin: 14px 0 6px; }
+    .section-label:first-of-type { margin-top: 0; }
+    .gp-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; padding-bottom: 10px; }
+    .gp-brand { display: flex; align-items: flex-start; gap: 10px; }
+    .logo { width: 36px; height: 36px; min-width: 36px; border-radius: 8px; border: 2px solid ${NAVY}; display: flex; align-items: center; justify-content: center; font-size: 16px; font-weight: 700; color: ${NAVY}; overflow: hidden; }
+    .logo img { width: 100%; height: 100%; object-fit: contain; }
+    .gp-store-name { font-size: 15px; font-weight: 800; color: #111; }
+    .gp-store-line { font-size: 8.5px; color: #555; margin-top: 2px; line-height: 1.4; }
+    .gp-doc { text-align: right; }
+    .gp-doc-title { font-size: 22px; font-weight: 800; color: ${NAVY}; letter-spacing: 1px; line-height: 1; }
+    .gp-doc-sub { font-size: 8px; color: #6b7280; text-transform: uppercase; letter-spacing: 0.3px; margin-top: 3px; }
+    .gp-qr { width: 64px; height: 64px; margin: 6px 0 4px auto; display: block; }
+    .gp-doc-meta { font-size: 9px; margin-top: 1px; }
+    .gp-doc-meta .k { color: #6b7280; }
+    .gp-doc-meta strong { color: #111; }
+    .rule { border: 0; border-top: 2px solid ${NAVY}; margin: 0; }
+    .gp-info-card { border: 1px solid #e5e7eb; border-radius: 6px; overflow: hidden; }
+    .gp-info-grid { display: grid; grid-template-columns: 1fr 1fr; }
+    .gp-info-row { padding: 6px 10px; border-bottom: 1px solid #e5e7eb; border-right: 1px solid #e5e7eb; }
+    .gp-info-grid .gp-info-row:nth-child(2n) { border-right: none; }
+    .gp-info-grid .gp-info-row:nth-last-child(-n+2) { border-bottom: none; }
+    .gp-info-row .k { display: block; font-size: 7.8px; color: #6b7280; text-transform: uppercase; letter-spacing: 0.3px; }
+    .gp-info-row .v { display: block; margin-top: 2px; font-size: 9.5px; font-weight: 600; color: #111; }
+    table { width: 100%; border-collapse: collapse; margin-top: 2px; }
+    th { position: relative; padding: 0; text-align: left; }
+    th .th-label { position: relative; z-index: 1; display: block; padding: 5px 6px; color: #fff; font-size: 8px; text-transform: uppercase; letter-spacing: 0.3px; font-weight: 700; }
+    th.r .th-label { text-align: right; }
+    th.c .th-label { text-align: center; }
+    td { padding: 5px 6px; border-bottom: 1px solid #e5e7eb; font-size: 9px; }
+    .r { text-align: right; }
+    .c { text-align: center; }
+    .gp-total-qty { text-align: right; margin-top: 6px; font-size: 9.5px; color: #333; }
+    .gp-total-qty strong { color: #111; }
+    .gp-auth-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin-top: 8px; }
+    .gp-auth-col { border: 1px solid #e5e7eb; border-radius: 6px; padding: 10px; min-height: 78px; }
+    .gp-auth-col .section-label { margin: 0 0 8px; text-align: center; }
+    .gp-auth-col .field { font-size: 9px; color: #333; margin-top: 14px; border-top: 1px solid #9ca3af; padding-top: 2px; }
+    .gp-stamp-box { margin-top: 6px; height: 46px; border: 1px dashed #cbd5e1; border-radius: 4px; display: flex; align-items: center; justify-content: center; font-size: 8px; color: #9ca3af; text-transform: uppercase; letter-spacing: 0.4px; }
+    .gp-footer { margin-top: 14px; text-align: center; font-size: 7.8px; color: #9ca3af; }
+    .toolbar { display: flex; gap: 8px; justify-content: flex-end; margin-bottom: 8px; }
+    .toolbar button { font: inherit; padding: 8px 16px; border-radius: 6px; border: 1px solid ${NAVY}; background: ${NAVY}; color: #fff; cursor: pointer; }
+    .toolbar button.outline { background: #fff; color: ${NAVY}; }
+    @media print { .toolbar { display: none !important; } .gp-sheet { border: none; padding: 0; } }
+  </style>`;
+
+function gatePassItemRows(items: GatePassDocData['items']) {
+  return items
+    .map(
+      (it, idx) =>
+        `<tr><td class="c">${idx + 1}</td><td>${it.name}</td><td>${it.brandModel || '—'}</td><td class="r">${it.quantity}</td><td class="c">${it.unit || '—'}</td><td>${it.serialRef || '—'}</td><td>${it.remarks || '—'}</td></tr>`,
+    )
+    .join('');
+}
+
+export function renderGatePassTemplate(d: GatePassDocData): string {
+  const logoInitial = (d.company.name || '?').trim().charAt(0).toUpperCase();
+  const logoHtml = d.company.logoUrl ? `<img src="${d.company.logoUrl}" alt="" />` : logoInitial;
+  const totalQty = d.items.reduce((sum, i) => sum + (Number(i.quantity) || 0), 0);
+  const contactLine = [d.company.phone, d.company.email].filter(Boolean).join(' | ');
+
+  return `<!doctype html><html><head><title>${d.number}</title>${gatePassStyles}</head><body>
+    <div class="toolbar">
+      <button type="button" class="outline" onclick="window.print()">Download PDF</button>
+      <button type="button" onclick="window.print()">Print</button>
+    </div>
+    <div class="gp-sheet">
+      <div class="gp-head">
+        <div class="gp-brand">
+          <div class="logo">${logoHtml}</div>
+          <div>
+            <div class="gp-store-name">${d.company.name}</div>
+            ${d.company.address ? `<div class="gp-store-line">${d.company.address}</div>` : ''}
+            ${contactLine ? `<div class="gp-store-line">${contactLine}</div>` : ''}
+            ${d.company.taxNumber ? `<div class="gp-store-line">NTN / STRN: ${d.company.taxNumber}</div>` : ''}
+          </div>
+        </div>
+        <div class="gp-doc">
+          <div class="gp-doc-title">GATE PASS</div>
+          <div class="gp-doc-sub">${d.direction === 'OUT' ? 'Goods Outward / Material Exit' : 'Goods Inward / Material Receipt'}</div>
+          ${d.qrDataUrl ? `<img class="gp-qr" src="${d.qrDataUrl}" />` : ''}
+          <div class="gp-doc-meta"><span class="k">Gate Pass No:</span> <strong>${d.number}</strong></div>
+          <div class="gp-doc-meta"><span class="k">Date:</span> ${d.date}</div>
+        </div>
+      </div>
+      <hr class="rule" />
+      <div class="section-label">Issued To / Customer Details</div>
+      <div class="gp-info-card">
+        <div class="gp-info-grid">
+          <div class="gp-info-row"><span class="k">Customer / Company</span><span class="v">${d.partyName}</span></div>
+          <div class="gp-info-row"><span class="k">${d.documentLabel}</span><span class="v">${d.documentNumber}</span></div>
+          <div class="gp-info-row"><span class="k">Contact Person</span><span class="v">${d.contactPerson || '—'}</span></div>
+          <div class="gp-info-row"><span class="k">Reference / Order No.</span><span class="v">${d.reference || '—'}</span></div>
+          <div class="gp-info-row"><span class="k">Address</span><span class="v">${d.address || '—'}</span></div>
+          <div class="gp-info-row"><span class="k">Purpose</span><span class="v">${d.purpose}</span></div>
+        </div>
+      </div>
+      <div class="section-label">Items / Material Details</div>
+      <table>
+        <thead><tr>${th('#', 'c')}${th('Product / Description')}${th('Brand / Model')}${th('Qty', 'r')}${th('Unit', 'c')}${th('Serial / Ref')}${th('Remarks')}</tr></thead>
+        <tbody>${gatePassItemRows(d.items)}</tbody>
+      </table>
+      <div class="gp-total-qty">Total Quantity / Packages: <strong>${totalQty}</strong></div>
+      <div class="gp-auth-grid">
+        <div class="gp-auth-col">
+          <div class="section-label">Prepared By</div>
+          <div class="field">Name: ${d.preparedBy || ''}</div>
+          <div class="field">Sign:</div>
+        </div>
+        <div class="gp-auth-col">
+          <div class="section-label">Store Stamp</div>
+          <div class="gp-stamp-box">Stamp Here</div>
+        </div>
+        <div class="gp-auth-col">
+          <div class="section-label">Authorized By</div>
+          <div class="field">Name: ${d.authorizedBy || ''}</div>
+          <div class="field">Sign:${d.authorizedAt ? ` <span style="color:#9ca3af;">(${d.authorizedAt})</span>` : ''}</div>
+        </div>
+      </div>
+      <div class="gp-footer">This gate pass is valid only when properly authorized and stamped.</div>
     </div>
   </body></html>`;
 }

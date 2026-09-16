@@ -73,6 +73,16 @@ const receiveFromCustomer = asyncHandler(async (req, res) => {
   return sendSuccess(res, 201, 'Customer receipt recorded', { refNo: entry.refNo });
 });
 
+const receiveFromVendorReceivable = asyncHandler(async (req, res) => {
+  const entry = await paymentService.receiveFromVendorReceivable(req.user, req.body);
+  return sendSuccess(res, 201, 'Vendor receipt recorded', { refNo: entry.refNo });
+});
+
+const refundVendorReceivable = asyncHandler(async (req, res) => {
+  const entry = await paymentService.refundVendorReceivable(req.user, req.body);
+  return sendSuccess(res, 201, 'Vendor refund recorded', { refNo: entry.refNo });
+});
+
 const cashEntry = asyncHandler(async (req, res) => {
   const entry = await paymentService.cashEntry(req.user, req.body);
   return sendSuccess(res, 201, 'Cash entry recorded', { id: entry.id });
@@ -98,6 +108,13 @@ const customerLedgers = asyncHandler(async (req, res) => {
 const vendorLedgers = asyncHandler(async (req, res) => {
   const vendors = await ledgerService.vendorLedgers(req.user);
   return sendSuccess(res, 200, 'Vendor ledgers fetched', {
+    vendors: vendors.map(serializeParty),
+  });
+});
+
+const vendorReceivableLedgers = asyncHandler(async (req, res) => {
+  const vendors = await ledgerService.vendorReceivableLedgers(req.user);
+  return sendSuccess(res, 200, 'Vendor receivable ledgers fetched', {
     vendors: vendors.map(serializeParty),
   });
 });
@@ -160,10 +177,13 @@ module.exports = {
   payLabour,
   payTransport,
   receiveFromCustomer,
+  receiveFromVendorReceivable,
+  refundVendorReceivable,
   cashEntry,
   recordExpense,
   customerLedgers,
   vendorLedgers,
+  vendorReceivableLedgers,
   supplierLedgers,
   labourLedgers,
   transporterLedgers,

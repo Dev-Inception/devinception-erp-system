@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Loader2, Search, Tag } from 'lucide-react';
+import { Loader2, Pencil, Search, Tag } from 'lucide-react';
 import { toast } from 'sonner';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -42,12 +42,16 @@ function sourceLabel(t: (s: string) => string, sourceType: PendingEntity['source
   return sourceType === 'SALE_ITEM' ? t('Sale (vendor item)') : t('Stock receipt');
 }
 
-/** Put a price on a pending entity, which posts the vendor's real payable —
- * gated by the pending-entities:price permission (see PendingEntitiesPage). */
+/** Put a price on a pending entity (or revise an already-priced one), which
+ * posts the vendor's real payable — gated by the pending-entities:price
+ * permission (see PendingEntitiesPage). */
 function SetPriceDialog({ entity, onClose }: { entity: PendingEntity; onClose: () => void }) {
   const qc = useQueryClient();
   const { t } = useLanguage();
-  const [purchasePrice, setPurchasePrice] = useState('');
+  const editing = entity.status === 'PRICED';
+  const [purchasePrice, setPurchasePrice] = useState(
+    editing && entity.purchasePrice !== undefined ? String(entity.purchasePrice) : '',
+  );
 
   const save = useMutation({
     mutationFn: async () =>
@@ -57,7 +61,7 @@ function SetPriceDialog({ entity, onClose }: { entity: PendingEntity; onClose: (
         })
       ).data,
     onSuccess: () => {
-      toast.success('Purchase price recorded');
+      toast.success(editing ? 'Purchase price updated' : 'Purchase price recorded');
       qc.invalidateQueries({ queryKey: ['pending-entities'] });
       qc.invalidateQueries({ queryKey: ['vendors'] });
       onClose();
@@ -69,7 +73,7 @@ function SetPriceDialog({ entity, onClose }: { entity: PendingEntity; onClose: (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-w-sm">
         <DialogHeader>
-          <DialogTitle>{t('Set Purchase Price')}</DialogTitle>
+          <DialogTitle>{editing ? t('Edit Purchase Price') : t('Set Purchase Price')}</DialogTitle>
           <DialogDescription>
             {entity.productName} · {entity.quantity} {t('units from')} {entity.vendorName}
           </DialogDescription>
@@ -157,7 +161,7 @@ export function PendingEntitiesPage() {
                     status === s ? 'bg-background shadow-sm' : 'text-muted-foreground',
                   )}
                 >
-                  {s === 'PENDING' ? t('Pending') : t('Priced')}
+                  {s === 'PENDING' ? t('Pending') : t('Completed')}
                 </button>
               ))}
             </div>
@@ -186,16 +190,14 @@ export function PendingEntitiesPage() {
             <thead>
               <tr className="border-b bg-muted/50 text-left text-xs uppercase tracking-wide text-muted-foreground">
                 <th className="px-4 py-3 font-medium">{t('Source')}</th>
-                <th className="px-4 py-3 font-medium">{t('#')}</th>
+                <th className="px-4 py-3 font-medium">{t('Doc #')}</th>
                 <th className="px-4 py-3 font-medium">{t('Date')}</th>
                 <th className="px-4 py-3 font-medium">{t('Vendor')}</th>
                 <th className="px-4 py-3 font-medium">{t('Product')}</th>
                 <th className="px-4 py-3 text-right font-medium">{t('Qty')}</th>
                 <th className="px-4 py-3 text-right font-medium">{t('Purchase Price')}</th>
                 <th className="px-4 py-3 text-right font-medium">{t('Total')}</th>
-                {canPrice && status === 'PENDING' && (
-                  <th className="px-4 py-3 text-right font-medium">{t('Actions')}</th>
-                )}
+                {canPrice && <th className="px-4 py-3 text-right font-medium">{t('Actions')}</th>}
               </tr>
             </thead>
             <tbody>
@@ -225,10 +227,18 @@ export function PendingEntitiesPage() {
                     <td className="px-4 py-3 text-right tabular-nums font-medium">
                       {e.lineTotal !== undefined ? formatCurrency(e.lineTotal) : '—'}
                     </td>
-                    {canPrice && status === 'PENDING' && (
+                    {canPrice && (
                       <td className="px-4 py-3 text-right">
                         <Button size="sm" variant="outline" onClick={() => setPricing(e)}>
-                          <Tag className="h-4 w-4" /> {t('Set Price')}
+                          {e.status === 'PRICED' ? (
+                            <>
+                              <Pencil className="h-4 w-4" /> {t('Edit')}
+                            </>
+                          ) : (
+                            <>
+                              <Tag className="h-4 w-4" /> {t('Set Price')}
+                            </>
+                          )}
                         </Button>
                       </td>
                     )}
@@ -239,7 +249,7 @@ export function PendingEntitiesPage() {
                   <td colSpan={9} className="px-4 py-10 text-center text-muted-foreground">
                     {status === 'PENDING'
                       ? t('Nothing waiting to be priced.')
-                      : t('No priced entities yet.')}
+                      : t('No completed entities yet.')}
                   </td>
                 </tr>
               )}

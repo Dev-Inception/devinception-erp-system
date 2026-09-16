@@ -13,6 +13,9 @@ module.exports = function defineStockReceiptItem(db) {
       name: { type: DataTypes.STRING(160), allowNull: false },
       receivedQuantity: quantity({ validate: { min: 0 } }),
       damagedQuantity: quantity({ validate: { min: 0 } }),
+      // How much of damagedQuantity has already been handed back to the
+      // supplier via a DamagedStockReturn — see damagedStockService.
+      returnedQuantity: quantity({ validate: { min: 0 } }),
     },
     { tableName: 'stock_receipt_items', timestamps: false },
   );

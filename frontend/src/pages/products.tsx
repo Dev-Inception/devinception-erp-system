@@ -27,6 +27,8 @@ import { api } from '@/lib/api';
 import { formatCurrency, cn, resizeImageToDataUrl } from '@/lib/utils';
 import { useWarehouses } from '@/components/layout/warehouse-switcher';
 import { useStorefrontFilter } from '@/store/storefront';
+import { useAuthStore } from '@/store/auth';
+import { grantsPermission } from '@/lib/modules';
 import { Pagination } from '@/components/ui/pagination';
 import { useLanguage } from '@/components/language-provider';
 
@@ -327,6 +329,9 @@ function ProductDialog({
 export function ProductsPage() {
   const { t } = useLanguage();
   const qc = useQueryClient();
+  const perms = useAuthStore((s) => s.user?.permissions);
+  // Product create/update/delete all require inventory:manage on the backend.
+  const canManage = grantsPermission(perms, 'inventory:manage');
   const [search, setSearch] = useState('');
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<Product | null>(null);
@@ -434,14 +439,16 @@ export function ProductsPage() {
             <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           </div>
         </div>
-        <Button
-          onClick={() => {
-            setEditing(null);
-            setDialogOpen(true);
-          }}
-        >
-          <Plus className="h-4 w-4" /> {t('Add Product')}
-        </Button>
+        {canManage && (
+          <Button
+            onClick={() => {
+              setEditing(null);
+              setDialogOpen(true);
+            }}
+          >
+            <Plus className="h-4 w-4" /> {t('Add Product')}
+          </Button>
+        )}
       </div>
 
       <Card className="overflow-hidden">
@@ -456,13 +463,16 @@ export function ProductsPage() {
                 <th className="px-4 py-3 text-right font-medium">{t('Purchase')}</th>
                 <th className="px-4 py-3 text-right font-medium">{t('Sale')}</th>
                 <th className="px-4 py-3 text-right font-medium">{t('Stock')}</th>
-                <th className="px-4 py-3 text-right font-medium">{t('Action')}</th>
+                {canManage && <th className="px-4 py-3 text-right font-medium">{t('Action')}</th>}
               </tr>
             </thead>
             <tbody>
               {isLoading && (
                 <tr>
-                  <td colSpan={8} className="px-4 py-10 text-center text-muted-foreground">
+                  <td
+                    colSpan={canManage ? 8 : 7}
+                    className="px-4 py-10 text-center text-muted-foreground"
+                  >
                     Loading…
                   </td>
                 </tr>
@@ -471,11 +481,15 @@ export function ProductsPage() {
                 pageItems.map((p) => (
                   <tr key={p.id} className="border-b last:border-0 hover:bg-muted/30">
                     <td
-                      className="px-4 py-3 font-medium cursor-pointer"
-                      onClick={() => {
-                        setEditing(p);
-                        setDialogOpen(true);
-                      }}
+                      className={cn('px-4 py-3 font-medium', canManage && 'cursor-pointer')}
+                      onClick={
+                        canManage
+                          ? () => {
+                              setEditing(p);
+                              setDialogOpen(true);
+                            }
+                          : undefined
+                      }
                     >
                       <div className="flex items-center gap-2.5">
                         {p.image ? (
@@ -517,37 +531,42 @@ export function ProductsPage() {
                         {p.currentStock} {p.unit?.abbreviation ?? ''}
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-right">
-                      <div className="flex justify-end gap-1">
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          className="h-8 w-8"
-                          title={t('Edit')}
-                          onClick={() => {
-                            setEditing(p);
-                            setDialogOpen(true);
-                          }}
-                        >
-                          <Pencil className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          className="h-8 w-8"
-                          title={t('Delete')}
-                          disabled={del.isPending}
-                          onClick={() => remove(p)}
-                        >
-                          <Trash2 className="h-4 w-4 text-destructive" />
-                        </Button>
-                      </div>
-                    </td>
+                    {canManage && (
+                      <td className="px-4 py-3 text-right">
+                        <div className="flex justify-end gap-1">
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-8 w-8"
+                            title={t('Edit')}
+                            onClick={() => {
+                              setEditing(p);
+                              setDialogOpen(true);
+                            }}
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-8 w-8"
+                            title={t('Delete')}
+                            disabled={del.isPending}
+                            onClick={() => remove(p)}
+                          >
+                            <Trash2 className="h-4 w-4 text-destructive" />
+                          </Button>
+                        </div>
+                      </td>
+                    )}
                   </tr>
                 ))}
               {!isLoading && pageItems.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="px-4 py-10 text-center text-muted-foreground">
+                  <td
+                    colSpan={canManage ? 8 : 7}
+                    className="px-4 py-10 text-center text-muted-foreground"
+                  >
                     No products found.
                   </td>
                 </tr>
