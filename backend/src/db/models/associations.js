@@ -35,6 +35,8 @@ function associateModels(models) {
     DamagedStockReturnItem,
     VendorSale,
     VendorSaleItem,
+    VendorSaleReturn,
+    VendorSaleReturnItem,
     Estimate,
     EstimateItem,
     EstimateFollowUp,
@@ -191,6 +193,18 @@ function associateModels(models) {
   VendorSale.belongsTo(BankAccount, { foreignKey: 'bankAccount', as: 'bankAccountInfo' });
   VendorSale.belongsTo(User, { foreignKey: 'createdBy', as: 'creator' });
   VendorSale.belongsTo(User, { foreignKey: 'lastEditedBy', as: 'lastEditor' });
+
+  VendorSale.hasMany(VendorSaleReturn, { foreignKey: 'vendorSale', as: 'returns' });
+  VendorSaleReturn.belongsTo(VendorSale, { foreignKey: 'vendorSale' });
+  VendorSaleReturn.hasMany(VendorSaleReturnItem, {
+    foreignKey: 'vendorSaleReturnId',
+    as: 'items',
+  });
+  VendorSaleReturnItem.belongsTo(VendorSaleReturn, { foreignKey: 'vendorSaleReturnId' });
+  VendorSaleReturnItem.belongsTo(Product, { foreignKey: 'product', as: 'productInfo' });
+  VendorSaleReturn.belongsTo(Vendor, { foreignKey: 'vendor', as: 'vendorInfo' });
+  VendorSaleReturn.belongsTo(Warehouse, { foreignKey: 'warehouse', as: 'warehouseInfo' });
+  VendorSaleReturn.belongsTo(User, { foreignKey: 'createdBy', as: 'creator' });
 
   // Estimates
   Estimate.hasMany(EstimateItem, { foreignKey: 'estimateId', as: 'items' });

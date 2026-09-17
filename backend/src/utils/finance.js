@@ -54,6 +54,7 @@ const REF = {
   SALE: 'SALE',
   SALE_RETURN: 'SALE_RETURN', // goods returned against a sale
   VENDOR_SALE: 'VENDOR_SALE', // goods sold to a vendor (vendor acting as buyer)
+  VENDOR_SALE_RETURN: 'VENDOR_SALE_RETURN', // goods returned against a vendor sale
   PURCHASE: 'PURCHASE',
   PAYMENT: 'PAYMENT', // money paid to a vendor
   RECEIPT: 'RECEIPT', // money received from a customer

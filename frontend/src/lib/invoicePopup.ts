@@ -1,5 +1,6 @@
 import { renderTemplate } from './printing';
 import { api } from './api';
+import { usePrintPreviewStore } from '@/store/printPreview';
 
 /**
  * Opens a printable INVOICE_A4 popup for a sale. Shared by the POS "Charge"
@@ -202,31 +203,9 @@ async function buildInvoiceHtml(sale: SaleForInvoice) {
   });
 }
 
-// Writes `html` into `target` if it's still open (a window pre-opened
-// synchronously on the triggering click, so it isn't blocked by the
-// browser), otherwise opens a fresh one.
-function writeHtmlPopup(html: string, target?: Window | null) {
-  const win =
-    target && !target.closed ? target : window.open('', '_blank', 'width=850,height=1000');
-  if (!win) return false;
-  win.document.open();
-  win.document.write(html);
-  win.document.close();
-  win.focus();
-  return true;
-}
-
-export async function openSaleInvoicePopup(sale: SaleForInvoice, target?: Window | null) {
-  // Open (or claim) the window synchronously, before the bank-details fetch
-  // below, so it stays a direct result of the click — an async gap here
-  // would make browsers treat the later window.open as a blocked popup.
-  const win =
-    target && !target.closed ? target : window.open('', '_blank', 'width=850,height=1000');
-  if (!win) throw new Error('POPUP_BLOCKED');
+export async function openSaleInvoicePopup(sale: SaleForInvoice) {
   const html = await buildInvoiceHtml(sale);
-  if (!writeHtmlPopup(html, win)) {
-    throw new Error('POPUP_BLOCKED');
-  }
+  usePrintPreviewStore.getState().open(html);
 }
 
 /** A GRN-style supplier invoice for a stock receipt — same INVOICE_A4
@@ -313,26 +292,20 @@ async function buildReceiptInvoiceHtml(receipt: StockReceiptForInvoice) {
   });
 }
 
-export async function openStockReceiptInvoicePopup(
-  receipt: StockReceiptForInvoice,
-  target?: Window | null,
-) {
-  const win =
-    target && !target.closed ? target : window.open('', '_blank', 'width=850,height=1000');
-  if (!win) throw new Error('POPUP_BLOCKED');
+export async function openStockReceiptInvoicePopup(receipt: StockReceiptForInvoice) {
   const html = await buildReceiptInvoiceHtml(receipt);
-  if (!writeHtmlPopup(html, win)) {
-    throw new Error('POPUP_BLOCKED');
-  }
+  usePrintPreviewStore.getState().open(html);
 }
 
-/** A vendor-facing printout of a sale's vendor-sourced lines — same
- * INVOICE_A4 template, with the vendor as the "party" instead of the
+/** A vendor-facing printout of a *regular* sale's vendor-sourced lines —
+ * same INVOICE_A4 template, with the vendor as the "party" instead of the
  * customer and only the items whose stock originated from that vendor.
  * Prices are the vendor's purchase price/line total from Pending Entities
  * (not the customer's sale price), same blank-until-priced convention as
- * `StockReceiptForInvoice`. */
-export interface VendorSaleItemsForInvoice {
+ * `StockReceiptForInvoice`. Distinct from `VendorSaleForInvoice` below,
+ * which prints an actual VendorSale document (a vendor buying stock from
+ * us) rather than vendor-sourced lines embedded in someone else's sale. */
+export interface VendorSourcedItemsForInvoice {
   saleNumber: string;
   date: string;
   storeId?: string;
@@ -350,7 +323,7 @@ export interface VendorSaleItemsForInvoice {
   pricedTotal: number | string;
 }
 
-async function buildVendorSaleInvoiceHtml(sale: VendorSaleItemsForInvoice) {
+async function buildVendorSourcedItemsInvoiceHtml(sale: VendorSourcedItemsForInvoice) {
   const [bankNote, footerNote, settings] = await Promise.all([
     bankNoteFor(sale.storeId),
     invoiceFooterNote(sale.storeId),
@@ -391,17 +364,78 @@ async function buildVendorSaleInvoiceHtml(sale: VendorSaleItemsForInvoice) {
   });
 }
 
-export async function openVendorSaleInvoicePopup(
-  sale: VendorSaleItemsForInvoice,
-  target?: Window | null,
-) {
-  const win =
-    target && !target.closed ? target : window.open('', '_blank', 'width=850,height=1000');
-  if (!win) throw new Error('POPUP_BLOCKED');
-  const html = await buildVendorSaleInvoiceHtml(sale);
-  if (!writeHtmlPopup(html, win)) {
-    throw new Error('POPUP_BLOCKED');
-  }
+export async function openVendorSourcedItemsInvoicePopup(sale: VendorSourcedItemsForInvoice) {
+  const html = await buildVendorSourcedItemsInvoiceHtml(sale);
+  usePrintPreviewStore.getState().open(html);
+}
+
+/** The actual VendorSale document's own invoice — a vendor buying stock
+ * from us, the mirror of a regular customer SaleForInvoice but with the
+ * vendor as the "Bill To" party. See VendorSourcedItemsForInvoice above for
+ * the unrelated "vendor-sourced lines inside someone else's sale" printout. */
+export interface VendorSaleForInvoice {
+  number: string;
+  date: string;
+  storeId?: string;
+  storeName?: string;
+  vendorName: string;
+  vendorPhone?: string;
+  items: {
+    name: string;
+    quantity: number | string;
+    unitPrice: number | string;
+    amount: number | string;
+  }[];
+  subtotal: number | string;
+  discount: number | string;
+  tax: number | string;
+  total: number | string;
+  paymentMethod?: string;
+  returnedTotal?: number | string;
+  note?: string;
+}
+
+async function buildVendorSaleDocInvoiceHtml(sale: VendorSaleForInvoice) {
+  const [bankNote, footerNote, settings] = await Promise.all([
+    bankNoteFor(sale.storeId),
+    invoiceFooterNote(sale.storeId),
+    companyInfo(sale.storeId),
+  ]);
+  const company = {
+    name: sale.storeName || settings.name,
+    address: settings.address,
+    phone: settings.phone,
+    email: settings.email,
+    taxNumber: settings.taxNumber,
+    logoUrl: settings.logoUrl,
+  };
+  return renderTemplate('INVOICE_A4', {
+    company,
+    number: sale.number,
+    date: new Date(sale.date).toLocaleString(),
+    partyName: sale.vendorName,
+    partyPhone: sale.vendorPhone || undefined,
+    invoiceType: sale.paymentMethod ? PAYMENT_METHOD_LABEL[sale.paymentMethod] : undefined,
+    items: sale.items.map((i) => ({
+      name: i.name,
+      qty: Number(i.quantity),
+      price: Number(i.unitPrice),
+      amount: Number(i.amount),
+    })),
+    subtotal: Number(sale.subtotal),
+    tax: Number(sale.tax),
+    discount: Number(sale.discount),
+    total: Number(sale.total),
+    returnedTotal: sale.returnedTotal ? Number(sale.returnedTotal) : undefined,
+    notes: sale.note || undefined,
+    bankNote,
+    footerNote,
+  });
+}
+
+export async function openVendorSaleInvoicePopup(sale: VendorSaleForInvoice) {
+  const html = await buildVendorSaleDocInvoiceHtml(sale);
+  usePrintPreviewStore.getState().open(html);
 }
 
 /** A debit note for damaged goods handed back to a supplier — same
@@ -465,15 +499,9 @@ async function buildDamagedStockReturnInvoiceHtml(damagedReturn: DamagedStockRet
 
 export async function openDamagedStockReturnInvoicePopup(
   damagedReturn: DamagedStockReturnForInvoice,
-  target?: Window | null,
 ) {
-  const win =
-    target && !target.closed ? target : window.open('', '_blank', 'width=850,height=1000');
-  if (!win) throw new Error('POPUP_BLOCKED');
   const html = await buildDamagedStockReturnInvoiceHtml(damagedReturn);
-  if (!writeHtmlPopup(html, win)) {
-    throw new Error('POPUP_BLOCKED');
-  }
+  usePrintPreviewStore.getState().open(html);
 }
 
 /** A customer-facing printout of a quote — same INVOICE_A4 template as
@@ -534,17 +562,9 @@ async function buildEstimateInvoiceHtml(estimate: EstimateForInvoice) {
   });
 }
 
-export async function openEstimateInvoicePopup(
-  estimate: EstimateForInvoice,
-  target?: Window | null,
-) {
-  const win =
-    target && !target.closed ? target : window.open('', '_blank', 'width=850,height=1000');
-  if (!win) throw new Error('POPUP_BLOCKED');
+export async function openEstimateInvoicePopup(estimate: EstimateForInvoice) {
   const html = await buildEstimateInvoiceHtml(estimate);
-  if (!writeHtmlPopup(html, win)) {
-    throw new Error('POPUP_BLOCKED');
-  }
+  usePrintPreviewStore.getState().open(html);
 }
 
 /** A running statement of what a labourer earned rent on — same INVOICE_A4
@@ -581,12 +601,7 @@ async function buildLabourInvoiceHtml(labour: LabourForInvoice) {
   });
 }
 
-export async function openLabourInvoicePopup(labour: LabourForInvoice, target?: Window | null) {
-  const win =
-    target && !target.closed ? target : window.open('', '_blank', 'width=850,height=1000');
-  if (!win) throw new Error('POPUP_BLOCKED');
+export async function openLabourInvoicePopup(labour: LabourForInvoice) {
   const html = await buildLabourInvoiceHtml(labour);
-  if (!writeHtmlPopup(html, win)) {
-    throw new Error('POPUP_BLOCKED');
-  }
+  usePrintPreviewStore.getState().open(html);
 }

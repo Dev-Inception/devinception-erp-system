@@ -14,4 +14,5 @@ module.exports = [
   require('./013-backfill-custom-role-sales-estimates-inventory'),
   require('./014-damaged-stock-returns'),
   require('./015-vendor-sales'),
+  require('./016-vendor-sale-returns'),
 ];

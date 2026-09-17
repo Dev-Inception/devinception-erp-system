@@ -119,20 +119,13 @@ export function LabourDetailPage() {
   ].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
   const handlePrintStatement = async () => {
-    const win = window.open('', '_blank', 'width=850,height=1000');
-    win?.document.write(
-      '<p style="font-family:sans-serif;padding:24px;color:#666">Preparing statement…</p>',
-    );
     try {
-      await openLabourInvoicePopup(
-        {
-          labourName: labour?.name ?? '',
-          jobs: jobs.map((j) => ({ sourceLabel: j.sourceLabel, date: j.date, rent: j.rent })),
-        },
-        win,
-      );
+      await openLabourInvoicePopup({
+        labourName: labour?.name ?? '',
+        jobs: jobs.map((j) => ({ sourceLabel: j.sourceLabel, date: j.date, rent: j.rent })),
+      });
     } catch {
-      toast.error('Enable popups to view the printable statement');
+      toast.error('Could not prepare the statement');
     }
   };
 
@@ -226,8 +219,8 @@ export function LabourDetailPage() {
                   <tr className="border-y bg-muted/50 text-left text-xs uppercase text-muted-foreground">
                     <th className="px-4 py-2 font-medium">{t('Date')}</th>
                     <th className="px-4 py-2 font-medium">{t('Description')}</th>
-                    <th className="px-4 py-2 text-right font-medium">{t('Debit')}</th>
-                    <th className="px-4 py-2 text-right font-medium">{t('Credit')}</th>
+                    <th className="px-4 py-2 text-right font-medium">{t('Out')}</th>
+                    <th className="px-4 py-2 text-right font-medium">{t('In')}</th>
                     <th className="px-4 py-2 text-right font-medium">{t('Balance')}</th>
                   </tr>
                 </thead>

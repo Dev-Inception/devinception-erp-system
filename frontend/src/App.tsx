@@ -17,6 +17,7 @@ import { UnitsPage } from '@/pages/units';
 import { VendorsPage } from '@/pages/vendors';
 import { VendorDetailPage } from '@/pages/vendor-detail';
 import { VendorSalesPage } from '@/pages/vendor-sales';
+import { VendorSaleNewPage } from '@/pages/vendor-sale-new';
 import { SuppliersPage } from '@/pages/suppliers';
 import { SupplierDetailPage } from '@/pages/supplier-detail';
 import { LabourDetailPage } from '@/pages/labour-detail';
@@ -129,6 +130,14 @@ export default function App() {
                   element={
                     <ModuleGuard moduleKey="sales">
                       <SaleEditPage />
+                    </ModuleGuard>
+                  }
+                />
+                <Route
+                  path="vendor-sales/new"
+                  element={
+                    <ModuleGuard moduleKey="vendor-sales">
+                      <VendorSaleNewPage />
                     </ModuleGuard>
                   }
                 />

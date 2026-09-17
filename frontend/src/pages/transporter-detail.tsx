@@ -1,23 +1,15 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { ArrowLeft, Banknote, Loader2, Printer, Receipt } from 'lucide-react';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogClose,
-} from '@/components/ui/dialog';
+import { ArrowLeft, Banknote, Printer } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { api } from '@/lib/api';
 import { cn, formatCurrency } from '@/lib/utils';
-import { useStorefrontFilter, useStorefrontStore } from '@/store/storefront';
+import { useStorefrontFilter } from '@/store/storefront';
 import { useLanguage } from '@/components/language-provider';
 import { PayTransportDialog } from '@/components/pay-transport-dialog';
 import {
@@ -58,112 +50,6 @@ interface ReceiptJob extends StockReceiptForInvoice {
 const TABS = ['statement', 'jobs'] as const;
 type Tab = (typeof TABS)[number];
 const TAB_LABEL: Record<Tab, string> = { statement: 'Statement', jobs: 'Jobs' };
-
-/** Books a fare owed to this transporter (Dr expense / Cr AP_TRANSPORT) — the
- * only way a transporter's balance grows today, since no sale/receipt is
- * wired to a transporter yet. */
-function RecordChargeDialog({
-  transporterId,
-  open,
-  onOpenChange,
-}: {
-  transporterId: string;
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-}) {
-  const { t } = useLanguage();
-  const qc = useQueryClient();
-  const [amount, setAmount] = useState('');
-  const [note, setNote] = useState('');
-  const currentStoreId = useStorefrontStore((s) => s.currentStoreId);
-  const hasSpecificStore = !!currentStoreId && currentStoreId !== 'ALL';
-
-  useEffect(() => {
-    if (open) {
-      setAmount('');
-      setNote('');
-    }
-  }, [open]);
-
-  const submit = useMutation({
-    mutationFn: async () => {
-      if (!hasSpecificStore) {
-        throw new Error('Select a specific store from the header before recording a charge.');
-      }
-      return (
-        await api.post(`/transporters/${transporterId}/charges`, {
-          store: currentStoreId,
-          amount: Number(amount),
-          note: note.trim() || undefined,
-        })
-      ).data;
-    },
-    onSuccess: () => {
-      toast.success('Charge recorded');
-      qc.invalidateQueries({ queryKey: ['transporters'] });
-      qc.invalidateQueries({ queryKey: ['transporter-ledger'] });
-      onOpenChange(false);
-    },
-    onError: (e: any) =>
-      toast.error(e?.response?.data?.message ?? e?.message ?? 'Could not record charge'),
-  });
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-sm">
-        <DialogHeader>
-          <DialogTitle>{t('Record Charge')}</DialogTitle>
-          <DialogDescription>
-            {t('Books a delivery fare owed to this transporter.')}
-          </DialogDescription>
-        </DialogHeader>
-        <form
-          className="space-y-4"
-          onSubmit={(e) => {
-            e.preventDefault();
-            submit.mutate();
-          }}
-        >
-          {!hasSpecificStore && (
-            <p className="text-sm text-destructive">
-              {t('Select a specific store from the header first.')}
-            </p>
-          )}
-          <div className="space-y-1.5">
-            <Label>{t('Amount')} *</Label>
-            <Input
-              type="number"
-              min={0.01}
-              step="0.01"
-              required
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label>{t('Note (optional)')}</Label>
-            <Input
-              value={note}
-              onChange={(e) => setNote(e.target.value)}
-              placeholder={t('e.g. delivery for Sale #123')}
-            />
-          </div>
-          <div className="flex justify-end gap-2 pt-1">
-            <DialogClose asChild>
-              <Button type="button" variant="outline">
-                {t('Cancel')}
-              </Button>
-            </DialogClose>
-            <Button type="submit" disabled={submit.isPending || !hasSpecificStore}>
-              {submit.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
-              {t('Save')}
-            </Button>
-          </div>
-        </form>
-      </DialogContent>
-    </Dialog>
-  );
-}
 
 export function TransporterDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -231,25 +117,17 @@ export function TransporterDetailPage() {
   ].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
   const handlePrintSaleInvoice = async (sale: SaleJob) => {
-    const win = window.open('', '_blank', 'width=850,height=1000');
-    win?.document.write(
-      '<p style="font-family:sans-serif;padding:24px;color:#666">Preparing invoice…</p>',
-    );
     try {
-      await openSaleInvoicePopup(sale, win);
+      await openSaleInvoicePopup(sale);
     } catch {
-      toast.error('Enable popups to view the printable invoice');
+      toast.error('Could not prepare the invoice');
     }
   };
   const handlePrintReceiptInvoice = async (receipt: ReceiptJob) => {
-    const win = window.open('', '_blank', 'width=850,height=1000');
-    win?.document.write(
-      '<p style="font-family:sans-serif;padding:24px;color:#666">Preparing invoice…</p>',
-    );
     try {
-      await openStockReceiptInvoicePopup(receipt, win);
+      await openStockReceiptInvoicePopup(receipt);
     } catch {
-      toast.error('Enable popups to view the printable invoice');
+      toast.error('Could not prepare the invoice');
     }
   };
 
@@ -353,8 +231,8 @@ export function TransporterDetailPage() {
                   <tr className="border-y bg-muted/50 text-left text-xs uppercase text-muted-foreground">
                     <th className="px-4 py-2 font-medium">{t('Date')}</th>
                     <th className="px-4 py-2 font-medium">{t('Description')}</th>
-                    <th className="px-4 py-2 text-right font-medium">{t('Debit')}</th>
-                    <th className="px-4 py-2 text-right font-medium">{t('Credit')}</th>
+                    <th className="px-4 py-2 text-right font-medium">{t('Out')}</th>
+                    <th className="px-4 py-2 text-right font-medium">{t('In')}</th>
                     <th className="px-4 py-2 text-right font-medium">{t('Balance')}</th>
                   </tr>
                 </thead>

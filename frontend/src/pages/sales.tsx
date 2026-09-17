@@ -27,6 +27,7 @@ import { GatePassDialog } from '@/components/gate-pass-dialog';
 import { ReturnProductDialog } from '@/components/return-product-dialog';
 import { SaleReturnsDialog } from '@/components/sale-returns-dialog';
 import { RecordPaymentDialog } from '@/components/record-payment-dialog';
+import { SaleInvoiceSheet } from '@/components/sale-invoice-sheet';
 import { Pagination } from '@/components/ui/pagination';
 import { api } from '@/lib/api';
 import { formatCurrency, cn } from '@/lib/utils';
@@ -37,7 +38,7 @@ import { useStorefrontFilter } from '@/store/storefront';
 import { useWarehouses } from '@/components/layout/warehouse-switcher';
 import { useLanguage } from '@/components/language-provider';
 
-interface SaleItem {
+export interface SaleItem {
   productId: string;
   name: string;
   quantity: number;
@@ -49,7 +50,7 @@ interface SaleItem {
   warehouseId?: string;
 }
 
-interface Sale {
+export interface Sale {
   id: string;
   saleNumber: string;
   date: string;
@@ -82,7 +83,7 @@ interface Sale {
   vendorGatePassQrUrl?: string;
 }
 
-const PAYMENT_LABEL: Record<string, string> = {
+export const PAYMENT_LABEL: Record<string, string> = {
   CASH: 'Cash',
   BANK_TRANSFER: 'Online',
   MIXED: 'Mixed',
@@ -148,6 +149,7 @@ export function SalesPage() {
   const [returningSale, setReturningSale] = useState<Sale | null>(null);
   const [viewingReturnsFor, setViewingReturnsFor] = useState<Sale | null>(null);
   const [payingSale, setPayingSale] = useState<Sale | null>(null);
+  const [viewingInvoiceFor, setViewingInvoiceFor] = useState<Sale | null>(null);
 
   const filteredSales = isSearching
     ? sales.filter(
@@ -158,12 +160,6 @@ export function SalesPage() {
     : sales;
 
   const handleViewInvoice = async (s: Sale) => {
-    // Open synchronously so the browser ties the popup to this click rather
-    // than treating it as an unrequested popup.
-    const win = window.open('', '_blank', 'width=850,height=1000');
-    win?.document.write(
-      '<p style="font-family:sans-serif;padding:24px;color:#666">Preparing invoice…</p>',
-    );
     try {
       // Only sales with returns need the extra round trip — everything else
       // prints immediately with no returns section.
@@ -175,23 +171,20 @@ export function SalesPage() {
               items: { name: string; quantity: number; lineTotal: number }[];
             }[])
           : [];
-      await openSaleInvoicePopup(
-        {
-          ...s,
-          returns: returns.map((r) => ({
-            number: r.number,
-            date: r.date,
-            items: r.items.map((it) => ({
-              name: it.name,
-              quantity: it.quantity,
-              amount: it.lineTotal,
-            })),
+      await openSaleInvoicePopup({
+        ...s,
+        returns: returns.map((r) => ({
+          number: r.number,
+          date: r.date,
+          items: r.items.map((it) => ({
+            name: it.name,
+            quantity: it.quantity,
+            amount: it.lineTotal,
           })),
-        },
-        win,
-      );
+        })),
+      });
     } catch {
-      toast.error('Enable popups to view the printable invoice');
+      toast.error('Could not prepare the invoice');
     }
   };
 
@@ -265,10 +258,10 @@ export function SalesPage() {
                   <th className="px-4 py-3 font-medium">{t('Date')}</th>
                   <th className="px-4 py-3 font-medium">{t('Customer')}</th>
                   <th className="px-4 py-3 font-medium">{t('Store')}</th>
-                  <th className="px-4 py-3 font-medium">{t('Payment')}</th>
-                  <th className="px-4 py-3 text-right font-medium">{t('Advance Payment')}</th>
-                  <th className="px-4 py-3 text-right font-medium">{t('Remaining Amount')}</th>
-                  <th className="px-4 py-3 text-right font-medium">{t('Total Amount')}</th>
+                  <th className="px-4 py-3 text-right font-medium">{t('Total')}</th>
+                  <th className="px-4 py-3 text-right font-medium">{t('Advance')}</th>
+                  <th className="px-4 py-3 text-right font-medium">{t('Return')}</th>
+                  <th className="px-4 py-3 text-right font-medium">{t('Remaining')}</th>
                   <th className="px-4 py-3 text-right font-medium">{t('Actions')}</th>
                 </tr>
               </thead>
@@ -291,11 +284,20 @@ export function SalesPage() {
                         {s.customer?.name ?? 'Walk-in'}
                       </td>
                       <td className="px-4 py-3 text-muted-foreground">{s.storeName ?? '—'}</td>
-                      <td className="px-4 py-3 text-muted-foreground">
-                        {PAYMENT_LABEL[s.paymentMethod] ?? s.paymentMethod}
+                      <td className="px-4 py-3 text-right tabular-nums font-medium">
+                        {formatCurrency(Number(s.grandTotal) + Number(s.returnedTotal ?? 0))}
                       </td>
                       <td className="px-4 py-3 text-right tabular-nums text-muted-foreground">
                         {Number(s.paidAmount) > 0 ? formatCurrency(Number(s.paidAmount)) : '—'}
+                      </td>
+                      <td className="px-4 py-3 text-right tabular-nums">
+                        {Number(s.returnedTotal) > 0 ? (
+                          <span className="text-destructive">
+                            {formatCurrency(Number(s.returnedTotal))}
+                          </span>
+                        ) : (
+                          <span className="text-muted-foreground">—</span>
+                        )}
                       </td>
                       <td className="px-4 py-3 text-right tabular-nums">
                         <span
@@ -307,14 +309,6 @@ export function SalesPage() {
                         >
                           {formatCurrency(Number(s.balanceDue))}
                         </span>
-                      </td>
-                      <td className="px-4 py-3 text-right font-medium">
-                        {formatCurrency(Number(s.grandTotal))}
-                        {Number(s.returnedTotal) > 0 && (
-                          <div className="mt-0.5 text-xs font-normal text-destructive">
-                            {t('Returned')} {formatCurrency(Number(s.returnedTotal))}
-                          </div>
-                        )}
                       </td>
                       <td className="px-4 py-3 text-right">
                         <DropdownMenu>
@@ -329,7 +323,7 @@ export function SalesPage() {
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
-                            <DropdownMenuItem onSelect={() => handleViewInvoice(s)}>
+                            <DropdownMenuItem onSelect={() => setViewingInvoiceFor(s)}>
                               <FileText className="h-4 w-4" /> View Invoice
                             </DropdownMenuItem>
                             {(s.warehouseGatePasses ?? []).map((g) => {
@@ -435,6 +429,13 @@ export function SalesPage() {
         title={openGatePass?.title}
         open={openGatePass !== null}
         onOpenChange={(o) => !o && setOpenGatePass(null)}
+      />
+
+      <SaleInvoiceSheet
+        sale={viewingInvoiceFor}
+        open={viewingInvoiceFor !== null}
+        onOpenChange={(o) => !o && setViewingInvoiceFor(null)}
+        onPrint={handleViewInvoice}
       />
 
       <SaleReturnsDialog

@@ -386,32 +386,25 @@ export function DamagedStockPage() {
   const selectedItems = outstanding.filter((it) => selected.has(it.itemId));
 
   const handlePrintInvoice = async (r: DamagedReturn) => {
-    const win = window.open('', '_blank', 'width=850,height=1000');
-    win?.document.write(
-      '<p style="font-family:sans-serif;padding:24px;color:#666">Preparing document…</p>',
-    );
     try {
-      await openDamagedStockReturnInvoicePopup(
-        {
-          returnNumber: r.number,
-          date: r.date,
-          storeId: r.storeId,
-          storeName: r.storeName,
-          supplierName: r.supplierName,
-          items: r.items.map((it) => ({
-            name: it.name,
-            quantity: it.quantity,
-            unitCost: it.unitCost,
-            lineTotal: it.lineTotal,
-          })),
-          total: r.total,
-          truck: r.truck,
-          note: r.note,
-        },
-        win,
-      );
+      await openDamagedStockReturnInvoicePopup({
+        returnNumber: r.number,
+        date: r.date,
+        storeId: r.storeId,
+        storeName: r.storeName,
+        supplierName: r.supplierName,
+        items: r.items.map((it) => ({
+          name: it.name,
+          quantity: it.quantity,
+          unitCost: it.unitCost,
+          lineTotal: it.lineTotal,
+        })),
+        total: r.total,
+        truck: r.truck,
+        note: r.note,
+      });
     } catch {
-      toast.error('Enable popups to view the printable document');
+      toast.error('Could not prepare the document');
     }
   };
 

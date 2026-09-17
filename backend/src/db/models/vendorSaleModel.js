@@ -26,6 +26,9 @@ module.exports = function defineVendorSale(db) {
       tax: money(),
       total: money(),
       cost: money(),
+      // Already deducted from `total` when returns exist — see
+      // vendorSaleReturnService, which mirrors Sale.returnedTotal.
+      returnedTotal: money(),
 
       paymentMethod: {
         type: DataTypes.STRING(20),

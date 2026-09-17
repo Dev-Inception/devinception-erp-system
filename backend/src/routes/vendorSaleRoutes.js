@@ -1,5 +1,6 @@
 const express = require('express');
 const vendorSaleController = require('../controllers/vendorSaleController');
+const vendorSaleReturnController = require('../controllers/vendorSaleReturnController');
 const { protect } = require('../middlewares/authMiddleware');
 const { requirePermission } = require('../middlewares/roleMiddleware');
 const { validate } = require('../middlewares/validateMiddleware');
@@ -9,6 +10,10 @@ const {
   createVendorSaleValidator,
   idParamValidator,
 } = require('../validators/vendorSaleValidator');
+const {
+  createVendorSaleReturnValidator,
+  listVendorSaleReturnsValidator,
+} = require('../validators/vendorSaleReturnValidator');
 
 const router = express.Router();
 router.use(protect);
@@ -33,6 +38,20 @@ router.get(
   idParamValidator,
   validate,
   vendorSaleController.getVendorSale,
+);
+router.get(
+  '/:vendorSaleId/returns',
+  requirePermission(PERMISSIONS.VENDOR_SALES_READ),
+  listVendorSaleReturnsValidator,
+  validate,
+  vendorSaleReturnController.listReturns,
+);
+router.post(
+  '/:vendorSaleId/returns',
+  requirePermission(PERMISSIONS.VENDOR_SALES_MANAGE),
+  createVendorSaleReturnValidator,
+  validate,
+  vendorSaleReturnController.createReturn,
 );
 
 module.exports = router;

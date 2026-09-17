@@ -1,6 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { Copy, Download, ExternalLink, Printer } from 'lucide-react';
-import { toast } from 'sonner';
+import { Printer } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -12,6 +11,7 @@ import { Button } from '@/components/ui/button';
 import { api } from '@/lib/api';
 import { buildGatePassScanQr } from '@/lib/gatePass';
 import { renderGatePassTemplate } from '@/lib/printing';
+import { usePrintPreviewStore } from '@/store/printPreview';
 
 interface GatePassDetail {
   id: string;
@@ -81,24 +81,8 @@ export function GatePassDialog({
     enabled: open && Boolean(data),
   });
 
-  const copyLink = async () => {
-    if (!qr) return;
-    await navigator.clipboard.writeText(qr.publicUrl);
-    toast.success('Public gate pass link copied');
-  };
-
-  const downloadQr = () => {
-    if (!qr || !data) return;
-    const a = document.createElement('a');
-    a.href = qr.qrDataUrl;
-    a.download = `gate-pass-${data.number}.png`;
-    a.click();
-  };
-
   const printGatePass = () => {
     if (!data) return;
-    const win = window.open('', '_blank', 'width=850,height=1000');
-    if (!win) return;
     const html = renderGatePassTemplate({
       company: {
         name: settings?.companyName || 'DevInception Retail',
@@ -134,10 +118,7 @@ export function GatePassDialog({
       authorizedAt: data.processedAt ? new Date(data.processedAt).toLocaleString() : undefined,
       qrDataUrl: qr?.qrDataUrl,
     });
-    win.document.write(html);
-    win.document.close();
-    win.focus();
-    win.print();
+    usePrintPreviewStore.getState().open(html);
   };
 
   const isPurchase = data?.sourceType === 'PURCHASE';
@@ -219,19 +200,8 @@ export function GatePassDialog({
               <div className="flex flex-col items-center gap-2">
                 <img src={qr.qrDataUrl} alt="Gate pass QR" className="h-40 w-40" />
                 <div className="flex flex-wrap justify-center gap-2">
-                  <Button size="sm" variant="outline" onClick={printGatePass}>
+                  <Button size="lg" variant="default" onClick={printGatePass}>
                     <Printer className="h-4 w-4" /> Print
-                  </Button>
-                  <Button size="sm" variant="outline" onClick={downloadQr}>
-                    <Download className="h-4 w-4" /> Download
-                  </Button>
-                  <Button size="sm" variant="outline" onClick={copyLink}>
-                    <Copy className="h-4 w-4" /> Copy Link
-                  </Button>
-                  <Button size="sm" variant="outline" asChild>
-                    <a href={qr.publicUrl} target="_blank" rel="noreferrer">
-                      <ExternalLink className="h-4 w-4" /> Open
-                    </a>
                   </Button>
                 </div>
               </div>

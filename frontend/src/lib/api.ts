@@ -1309,6 +1309,7 @@ async function realRecordSalePayment(id: string, body: any) {
     amount: body.amount,
     method: body.method,
     bankAccount: body.bankAccount || undefined,
+    transactionId: body.transactionId || undefined,
     note: body.note || undefined,
   });
   return mapSale(res.data.sale);
@@ -1739,6 +1740,7 @@ function mapVendorSale(v: any) {
     bankAccountId: v.bankAccount ? String(v.bankAccount.id ?? v.bankAccount) : undefined,
     transferReceiptRef: v.transferReceiptRef || '',
     note: v.note || '',
+    returnedTotal: v.returnedTotal ?? 0,
   };
 }
 async function realListVendorSales(params: any = {}) {
@@ -1786,6 +1788,41 @@ async function realCreateVendorSale(body: any) {
     note: body.note || undefined,
   });
   return mapVendorSale(res.data.vendorSale);
+}
+function mapVendorSaleReturn(r: any) {
+  return {
+    id: String(r._id ?? r.id),
+    number: r.number,
+    vendorSaleId: String(r.vendorSale?._id ?? r.vendorSale),
+    vendorSaleNumber: r.vendorSaleNumber,
+    date: r.date,
+    items: (r.items ?? []).map((it: any) => ({
+      productId: String(it.product?._id ?? it.product),
+      name: it.name,
+      quantity: it.quantity,
+      unitPrice: it.unitPrice,
+      lineTotal: it.lineTotal,
+    })),
+    subtotal: r.subtotal,
+    discount: r.discount,
+    tax: r.tax,
+    total: r.total,
+    note: r.note || '',
+  };
+}
+async function realCreateVendorSaleReturn(vendorSaleId: string, body: any) {
+  const res = await http.post(`/vendor-sales/${vendorSaleId}/returns`, {
+    items: (body.items ?? []).map((it: any) => ({
+      product: it.productId,
+      quantity: it.quantity,
+    })),
+    note: body.note || undefined,
+  });
+  return mapVendorSaleReturn(res.data.vendorSaleReturn);
+}
+async function realListVendorSaleReturns(vendorSaleId: string) {
+  const res = await http.get(`/vendor-sales/${vendorSaleId}/returns`);
+  return (res.data.returns ?? []).map(mapVendorSaleReturn);
 }
 
 /* ── Pending entities (unpriced vendor-sourced sale lines, or supplier-
@@ -2587,6 +2624,8 @@ async function tryReal(
     if (seg[0] === 'damaged-stock' && seg[1] === 'returns' && seg[2])
       return wrap(await realGetDamagedStockReturn(seg[2]));
     if (url === '/vendor-sales') return wrap(await realListVendorSales(params));
+    if (seg[0] === 'vendor-sales' && seg[1] && seg[2] === 'returns')
+      return wrap(await realListVendorSaleReturns(seg[1]));
     if (seg[0] === 'vendor-sales' && seg[1]) return wrap(await realGetVendorSale(seg[1]));
     if (seg[0] === 'vendors' && seg[1] && seg[2] === 'receivable-ledger')
       return wrap(await realVendorReceivableLedger(seg[1], params));
@@ -2656,6 +2695,8 @@ async function tryReal(
     if (url === '/finance/payments/vendor-receivable/refund')
       return wrap(await realRefundVendorReceivable(body));
     if (url === '/vendor-sales') return wrap(await realCreateVendorSale(body));
+    if (seg[0] === 'vendor-sales' && seg[1] && seg[2] === 'returns')
+      return wrap(await realCreateVendorSaleReturn(seg[1], body));
     if (url === '/finance/payments/supplier') return wrap(await realPaySupplier(body));
     if (url === '/finance/payments/labour') return wrap(await realPayLabour(body));
     if (url === '/finance/payments/transport') return wrap(await realPayTransport(body));

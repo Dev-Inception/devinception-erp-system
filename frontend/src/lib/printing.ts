@@ -152,10 +152,7 @@ const a4Styles = `
     .sig-line { margin-top: 18px; border-top: 1px solid #9ca3af; width: 90%; font-size: 8px; color: #6b7280; padding-top: 2px; }
     .thankyou { margin-top: 10px; padding-top: 6px; border-top: 1px solid #e5e7eb; text-align: center; font-size: 8px; color: #555; page-break-inside: avoid; }
     .thankyou strong { color: #111; }
-    .toolbar { display: flex; gap: 8px; justify-content: flex-end; margin-bottom: 8px; }
-    .toolbar button { font: inherit; padding: 8px 16px; border-radius: 6px; border: 1px solid ${NAVY}; background: ${NAVY}; color: #fff; cursor: pointer; }
-    .toolbar button.outline { background: #fff; color: ${NAVY}; }
-    @media print { .toolbar { display: none !important; } .sheet { border: none; padding: 0; } }
+    @media print { .sheet { border: none; padding: 0; } }
   </style>`;
 
 // Table headers are painted via `fillRect` (see note above `NAVY`), not CSS
@@ -299,10 +296,6 @@ export function renderTemplate(type: TemplateType, d: DocData): string {
     !!d.invoiceType || d.previousBalance != null || d.totalRemaining != null;
 
   return `<!doctype html><html><head>${a4Styles}</head><body>
-    <div class="toolbar">
-      <button type="button" class="outline" onclick="window.print()">Download PDF</button>
-      <button type="button" onclick="window.print()">Print</button>
-    </div>
     <div class="sheet">
       <div class="head">
         <div class="brand">
@@ -498,10 +491,7 @@ const gatePassStyles = `
     .gp-auth-col .field { font-size: 9px; color: #333; margin-top: 14px; border-top: 1px solid #9ca3af; padding-top: 2px; }
     .gp-stamp-box { margin-top: 6px; height: 46px; border: 1px dashed #cbd5e1; border-radius: 4px; display: flex; align-items: center; justify-content: center; font-size: 8px; color: #9ca3af; text-transform: uppercase; letter-spacing: 0.4px; }
     .gp-footer { margin-top: 14px; text-align: center; font-size: 7.8px; color: #9ca3af; }
-    .toolbar { display: flex; gap: 8px; justify-content: flex-end; margin-bottom: 8px; }
-    .toolbar button { font: inherit; padding: 8px 16px; border-radius: 6px; border: 1px solid ${NAVY}; background: ${NAVY}; color: #fff; cursor: pointer; }
-    .toolbar button.outline { background: #fff; color: ${NAVY}; }
-    @media print { .toolbar { display: none !important; } .gp-sheet { border: none; padding: 0; } }
+    @media print { .gp-sheet { border: none; padding: 0; } }
   </style>`;
 
 function gatePassItemRows(items: GatePassDocData['items']) {
@@ -520,10 +510,6 @@ export function renderGatePassTemplate(d: GatePassDocData): string {
   const contactLine = [d.company.phone, d.company.email].filter(Boolean).join(' | ');
 
   return `<!doctype html><html><head><title>${d.number}</title>${gatePassStyles}</head><body>
-    <div class="toolbar">
-      <button type="button" class="outline" onclick="window.print()">Download PDF</button>
-      <button type="button" onclick="window.print()">Print</button>
-    </div>
     <div class="gp-sheet">
       <div class="gp-head">
         <div class="gp-brand">

@@ -38,6 +38,8 @@ const modelFactories = {
   DamagedStockReturnItem: require('./damagedStockReturnItemModel'),
   VendorSale: require('./vendorSaleModel'),
   VendorSaleItem: require('./vendorSaleItemModel'),
+  VendorSaleReturn: require('./vendorSaleReturnModel'),
+  VendorSaleReturnItem: require('./vendorSaleReturnItemModel'),
   Estimate: require('./estimateModel'),
   EstimateItem: require('./estimateItemModel'),
   EstimateFollowUp: require('./estimateFollowUpModel'),

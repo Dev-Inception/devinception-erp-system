@@ -709,31 +709,22 @@ export function EstimatesPage() {
   const convert = (e: Estimate) => navigate(`/pos?estimateId=${e.id}`);
 
   const handleViewInvoice = async (e: Estimate) => {
-    // Open synchronously so the browser ties the popup to this click rather
-    // than treating it as an unrequested popup.
-    const win = window.open('', '_blank', 'width=850,height=1000');
-    win?.document.write(
-      '<p style="font-family:sans-serif;padding:24px;color:#666">Preparing estimate…</p>',
-    );
     try {
-      await openEstimateInvoicePopup(
-        {
-          estimateNumber: e.number,
-          date: e.date,
-          storeId: e.storeId,
-          storeName: e.storeName,
-          customer: { name: e.customerName, phone: e.customerPhone },
-          items: e.items,
-          subtotal: e.subtotal,
-          taxTotal: e.taxTotal,
-          discountTotal: e.discountTotal,
-          grandTotal: e.grandTotal,
-          notes: e.notes,
-        },
-        win,
-      );
+      await openEstimateInvoicePopup({
+        estimateNumber: e.number,
+        date: e.date,
+        storeId: e.storeId,
+        storeName: e.storeName,
+        customer: { name: e.customerName, phone: e.customerPhone },
+        items: e.items,
+        subtotal: e.subtotal,
+        taxTotal: e.taxTotal,
+        discountTotal: e.discountTotal,
+        grandTotal: e.grandTotal,
+        notes: e.notes,
+      });
     } catch {
-      toast.error('Enable popups to view the printable estimate');
+      toast.error('Could not prepare the estimate');
     }
   };
 

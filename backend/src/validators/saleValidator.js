@@ -117,6 +117,21 @@ const recordPaymentValidator = [
   body('method').isIn(RECEIVABLE_METHODS).withMessage('Invalid payment method'),
   body('bankAccount').optional({ values: 'falsy' }).isMongoId().withMessage('Invalid bank account'),
   body('note').optional({ values: 'falsy' }).isString().trim().isLength({ max: 500 }),
+  body('transactionId')
+    .optional({ values: 'falsy' })
+    .isString()
+    .trim()
+    .isLength({ max: 100 })
+    .withMessage('Invalid transaction ID'),
+  // A bank transfer's amount is only as traceable as the reference the
+  // customer hands over for it — require it the same way bankAccount is
+  // required client-side for BANK_TRANSFER.
+  body('transactionId').custom((value, { req }) => {
+    if (req.body.method === PAYMENT_METHOD.BANK_TRANSFER && !value) {
+      throw new Error('Transaction ID is required for bank transfers');
+    }
+    return true;
+  }),
 ];
 
 const idParamValidator = [idParam];

@@ -259,8 +259,6 @@ export const ACTION_TRANSLATIONS: Record<string, string> = {
   Sale: 'فروخت',
   SKU: 'ایس کے یو',
   Balance: 'بیلنس',
-  Credit: 'کریڈٹ',
-  Debit: 'ڈیبٹ',
   Price: 'قیمت',
   Source: 'ذریعہ',
   Total: 'کل',

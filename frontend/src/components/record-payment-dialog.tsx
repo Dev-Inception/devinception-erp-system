@@ -25,8 +25,6 @@ interface SaleForPayment {
 const METHODS = [
   { value: 'CASH', label: 'Cash' },
   { value: 'BANK_TRANSFER', label: 'Bank transfer' },
-  { value: 'ONLINE', label: 'Online' },
-  { value: 'CARD', label: 'Card' },
 ];
 
 /**
@@ -47,6 +45,7 @@ export function RecordPaymentDialog({
   const [amount, setAmount] = useState<number>(0);
   const [method, setMethod] = useState('CASH');
   const [bankAccount, setBankAccount] = useState('');
+  const [transactionId, setTransactionId] = useState('');
   const [note, setNote] = useState('');
 
   useEffect(() => {
@@ -54,10 +53,11 @@ export function RecordPaymentDialog({
     setAmount(sale.balanceDue);
     setMethod('CASH');
     setBankAccount('');
+    setTransactionId('');
     setNote('');
   }, [sale?.id]);
 
-  const needsBank = method === 'BANK_TRANSFER' || method === 'ONLINE';
+  const needsBank = method === 'BANK_TRANSFER';
   const { data: bankAccounts = [] } = useBankAccounts(sale?.storeId, open && needsBank);
   const activeBankAccounts = bankAccounts.filter((b) => b.isActive);
 
@@ -68,6 +68,7 @@ export function RecordPaymentDialog({
           amount,
           method,
           bankAccount: needsBank ? bankAccount || undefined : undefined,
+          transactionId: needsBank ? transactionId.trim() || undefined : undefined,
           note: note.trim() || undefined,
         })
       ).data,
@@ -83,7 +84,7 @@ export function RecordPaymentDialog({
     sale &&
     amount > 0 &&
     amount <= sale.balanceDue &&
-    (!needsBank || bankAccount) &&
+    (!needsBank || (bankAccount && transactionId.trim())) &&
     !submit.isPending;
 
   return (
@@ -141,22 +142,34 @@ export function RecordPaymentDialog({
             </div>
 
             {needsBank && (
-              <div className="space-y-1.5">
-                <Label>Bank account *</Label>
-                <select
-                  value={bankAccount}
-                  onChange={(e) => setBankAccount(e.target.value)}
-                  className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
-                  required
-                >
-                  <option value="">Select account…</option>
-                  {activeBankAccounts.map((b) => (
-                    <option key={b.id} value={b.id}>
-                      {b.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
+              <>
+                <div className="space-y-1.5">
+                  <Label>Bank account *</Label>
+                  <select
+                    value={bankAccount}
+                    onChange={(e) => setBankAccount(e.target.value)}
+                    className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
+                    required
+                  >
+                    <option value="">Select account…</option>
+                    {activeBankAccounts.map((b) => (
+                      <option key={b.id} value={b.id}>
+                        {b.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label>Transaction ID *</Label>
+                  <Input
+                    value={transactionId}
+                    onChange={(e) => setTransactionId(e.target.value)}
+                    placeholder="Reference / transaction ID from the transfer"
+                    required
+                  />
+                </div>
+              </>
             )}
 
             <div className="space-y-1.5">

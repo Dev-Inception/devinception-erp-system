@@ -246,10 +246,9 @@ export function PosPage() {
   const [discountType, setDiscountType] = useState<'amount' | 'percent'>('amount');
   const [taxPct, setTaxPct] = useState<number>(0);
   const [advanceAmount, setAdvanceAmount] = useState<number>(0);
-  const [advanceMethod, setAdvanceMethod] = useState<'CASH' | 'BANK_TRANSFER' | 'ONLINE' | 'CARD'>(
-    'CASH',
-  );
+  const [advanceMethod, setAdvanceMethod] = useState<'CASH' | 'BANK_TRANSFER'>('CASH');
   const [advanceBankAccountId, setAdvanceBankAccountId] = useState('');
+  const [advanceTransactionId, setAdvanceTransactionId] = useState('');
 
   // Step 5 — result
   const [completedSale, setCompletedSale] = useState<CompletedSale | null>(null);
@@ -342,8 +341,7 @@ export function PosPage() {
     step === 3 && needsTransportFareBank,
   );
   const transportBankAccounts = transportBankAccountsRaw.filter((b) => b.isActive);
-  const needsAdvanceBank =
-    advanceMethod === 'BANK_TRANSFER' || advanceMethod === 'ONLINE' || advanceMethod === 'CARD';
+  const needsAdvanceBank = advanceMethod === 'BANK_TRANSFER';
   const { data: advanceBankAccountsRaw = [] } = useBankAccounts(
     hasSpecificStore ? currentStoreId : undefined,
     step === 4 && needsAdvanceBank,
@@ -563,6 +561,7 @@ export function PosPage() {
     setAdvanceAmount(0);
     setAdvanceMethod('CASH');
     setAdvanceBankAccountId('');
+    setAdvanceTransactionId('');
     setCompletedSale(null);
     setDraftId(null);
   };
@@ -711,6 +710,7 @@ export function PosPage() {
           amount: advance,
           method: advanceMethod,
           bankAccount: needsAdvanceBank ? advanceBankAccountId || undefined : undefined,
+          transactionId: needsAdvanceBank ? advanceTransactionId || undefined : undefined,
           note: `Advance for sale ${sale.saleNumber}`,
         });
       }
@@ -1691,13 +1691,11 @@ export function PosPage() {
                   />
                   {advance > 0 && (
                     <>
-                      <div className="grid grid-cols-4 gap-1.5">
+                      <div className="grid grid-cols-2 gap-1.5">
                         {(
                           [
                             { value: 'CASH', label: 'Cash' },
                             { value: 'BANK_TRANSFER', label: 'Bank' },
-                            { value: 'ONLINE', label: 'Online' },
-                            { value: 'CARD', label: 'Card' },
                           ] as const
                         ).map((m) => (
                           <Button
@@ -1712,20 +1710,28 @@ export function PosPage() {
                         ))}
                       </div>
                       {needsAdvanceBank && (
-                        <select
-                          required
-                          value={advanceBankAccountId}
-                          onChange={(e) => setAdvanceBankAccountId(e.target.value)}
-                          className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
-                        >
-                          <option value="">{t('Select account…')}</option>
-                          {advanceBankAccounts.map((b) => (
-                            <option key={b.id} value={b.id}>
-                              {b.name}
-                              {b.bankName ? ` (${b.bankName})` : ''}
-                            </option>
-                          ))}
-                        </select>
+                        <>
+                          <select
+                            required
+                            value={advanceBankAccountId}
+                            onChange={(e) => setAdvanceBankAccountId(e.target.value)}
+                            className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
+                          >
+                            <option value="">{t('Select account…')}</option>
+                            {advanceBankAccounts.map((b) => (
+                              <option key={b.id} value={b.id}>
+                                {b.name}
+                                {b.bankName ? ` (${b.bankName})` : ''}
+                              </option>
+                            ))}
+                          </select>
+                          <Input
+                            required
+                            value={advanceTransactionId}
+                            onChange={(e) => setAdvanceTransactionId(e.target.value)}
+                            placeholder={t('Transaction ID from the customer')}
+                          />
+                        </>
                       )}
                     </>
                   )}
@@ -1857,7 +1863,7 @@ export function PosPage() {
                 variant="outline"
                 onClick={() =>
                   openSaleInvoicePopup(completedSale).catch(() =>
-                    toast.error('Enable popups to view the printable invoice'),
+                    toast.error('Could not prepare the invoice'),
                   )
                 }
               >

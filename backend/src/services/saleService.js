@@ -904,7 +904,7 @@ async function updateSale(actor, saleId, input) {
  * would, but tagged to this sale (refType SALE) rather than a standalone
  * receipt, so it's traceable to the invoice it settles.
  */
-async function recordPayment(actor, saleId, { amount, method, bankAccount, note }) {
+async function recordPayment(actor, saleId, { amount, method, bankAccount, note, transactionId }) {
   return getPostgres().transaction(async (transaction) => {
     const { Sale } = initializeModels();
     const sale = await Sale.findByPk(saleId, { transaction, lock: transaction.LOCK.UPDATE });
@@ -936,10 +936,13 @@ async function recordPayment(actor, saleId, { amount, method, bankAccount, note 
       transaction,
     );
     const when = new Date();
+    const description =
+      [note, transactionId ? `Txn ID: ${transactionId}` : null].filter(Boolean).join(' — ') ||
+      `Payment received for sale ${sale.number}`;
 
     await journalService.post({
       date: when,
-      description: note || `Payment received for sale ${sale.number}`,
+      description,
       refType: REF.SALE,
       refId: sale.id,
       refNo: sale.number,

@@ -1277,40 +1277,31 @@ export function StockReceiptsPage() {
   };
 
   const handlePrintInvoice = async (r: StockReceipt) => {
-    // Open synchronously so the browser ties the popup to this click rather
-    // than treating it as an unrequested popup.
-    const win = window.open('', '_blank', 'width=850,height=1000');
-    win?.document.write(
-      '<p style="font-family:sans-serif;padding:24px;color:#666">Preparing invoice…</p>',
-    );
     try {
-      await openStockReceiptInvoicePopup(
-        {
-          receiptNumber: r.number,
-          date: r.date,
-          storeId: r.storeId,
-          storeName: r.storeName,
-          supplierName: r.supplierName,
-          items: r.items.map((it) => ({
-            name: it.name,
-            quantity: it.receivedQuantity,
-            purchasePrice: it.purchasePrice,
-            lineTotal: it.lineTotal,
-            pricingStatus: it.pricingStatus,
-          })),
-          pricedTotal: r.pricedTotal,
-          paidAmount: r.paidAmount,
-          balanceDue: r.balanceDue,
-          truckFare: r.truckFare,
-          truckFarePaidBy: r.truckFarePaidBy,
-          truck: r.truck,
-          labour: r.labour.map((l) => ({ name: l.name, phone: l.phoneNumber, rent: l.rent })),
-          labourRentTotal: r.labourRent,
-        },
-        win,
-      );
+      await openStockReceiptInvoicePopup({
+        receiptNumber: r.number,
+        date: r.date,
+        storeId: r.storeId,
+        storeName: r.storeName,
+        supplierName: r.supplierName,
+        items: r.items.map((it) => ({
+          name: it.name,
+          quantity: it.receivedQuantity,
+          purchasePrice: it.purchasePrice,
+          lineTotal: it.lineTotal,
+          pricingStatus: it.pricingStatus,
+        })),
+        pricedTotal: r.pricedTotal,
+        paidAmount: r.paidAmount,
+        balanceDue: r.balanceDue,
+        truckFare: r.truckFare,
+        truckFarePaidBy: r.truckFarePaidBy,
+        truck: r.truck,
+        labour: r.labour.map((l) => ({ name: l.name, phone: l.phoneNumber, rent: l.rent })),
+        labourRentTotal: r.labourRent,
+      });
     } catch {
-      toast.error('Enable popups to view the printable invoice');
+      toast.error('Could not prepare the invoice');
     }
   };
 

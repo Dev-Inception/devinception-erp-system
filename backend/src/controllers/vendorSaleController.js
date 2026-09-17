@@ -30,6 +30,7 @@ function serialize(vendorSale) {
     'cashAmount',
     'onlineAmount',
     'creditAmount',
+    'returnedTotal',
   ];
   const view0 = view(r, moneyFields);
   if (Array.isArray(view0.items)) {

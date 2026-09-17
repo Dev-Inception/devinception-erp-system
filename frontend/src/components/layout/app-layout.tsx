@@ -5,6 +5,7 @@ import { Header } from './header';
 import { useAuthStore } from '@/store/auth';
 import { useWarehouses } from './warehouse-switcher';
 import { StorePickerModal } from './store-picker-modal';
+import { PrintPreviewDialog } from '@/components/print-preview-dialog';
 
 export function AppLayout() {
   const user = useAuthStore((s) => s.user);
@@ -44,6 +45,7 @@ function AuthenticatedShell() {
         </main>
       </div>
       <StorePickerModal />
+      <PrintPreviewDialog />
     </div>
   );
 }
