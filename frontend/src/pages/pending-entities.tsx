@@ -248,7 +248,7 @@ export function PendingEntitiesPage() {
                 <tr>
                   <td colSpan={9} className="px-4 py-10 text-center text-muted-foreground">
                     {status === 'PENDING'
-                      ? t('Nothing waiting to be priced.')
+                      ? t('All caught up — no pending items')
                       : t('No completed entities yet.')}
                   </td>
                 </tr>

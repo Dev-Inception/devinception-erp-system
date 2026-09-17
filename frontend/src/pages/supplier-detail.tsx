@@ -307,7 +307,7 @@ export function SupplierDetailPage() {
               <thead>
                 <tr className="border-b bg-muted/50 text-left text-xs uppercase tracking-wide text-muted-foreground">
                   <th className="px-4 py-3 font-medium">{t('Source')}</th>
-                  <th className="px-4 py-3 font-medium">{t('#')}</th>
+                  <th className="px-4 py-3 font-medium">{t('Doc #')}</th>
                   <th className="px-4 py-3 font-medium">{t('Date')}</th>
                   <th className="px-4 py-3 font-medium">{t('Product')}</th>
                   <th className="px-4 py-3 text-right font-medium">{t('Qty')}</th>

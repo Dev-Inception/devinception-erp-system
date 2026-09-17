@@ -14,7 +14,7 @@ import { useLanguage } from '@/components/language-provider';
 import { PayVendorDialog } from '@/components/pay-vendor-dialog';
 import { VendorReceivablePaymentDialog } from '@/components/vendor-receivable-payment-dialog';
 import { GatePassDialog } from '@/components/gate-pass-dialog';
-import { openSaleInvoicePopup, type SaleForInvoice } from '@/lib/invoicePopup';
+import { openVendorSaleInvoicePopup, type VendorSaleItemsForInvoice } from '@/lib/invoicePopup';
 import { VendorSaleDetailDialog, type VendorSale } from '@/pages/vendor-sales';
 
 interface Vendor {
@@ -37,6 +37,7 @@ interface PendingEntity {
   id: string;
   sourceType: 'SALE_ITEM' | 'STOCK_RECEIPT_ITEM';
   sourceNo: string;
+  sale?: string;
   productName: string;
   quantity: number;
   date: string;
@@ -159,33 +160,42 @@ export function VendorDetailPage() {
     .map((s) => ({ ...s, vendorItems: s.items.filter((it) => it.vendorId === id) }))
     .filter((s) => s.vendorItems.length > 0);
 
-  const handlePrintSaleInvoice = async (s: SaleRow) => {
+  const handlePrintVendorInvoice = async (s: SaleRow & { vendorItems: SaleRow['items'] }) => {
     const win = window.open('', '_blank', 'width=850,height=1000');
     win?.document.write(
       '<p style="font-family:sans-serif;padding:24px;color:#666">Preparing invoice…</p>',
     );
     try {
-      const returns =
-        Number(s.returnedTotal) > 0
-          ? ((await api.get(`/sales/${s.id}/returns`)).data as {
-              number: string;
-              date: string;
-              items: { name: string; quantity: number; lineTotal: number }[];
-            }[])
-          : [];
-      const payload: SaleForInvoice = {
-        ...s,
-        returns: returns.map((r) => ({
-          number: r.number,
-          date: r.date,
-          items: r.items.map((it) => ({
-            name: it.name,
-            quantity: it.quantity,
-            amount: it.lineTotal,
-          })),
-        })),
+      const pricing = (
+        await api.get('/pending-entities', {
+          params: { vendorId: id, sourceType: 'SALE_ITEM', limit: 500 },
+        })
+      ).data as { entities: PendingEntity[] };
+      const pricedByProduct = new Map(
+        pricing.entities.filter((e) => e.sale === s.id).map((e) => [e.productName, e]),
+      );
+      const items = s.vendorItems.map((it) => {
+        const priced = pricedByProduct.get(it.name);
+        return {
+          name: it.name,
+          quantity: it.quantity,
+          purchasePrice: priced?.purchasePrice,
+          lineTotal: priced?.lineTotal,
+          pricingStatus: priced?.status,
+        };
+      });
+      const payload: VendorSaleItemsForInvoice = {
+        saleNumber: s.saleNumber,
+        date: s.date,
+        storeId: s.storeId,
+        storeName: s.storeName,
+        storeAddress: s.storeAddress,
+        vendorName: vendor?.name ?? 'Vendor',
+        vendorPhone: vendor?.phone,
+        items,
+        pricedTotal: items.reduce((sum, it) => sum + Number(it.lineTotal ?? 0), 0),
       };
-      await openSaleInvoicePopup(payload, win);
+      await openVendorSaleInvoicePopup(payload, win);
     } catch {
       toast.error('Enable popups to view the printable invoice');
     }
@@ -329,7 +339,7 @@ export function VendorDetailPage() {
               <thead>
                 <tr className="border-b bg-muted/50 text-left text-xs uppercase tracking-wide text-muted-foreground">
                   <th className="px-4 py-3 font-medium">{t('Source')}</th>
-                  <th className="px-4 py-3 font-medium">{t('#')}</th>
+                  <th className="px-4 py-3 font-medium">{t('Doc #')}</th>
                   <th className="px-4 py-3 font-medium">{t('Date')}</th>
                   <th className="px-4 py-3 font-medium">{t('Product')}</th>
                   <th className="px-4 py-3 text-right font-medium">{t('Qty')}</th>
@@ -431,8 +441,8 @@ export function VendorDetailPage() {
                             variant="ghost"
                             size="icon"
                             className="h-8 w-8"
-                            title={t('Print Invoice')}
-                            onClick={() => handlePrintSaleInvoice(s)}
+                            title={t('Print Vendor Invoice')}
+                            onClick={() => handlePrintVendorInvoice(s)}
                           >
                             <Printer className="h-4 w-4" />
                           </Button>

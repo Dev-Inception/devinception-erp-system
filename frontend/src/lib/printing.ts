@@ -62,8 +62,8 @@ interface DocData {
   // Kept separate from `notes`, which is styled as a warning.
   bankNote?: string;
   // A fixed business note (e.g. a return policy) configured once in Settings
-  // and printed as the very last line of the invoice, styled boldly so it
-  // isn't missed — distinct from `notes`, which is a one-off warning.
+  // and printed as an extra line under Notes on every invoice — distinct
+  // from `notes`, which is a one-off warning for this specific document.
   footerNote?: string;
 }
 
@@ -146,6 +146,7 @@ const a4Styles = `
     .totals-col .account { margin-top: 4px; padding-top: 4px; border-top: 1px solid #e5e7eb; }
     .totals-col .remaining { font-size: 10px; font-weight: 700; color: ${NAVY}; }
     .warning { margin-top: 8px; font-size: 8.5px; color: #b91c1c; page-break-inside: avoid; }
+    .footer-note { margin-top: 5px; font-size: 10.5px; font-weight: 700; color: #111; }
     .footer-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 12px; padding-top: 8px; border-top: 1px solid #e5e7eb; page-break-inside: avoid; }
     .footer-grid .info-line { font-size: 8px; color: #333; line-height: 1.5; }
     .sig-line { margin-top: 18px; border-top: 1px solid #9ca3af; width: 90%; font-size: 8px; color: #6b7280; padding-top: 2px; }
@@ -374,6 +375,7 @@ export function renderTemplate(type: TemplateType, d: DocData): string {
           <div class="section-label">Notes</div>
           <div class="info-line">Amount: <strong>${amountInWords(d.total)} Only.</strong></div>
           ${d.notes ? `<div class="warning" style="margin-top:4px;">${d.notes}</div>` : ''}
+          ${d.footerNote ? `<div class="footer-note">${d.footerNote}</div>` : ''}
         </div>
         <div class="totals-col">
           <div class="row muted"><span>Total Items</span><span>${totalItems}</span></div>
@@ -409,7 +411,7 @@ export function renderTemplate(type: TemplateType, d: DocData): string {
           <div class="sig-line">Name / Title</div>
         </div>
       </div>
-      <div class="thankyou">${d.footerNote ? `<strong>${d.footerNote}</strong>` : '<strong>Thank you for your business!</strong>'}</div>
+      <div class="thankyou"><strong>Thank you for your business!</strong></div>
     </div>
   </body></html>`;
 }

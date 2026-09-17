@@ -126,6 +126,12 @@ function ExpenseDialog({
   const [date, setDate] = useState(
     expense ? expense.date.slice(0, 10) : new Date().toISOString().slice(0, 10),
   );
+  // Tracks whether the user actually picked a date — the <input type="date">
+  // only ever carries a date, never a time, so submitting it unconditionally
+  // would collapse a fresh/unedited expense's timestamp to midnight UTC (shows
+  // as 5am in PKT). Left untouched, send the real current/original timestamp
+  // instead so "just added" expenses keep their actual time of day.
+  const [dateTouched, setDateTouched] = useState(false);
   const [note, setNote] = useState(expense?.note ?? '');
 
   const addCategory = useMutation({
@@ -147,7 +153,7 @@ function ExpenseDialog({
         method,
         bankAccountId: BANK_METHODS.has(method) ? bankAccountId : undefined,
         storeId: hasSpecificStore ? currentStoreId : undefined,
-        date,
+        date: dateTouched ? date : (expense?.date ?? new Date().toISOString()),
         note,
       };
       return editing
@@ -273,7 +279,14 @@ function ExpenseDialog({
             </div>
             <div className="space-y-1.5">
               <Label>{t('Date')}</Label>
-              <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+              <Input
+                type="date"
+                value={date}
+                onChange={(e) => {
+                  setDate(e.target.value);
+                  setDateTouched(true);
+                }}
+              />
             </div>
           </div>
 

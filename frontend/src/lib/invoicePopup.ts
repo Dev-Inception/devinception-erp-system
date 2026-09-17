@@ -119,11 +119,18 @@ async function bankNoteFor(storeId: string | undefined): Promise<string | undefi
   }
 }
 
-// The company-wide invoice note (e.g. a return policy) set once in Settings.
+// The invoice note set once in Settings (falls back from the store's own row
+// to the super-admin's global one — see FALLBACK_FIELDS in settingsService).
 // Omitted, never blocks printing, if unset or the lookup fails.
-async function invoiceFooterNote(): Promise<string | undefined> {
+//
+// `storeId` must be forwarded here for the same reason `companyInfo` takes
+// it: a multi-store admin has no "current store" on the backend without it,
+// so an omitted store param resolves to the *global* settings row instead of
+// the store's own — silently returning the wrong (usually empty) note.
+async function invoiceFooterNote(storeId?: string): Promise<string | undefined> {
   try {
-    const note = (await api.get('/settings')).data?.invoiceNote;
+    const note = (await api.get('/settings', storeId ? { params: { store: storeId } } : undefined))
+      .data?.invoiceNote;
     return note && String(note).trim() ? String(note).trim() : undefined;
   } catch {
     return undefined;
@@ -133,7 +140,7 @@ async function invoiceFooterNote(): Promise<string | undefined> {
 async function buildInvoiceHtml(sale: SaleForInvoice) {
   const [bankNote, footerNote, settings] = await Promise.all([
     bankNoteFor(sale.storeId),
-    invoiceFooterNote(),
+    invoiceFooterNote(sale.storeId),
     companyInfo(sale.storeId),
   ]);
   // The invoice header identifies the physical storefront the sale happened
@@ -252,7 +259,10 @@ export interface StockReceiptForInvoice {
 }
 
 async function buildReceiptInvoiceHtml(receipt: StockReceiptForInvoice) {
-  const settings = await companyInfo(receipt.storeId);
+  const [footerNote, settings] = await Promise.all([
+    invoiceFooterNote(receipt.storeId),
+    companyInfo(receipt.storeId),
+  ]);
   const company = {
     name: receipt.storeName || settings.name,
     address: settings.address,
@@ -299,6 +309,7 @@ async function buildReceiptInvoiceHtml(receipt: StockReceiptForInvoice) {
     paidAmount: receipt.paidAmount !== undefined ? Number(receipt.paidAmount) : undefined,
     balanceDue: receipt.balanceDue !== undefined ? Number(receipt.balanceDue) : undefined,
     notes: notes || undefined,
+    footerNote,
   });
 }
 
@@ -310,6 +321,84 @@ export async function openStockReceiptInvoicePopup(
     target && !target.closed ? target : window.open('', '_blank', 'width=850,height=1000');
   if (!win) throw new Error('POPUP_BLOCKED');
   const html = await buildReceiptInvoiceHtml(receipt);
+  if (!writeHtmlPopup(html, win)) {
+    throw new Error('POPUP_BLOCKED');
+  }
+}
+
+/** A vendor-facing printout of a sale's vendor-sourced lines — same
+ * INVOICE_A4 template, with the vendor as the "party" instead of the
+ * customer and only the items whose stock originated from that vendor.
+ * Prices are the vendor's purchase price/line total from Pending Entities
+ * (not the customer's sale price), same blank-until-priced convention as
+ * `StockReceiptForInvoice`. */
+export interface VendorSaleItemsForInvoice {
+  saleNumber: string;
+  date: string;
+  storeId?: string;
+  storeName?: string;
+  storeAddress?: string;
+  vendorName: string;
+  vendorPhone?: string;
+  items: {
+    name: string;
+    quantity: number | string;
+    purchasePrice?: number | string;
+    lineTotal?: number | string;
+    pricingStatus?: 'PENDING' | 'PRICED';
+  }[];
+  pricedTotal: number | string;
+}
+
+async function buildVendorSaleInvoiceHtml(sale: VendorSaleItemsForInvoice) {
+  const [bankNote, footerNote, settings] = await Promise.all([
+    bankNoteFor(sale.storeId),
+    invoiceFooterNote(sale.storeId),
+    companyInfo(sale.storeId),
+  ]);
+  const company = {
+    name: sale.storeName || settings.name,
+    address: sale.storeAddress || settings.address,
+    phone: settings.phone,
+    email: settings.email,
+    taxNumber: settings.taxNumber,
+    logoUrl: settings.logoUrl,
+  };
+  const hasUnpriced = sale.items.some((i) => i.pricingStatus !== 'PRICED');
+  return renderTemplate('INVOICE_A4', {
+    company,
+    docTitle: 'Vendor Invoice',
+    docNumberLabel: 'Sale #',
+    number: sale.saleNumber,
+    date: new Date(sale.date).toLocaleString(),
+    partyName: sale.vendorName,
+    partyPhone: sale.vendorPhone || undefined,
+    invoiceType: 'Items Sourced from Vendor',
+    items: sale.items.map((i) => ({
+      name: i.name,
+      qty: Number(i.quantity),
+      price: i.purchasePrice !== undefined ? Number(i.purchasePrice) : 0,
+      amount: i.lineTotal !== undefined ? Number(i.lineTotal) : 0,
+    })),
+    subtotal: Number(sale.pricedTotal),
+    tax: 0,
+    total: Number(sale.pricedTotal),
+    notes: hasUnpriced
+      ? 'Some items are awaiting a purchase price from Pending Entities and show as 0 until priced.'
+      : undefined,
+    bankNote,
+    footerNote,
+  });
+}
+
+export async function openVendorSaleInvoicePopup(
+  sale: VendorSaleItemsForInvoice,
+  target?: Window | null,
+) {
+  const win =
+    target && !target.closed ? target : window.open('', '_blank', 'width=850,height=1000');
+  if (!win) throw new Error('POPUP_BLOCKED');
+  const html = await buildVendorSaleInvoiceHtml(sale);
   if (!writeHtmlPopup(html, win)) {
     throw new Error('POPUP_BLOCKED');
   }
@@ -336,7 +425,10 @@ export interface DamagedStockReturnForInvoice {
 }
 
 async function buildDamagedStockReturnInvoiceHtml(damagedReturn: DamagedStockReturnForInvoice) {
-  const settings = await companyInfo(damagedReturn.storeId);
+  const [footerNote, settings] = await Promise.all([
+    invoiceFooterNote(damagedReturn.storeId),
+    companyInfo(damagedReturn.storeId),
+  ]);
   const company = {
     name: damagedReturn.storeName || settings.name,
     address: settings.address,
@@ -367,6 +459,7 @@ async function buildDamagedStockReturnInvoiceHtml(damagedReturn: DamagedStockRet
         ? damagedReturn.truck
         : undefined,
     notes: damagedReturn.note || undefined,
+    footerNote,
   });
 }
 
@@ -406,7 +499,7 @@ export interface EstimateForInvoice {
 async function buildEstimateInvoiceHtml(estimate: EstimateForInvoice) {
   const [bankNote, footerNote, settings] = await Promise.all([
     bankNoteFor(estimate.storeId),
-    invoiceFooterNote(),
+    invoiceFooterNote(estimate.storeId),
     companyInfo(estimate.storeId),
   ]);
   const company = {
@@ -467,7 +560,7 @@ export interface LabourForInvoice {
 }
 
 async function buildLabourInvoiceHtml(labour: LabourForInvoice) {
-  const settings = await companyInfo();
+  const [footerNote, settings] = await Promise.all([invoiceFooterNote(), companyInfo()]);
   const total = labour.jobs.reduce((sum, j) => sum + Number(j.rent), 0);
   return renderTemplate('INVOICE_A4', {
     company: settings,
@@ -484,6 +577,7 @@ async function buildLabourInvoiceHtml(labour: LabourForInvoice) {
     subtotal: total,
     tax: 0,
     total,
+    footerNote,
   });
 }
 
