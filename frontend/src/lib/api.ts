@@ -1883,6 +1883,46 @@ async function realListPendingEntities(params: any = {}) {
     limit: res.data.limit ?? 20,
   };
 }
+function mapPendingInvoice(inv: any) {
+  return {
+    id: String(inv.id),
+    sourceType: inv.sourceType as 'SALE_ITEM' | 'STOCK_RECEIPT_ITEM',
+    sourceNo: inv.sourceNo || '',
+    vendorName: inv.vendorName || '',
+    storeName: inv.storeName || undefined,
+    warehouseName: inv.warehouseName || undefined,
+    date: inv.date,
+    itemCount: inv.itemCount ?? 0,
+    pricedCount: inv.pricedCount ?? 0,
+    status: inv.status as 'PENDING' | 'PRICED',
+    total: inv.total ?? undefined,
+  };
+}
+async function realListPendingInvoices(params: any = {}) {
+  const res = await http.get('/pending-entities/invoices', {
+    params: {
+      page: params.page || undefined,
+      limit: params.limit || 20,
+      status: params.status || undefined,
+      vendor: params.vendorId || undefined,
+      supplier: params.supplierId || undefined,
+      sourceType: params.sourceType || undefined,
+      search: params.search || undefined,
+    },
+  });
+  return {
+    invoices: (res.data.invoices as any[]).map(mapPendingInvoice),
+    total: res.data.total ?? res.data.invoices.length,
+    page: res.data.page ?? 1,
+    limit: res.data.limit ?? 20,
+  };
+}
+async function realListInvoiceItems(params: any = {}) {
+  const res = await http.get('/pending-entities/invoice-items', {
+    params: { sourceType: params.sourceType, sourceNo: params.sourceNo },
+  });
+  return { items: (res.data.items as any[]).map(mapPendingEntity) };
+}
 async function realSetPendingEntityPrice(id: string, body: any) {
   const res = await http.patch(`/pending-entities/${id}/price`, {
     purchasePrice: body.purchasePrice,
@@ -2674,6 +2714,8 @@ async function tryReal(
     if (seg[0] === 'vendor-sales' && seg[1]) return wrap(await realGetVendorSale(seg[1]));
     if (seg[0] === 'vendors' && seg[1] && seg[2] === 'receivable-ledger')
       return wrap(await realVendorReceivableLedger(seg[1], params));
+    if (url === '/pending-entities/invoices') return wrap(await realListPendingInvoices(params));
+    if (url === '/pending-entities/invoice-items') return wrap(await realListInvoiceItems(params));
     if (url === '/pending-entities') return wrap(await realListPendingEntities(params));
     if (url === '/sales/returns') return wrap(await realListAllSaleReturns(params));
     if (seg[0] === 'sales' && seg[1] && seg[2] === 'returns')

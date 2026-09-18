@@ -108,6 +108,120 @@ async function listPendingEntities({
   return { entities: rows, total: count, page, limit };
 }
 
+// Same rows as listPendingEntities, folded into one row per source
+// invoice/receipt (sourceType + sourceNo) instead of one row per line item —
+// what the pending-entities table actually shows the user. An invoice stays
+// PENDING while any of its lines still needs a price, and only flips to
+// PRICED once every line does; `status` filters on that folded status, not
+// the per-line one. Grouping/pagination happen in JS since this only ever
+// runs over one actor's (store-scoped) queue, not the whole ledger.
+async function listPendingEntityInvoices({
+  status,
+  vendor,
+  supplier,
+  store,
+  sourceType,
+  search,
+  actor,
+  ...query
+} = {}) {
+  const { PendingEntity, Store, Warehouse } = initializeModels();
+  const { page, limit } = parsePagination(query);
+  const { storeIds } = await resolveStoreScope({ store, actor });
+  const where = { ...storeWhere(storeIds) };
+  if (vendor) where.vendor = vendor;
+  if (supplier) where.supplier = supplier;
+  if (sourceType) where.sourceType = sourceType;
+  if (search) {
+    const term = `%${escapeLike(search)}%`;
+    where[Op.or] = [
+      { sourceNo: { [Op.iLike]: term } },
+      { vendorName: { [Op.iLike]: term } },
+      { supplierName: { [Op.iLike]: term } },
+      { productName: { [Op.iLike]: term } },
+    ];
+  }
+
+  const rows = await PendingEntity.findAll({
+    where,
+    include: [
+      { model: Store, as: 'storeInfo', attributes: ['id', 'name', 'code'] },
+      { model: Warehouse, as: 'warehouseInfo', attributes: ['id', 'name'] },
+    ],
+    order: [
+      ['date', 'DESC'],
+      ['createdAt', 'DESC'],
+    ],
+  });
+
+  const groups = new Map();
+  for (const row of rows) {
+    const key = `${row.sourceType}:${row.sourceNo}`;
+    let group = groups.get(key);
+    if (!group) {
+      group = {
+        sourceType: row.sourceType,
+        sourceNo: row.sourceNo,
+        vendorName: row.vendorName || row.supplierName,
+        storeName: row.storeInfo ? row.storeInfo.name : undefined,
+        warehouseName: row.warehouseInfo ? row.warehouseInfo.name : undefined,
+        date: row.date,
+        itemCount: 0,
+        pricedCount: 0,
+        total: 0,
+      };
+      groups.set(key, group);
+    }
+    group.itemCount += 1;
+    if (row.status === 'PRICED') {
+      group.pricedCount += 1;
+      group.total += row.lineTotal || 0;
+    }
+  }
+
+  let invoices = Array.from(groups.values()).map((g) => ({
+    id: `${g.sourceType}:${g.sourceNo}`,
+    sourceType: g.sourceType,
+    sourceNo: g.sourceNo,
+    vendorName: g.vendorName,
+    storeName: g.storeName,
+    warehouseName: g.warehouseName,
+    date: g.date,
+    itemCount: g.itemCount,
+    pricedCount: g.pricedCount,
+    status: g.pricedCount === g.itemCount ? 'PRICED' : 'PENDING',
+    total: g.pricedCount > 0 ? g.total : undefined,
+  }));
+
+  if (status) invoices = invoices.filter((inv) => inv.status === status);
+  invoices.sort((a, b) => new Date(b.date) - new Date(a.date));
+
+  const total = invoices.length;
+  const start = (page - 1) * limit;
+  return { invoices: invoices.slice(start, start + limit), total, page, limit };
+}
+
+// All line items belonging to one invoice/receipt — the "open an invoice"
+// detail view backing the price-entry modal. Not paginated: an invoice's own
+// line count is always small.
+async function listInvoiceItems(actor, sourceType, sourceNo) {
+  const { PendingEntity, Vendor, Supplier, Product, Store, Warehouse } = initializeModels();
+  const { storeIds } = await resolveStoreScope({ actor });
+  const where = { ...storeWhere(storeIds), sourceType, sourceNo };
+
+  return PendingEntity.findAll({
+    where,
+    include: [
+      { model: Vendor, as: 'vendorInfo', attributes: ['id', 'name'] },
+      { model: Supplier, as: 'supplierInfo', attributes: ['id', 'name'] },
+      { model: Product, as: 'productInfo', attributes: ['id', 'name'] },
+      { model: Store, as: 'storeInfo', attributes: ['id', 'name', 'code'] },
+      { model: Warehouse, as: 'warehouseInfo', attributes: ['id', 'name'] },
+    ],
+    order: [['createdAt', 'ASC']],
+  });
+}
+
 // Sum of PRICED lineTotal (paisa) per stock receipt, for many receipts at
 // once — this is "amount owed to the vendor so far" for each receipt (lines
 // still PENDING don't count yet). Returns Map<stockReceiptIdString, paisa>.
@@ -244,6 +358,8 @@ module.exports = {
   recordSaleVendorItems,
   recordStockReceiptItems,
   listPendingEntities,
+  listPendingEntityInvoices,
+  listInvoiceItems,
   getPendingEntityById,
   setPurchasePrice,
   pricedTotalsByStockReceipt,

@@ -55,6 +55,33 @@ const listPendingEntities = asyncHandler(async (req, res) => {
   });
 });
 
+const listInvoices = asyncHandler(async (req, res) => {
+  const { status, vendor, supplier, store, sourceType, search, page, limit } = req.query;
+  const result = await pendingEntityService.listPendingEntityInvoices({
+    status,
+    vendor,
+    supplier,
+    store,
+    sourceType,
+    search,
+    page,
+    limit,
+    actor: req.user,
+  });
+  return sendSuccess(res, 200, 'Pending invoices fetched', {
+    invoices: result.invoices.map((inv) => view(inv, ['total'])),
+    total: result.total,
+    page: result.page,
+    limit: result.limit,
+  });
+});
+
+const getInvoiceItems = asyncHandler(async (req, res) => {
+  const { sourceType, sourceNo } = req.query;
+  const items = await pendingEntityService.listInvoiceItems(req.user, sourceType, sourceNo);
+  return sendSuccess(res, 200, 'Invoice items fetched', { items: items.map(out) });
+});
+
 const getPendingEntity = asyncHandler(async (req, res) => {
   const entity = await pendingEntityService.getPendingEntityById(req.user, req.params.id);
   return sendSuccess(res, 200, 'Pending entity fetched', { entity: out(entity) });
@@ -69,4 +96,10 @@ const setPrice = asyncHandler(async (req, res) => {
   return sendSuccess(res, 200, 'Purchase price recorded', { entity: out(entity) });
 });
 
-module.exports = { listPendingEntities, getPendingEntity, setPrice };
+module.exports = {
+  listPendingEntities,
+  listInvoices,
+  getInvoiceItems,
+  getPendingEntity,
+  setPrice,
+};

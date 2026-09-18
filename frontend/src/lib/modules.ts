@@ -64,6 +64,14 @@ export interface ModuleDef {
 export const MODULES: ModuleDef[] = [
   { key: 'dashboard', to: '/', label: 'Dashboard', section: 'Overview', icon: LayoutDashboard },
   {
+    key: 'pending-entities',
+    to: '/pending-entities',
+    label: 'Pending Entities',
+    section: 'Overview',
+    icon: Hourglass,
+    defaultRoles: ['ACCOUNTANT', 'MANAGER', 'ADMIN'],
+  },
+  {
     key: 'pos',
     to: '/pos',
     label: 'Point of Sale',
@@ -72,6 +80,14 @@ export const MODULES: ModuleDef[] = [
     defaultRoles: ['CASHIER', 'MANAGER', 'ADMIN'],
   },
   { key: 'sales', to: '/sales', label: 'Sales', section: 'Operations', icon: ScrollText },
+  {
+    key: 'vendor-sales',
+    to: '/vendor-sales',
+    label: 'Vendor Sales',
+    section: 'Operations',
+    icon: HandCoins,
+    defaultRoles: ['MANAGER', 'ADMIN'],
+  },
   {
     key: 'estimates',
     to: '/estimates',
@@ -140,14 +156,6 @@ export const MODULES: ModuleDef[] = [
   },
   { key: 'customers', to: '/customers', label: 'Customers', section: 'Partners', icon: Users },
   { key: 'vendors', to: '/vendors', label: 'Vendors', section: 'Partners', icon: Truck },
-  {
-    key: 'vendor-sales',
-    to: '/vendor-sales',
-    label: 'Vendor Sales',
-    section: 'Partners',
-    icon: HandCoins,
-    defaultRoles: ['MANAGER', 'ADMIN'],
-  },
   { key: 'suppliers', to: '/suppliers', label: 'Suppliers', section: 'Partners', icon: Factory },
   {
     key: 'transporters',
@@ -156,7 +164,6 @@ export const MODULES: ModuleDef[] = [
     section: 'Partners',
     icon: Container,
   },
-  { key: 'roles', to: '/roles', label: 'Roles', section: 'Partners', icon: Users },
   {
     key: 'labour',
     to: '/labour',
@@ -171,14 +178,6 @@ export const MODULES: ModuleDef[] = [
     label: 'Ledgers',
     section: 'Finance',
     icon: BookOpenCheck,
-    defaultRoles: ['ACCOUNTANT', 'MANAGER', 'ADMIN'],
-  },
-  {
-    key: 'pending-entities',
-    to: '/pending-entities',
-    label: 'Pending Entities',
-    section: 'Finance',
-    icon: Hourglass,
     defaultRoles: ['ACCOUNTANT', 'MANAGER', 'ADMIN'],
   },
   { key: 'reports', to: '/reports', label: 'Reports', section: 'Finance', icon: BarChart3 },
@@ -205,6 +204,7 @@ export const MODULES: ModuleDef[] = [
     icon: Wallet,
     defaultRoles: ['ACCOUNTANT', 'MANAGER', 'ADMIN'],
   },
+  { key: 'roles', to: '/roles', label: 'Roles', section: 'System', icon: Users },
   {
     key: 'users',
     to: '/users',

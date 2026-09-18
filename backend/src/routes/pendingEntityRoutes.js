@@ -4,7 +4,11 @@ const { protect } = require('../middlewares/authMiddleware');
 const { requirePermission } = require('../middlewares/roleMiddleware');
 const { validate } = require('../middlewares/validateMiddleware');
 const { PERMISSIONS } = require('../utils/permissions');
-const { idParamValidator, setPriceValidator } = require('../validators/pendingEntityValidator');
+const {
+  idParamValidator,
+  setPriceValidator,
+  invoiceItemsValidator,
+} = require('../validators/pendingEntityValidator');
 
 const router = express.Router();
 
@@ -15,6 +19,22 @@ router.get(
   '/',
   requirePermission(PERMISSIONS.FINANCE_READ),
   pendingEntityController.listPendingEntities,
+);
+
+// Order matters: these must come before /:id so "invoices"/"invoice-items"
+// aren't swallowed as an :id.
+router.get(
+  '/invoices',
+  requirePermission(PERMISSIONS.FINANCE_READ),
+  pendingEntityController.listInvoices,
+);
+
+router.get(
+  '/invoice-items',
+  requirePermission(PERMISSIONS.FINANCE_READ),
+  invoiceItemsValidator,
+  validate,
+  pendingEntityController.getInvoiceItems,
 );
 
 router.get(

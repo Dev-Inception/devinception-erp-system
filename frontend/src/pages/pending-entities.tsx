@@ -13,7 +13,6 @@ import {
   DialogHeader,
   DialogTitle,
   DialogDescription,
-  DialogClose,
 } from '@/components/ui/dialog';
 import { cn, formatCurrency } from '@/lib/utils';
 import { api } from '@/lib/api';
@@ -21,9 +20,25 @@ import { useAuthStore } from '@/store/auth';
 import { grantsPermission } from '@/lib/modules';
 import { useLanguage } from '@/components/language-provider';
 
-interface PendingEntity {
+type SourceType = 'SALE_ITEM' | 'STOCK_RECEIPT_ITEM';
+
+interface PendingInvoice {
   id: string;
-  sourceType: 'SALE_ITEM' | 'STOCK_RECEIPT_ITEM';
+  sourceType: SourceType;
+  sourceNo: string;
+  vendorName: string;
+  storeName?: string;
+  warehouseName?: string;
+  date: string;
+  itemCount: number;
+  pricedCount: number;
+  status: 'PENDING' | 'PRICED';
+  total?: number;
+}
+
+interface InvoiceItem {
+  id: string;
+  sourceType: SourceType;
   sourceNo: string;
   vendorName: string;
   productName: string;
@@ -38,134 +53,204 @@ interface PendingEntity {
 
 const PAGE_SIZE = 20;
 
-function sourceLabel(t: (s: string) => string, sourceType: PendingEntity['sourceType']) {
+function sourceLabel(t: (s: string) => string, sourceType: SourceType) {
   return sourceType === 'SALE_ITEM' ? t('Sale (vendor item)') : t('Stock receipt');
 }
 
-/** Everything about one pending entity — source, invoice #, date, vendor,
- * product, quantity, and (for those who can price it) the purchase-price
- * form that posts the vendor's real payable, all in one place instead of a
- * separate view/edit pair. Gated by the pending-entities:price permission
- * (see PendingEntitiesPage). */
-function EntityDetailDialog({
-  entity,
+/** One row of an invoice's item table: product, quantity and — for those who
+ * can price it — an inline purchase-price form that posts that single line's
+ * real cost. Each item is priced independently via the same endpoint the old
+ * single-item dialog used, just rendered N-up inside the invoice modal now. */
+function InvoiceItemRow({
+  item,
   canPrice,
-  onClose,
+  onPriced,
 }: {
-  entity: PendingEntity;
+  item: InvoiceItem;
   canPrice: boolean;
-  onClose: () => void;
+  onPriced: () => void;
 }) {
-  const qc = useQueryClient();
   const { t } = useLanguage();
-  const editing = entity.status === 'PRICED';
+  const editing = item.status === 'PRICED';
   const [purchasePrice, setPurchasePrice] = useState(
-    editing && entity.purchasePrice !== undefined ? String(entity.purchasePrice) : '',
+    editing && item.purchasePrice !== undefined ? String(item.purchasePrice) : '',
   );
 
   const save = useMutation({
     mutationFn: async () =>
       (
-        await api.patch(`/pending-entities/${entity.id}/price`, {
+        await api.patch(`/pending-entities/${item.id}/price`, {
           purchasePrice: Number(purchasePrice),
         })
       ).data,
     onSuccess: () => {
       toast.success(editing ? 'Purchase price updated' : 'Purchase price recorded');
-      qc.invalidateQueries({ queryKey: ['pending-entities'] });
-      qc.invalidateQueries({ queryKey: ['vendors'] });
-      onClose();
+      onPriced();
     },
     onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Could not set the price'),
   });
 
   return (
-    <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-sm">
-        <DialogHeader>
-          <DialogTitle>{entity.sourceNo}</DialogTitle>
-          <DialogDescription>
-            {sourceLabel(t, entity.sourceType)} · {new Date(entity.date).toLocaleDateString()}
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="space-y-1.5 rounded-md border p-3 text-sm">
-          <div className="flex justify-between">
-            <span className="text-muted-foreground">{t('Vendor')}</span>
-            <span className="font-medium">{entity.vendorName}</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-muted-foreground">{t('Product')}</span>
-            <span className="font-medium">{entity.productName}</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-muted-foreground">{t('Quantity')}</span>
-            <span className="font-medium">{entity.quantity}</span>
-          </div>
-          {entity.storeName && (
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">{t('Store')}</span>
-              <span>{entity.storeName}</span>
-            </div>
-          )}
-          {entity.warehouseName && (
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">{t('Warehouse')}</span>
-              <span>{entity.warehouseName}</span>
-            </div>
-          )}
-          <div className="flex justify-between">
-            <span className="text-muted-foreground">{t('Status')}</span>
-            <span>{entity.status === 'PRICED' ? t('Priced') : t('Pending')}</span>
-          </div>
-          {entity.lineTotal !== undefined && (
-            <div className="flex justify-between border-t pt-1.5 text-base font-bold">
-              <span>{t('Amount')}</span>
-              <span>{formatCurrency(entity.lineTotal)}</span>
-            </div>
-          )}
-        </div>
-
+    <tr className="border-b last:border-0">
+      <td className="px-3 py-2">{item.productName}</td>
+      <td className="px-3 py-2 text-right tabular-nums">{item.quantity}</td>
+      <td className="px-3 py-2 text-right">
         {canPrice ? (
           <form
-            className="space-y-3"
+            className="flex items-center justify-end gap-1.5"
             onSubmit={(e) => {
               e.preventDefault();
               save.mutate();
             }}
           >
-            <div className="space-y-1.5">
-              <Label>{t('Purchase Price (per unit)')} *</Label>
-              <Input
-                type="number"
-                required
-                min={0.01}
-                step="0.01"
-                autoFocus
-                value={purchasePrice}
-                onChange={(e) => setPurchasePrice(e.target.value)}
-                placeholder="0.00"
-              />
-            </div>
-            <div className="flex justify-end gap-2 pt-1">
-              <DialogClose asChild>
-                <Button type="button" variant="outline">
-                  {t('Close')}
-                </Button>
-              </DialogClose>
-              <Button type="submit" disabled={save.isPending}>
-                {save.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
-                {editing ? t('Update') : t('Set Price')}
-              </Button>
-            </div>
-          </form>
-        ) : (
-          <div className="flex justify-end">
-            <Button type="button" variant="outline" onClick={onClose}>
-              {t('Close')}
+            <Input
+              type="number"
+              required
+              min={0.01}
+              step="0.01"
+              value={purchasePrice}
+              onChange={(e) => setPurchasePrice(e.target.value)}
+              placeholder="0.00"
+              className="h-8 w-24 text-right"
+            />
+            <Button type="submit" size="sm" disabled={save.isPending} className="h-8 px-2">
+              {save.isPending && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+              {editing ? t('Update') : t('Save')}
             </Button>
+          </form>
+        ) : editing ? (
+          formatCurrency(item.purchasePrice ?? 0)
+        ) : (
+          <span className="text-muted-foreground">{t('Awaiting price')}</span>
+        )}
+      </td>
+      <td className="px-3 py-2 text-right tabular-nums">
+        {editing ? formatCurrency(item.lineTotal ?? 0) : '—'}
+      </td>
+    </tr>
+  );
+}
+
+/** One invoice/receipt's full line-item breakdown, opened from a row in the
+ * pending-entities table. Every item gets its own purchase-price input right
+ * next to it, so a multi-item invoice can be priced line-by-line in one
+ * place instead of hunting down each item separately. Works the same for
+ * the Pending and Completed tabs — the items just start out already priced
+ * on the Completed side. */
+function InvoiceItemsDialog({
+  invoice,
+  canPrice,
+  onClose,
+}: {
+  invoice: PendingInvoice;
+  canPrice: boolean;
+  onClose: () => void;
+}) {
+  const qc = useQueryClient();
+  const { t } = useLanguage();
+
+  const { data, isLoading } = useQuery({
+    queryKey: ['pending-invoice-items', invoice.sourceType, invoice.sourceNo],
+    queryFn: async () =>
+      (
+        await api.get('/pending-entities/invoice-items', {
+          params: { sourceType: invoice.sourceType, sourceNo: invoice.sourceNo },
+        })
+      ).data as { items: InvoiceItem[] },
+  });
+  const items = data?.items ?? [];
+
+  const refresh = () => {
+    qc.invalidateQueries({
+      queryKey: ['pending-invoice-items', invoice.sourceType, invoice.sourceNo],
+    });
+    qc.invalidateQueries({ queryKey: ['pending-invoices'] });
+    qc.invalidateQueries({ queryKey: ['vendors'] });
+  };
+
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>{invoice.sourceNo}</DialogTitle>
+          <DialogDescription>
+            {sourceLabel(t, invoice.sourceType)} · {new Date(invoice.date).toLocaleDateString()} ·{' '}
+            {invoice.vendorName}
+          </DialogDescription>
+        </DialogHeader>
+
+        {(invoice.storeName || invoice.warehouseName) && (
+          <div className="flex flex-wrap gap-x-6 gap-y-1 rounded-md border p-3 text-sm">
+            {invoice.storeName && (
+              <div>
+                <span className="text-muted-foreground">{t('Store')}: </span>
+                {invoice.storeName}
+              </div>
+            )}
+            {invoice.warehouseName && (
+              <div>
+                <span className="text-muted-foreground">{t('Warehouse')}: </span>
+                {invoice.warehouseName}
+              </div>
+            )}
           </div>
         )}
+
+        <div className="overflow-x-auto rounded-md border">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b bg-muted/50 text-left text-xs uppercase text-muted-foreground">
+                <th className="px-3 py-2 font-medium">{t('Product')}</th>
+                <th className="px-3 py-2 text-right font-medium">{t('Quantity')}</th>
+                <th className="px-3 py-2 text-right font-medium">{t('Purchase Price')}</th>
+                <th className="px-3 py-2 text-right font-medium">{t('Line Total')}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {isLoading && (
+                <tr>
+                  <td colSpan={4} className="px-3 py-8 text-center text-muted-foreground">
+                    {t('Loading…')}
+                  </td>
+                </tr>
+              )}
+              {!isLoading &&
+                items.map((item) => (
+                  <InvoiceItemRow
+                    key={`${item.id}-${item.status}-${item.purchasePrice ?? ''}`}
+                    item={item}
+                    canPrice={canPrice}
+                    onPriced={refresh}
+                  />
+                ))}
+              {!isLoading && items.length === 0 && (
+                <tr>
+                  <td colSpan={4} className="px-3 py-8 text-center text-muted-foreground">
+                    {t('No items found for this invoice.')}
+                  </td>
+                </tr>
+              )}
+            </tbody>
+            {!isLoading && items.length > 0 && (
+              <tfoot>
+                <tr className="border-t bg-muted/30 font-medium">
+                  <td className="px-3 py-2" colSpan={3}>
+                    {t('Total')}
+                  </td>
+                  <td className="px-3 py-2 text-right tabular-nums">
+                    {formatCurrency(items.reduce((s, it) => s + (it.lineTotal ?? 0), 0))}
+                  </td>
+                </tr>
+              </tfoot>
+            )}
+          </table>
+        </div>
+
+        <div className="flex justify-end">
+          <Button type="button" variant="outline" onClick={onClose}>
+            {t('Close')}
+          </Button>
+        </div>
       </DialogContent>
     </Dialog>
   );
@@ -182,22 +267,22 @@ export function PendingEntitiesPage() {
   const [status, setStatus] = useState<'PENDING' | 'PRICED'>('PENDING');
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
-  const [viewing, setViewing] = useState<PendingEntity | null>(null);
+  const [viewing, setViewing] = useState<PendingInvoice | null>(null);
 
   useEffect(() => {
     setPage(1);
   }, [status, search]);
 
   const { data, isLoading } = useQuery({
-    queryKey: ['pending-entities', status, search, page],
+    queryKey: ['pending-invoices', status, search, page],
     queryFn: async () =>
       (
-        await api.get('/pending-entities', {
+        await api.get('/pending-entities/invoices', {
           params: { status, search: search || undefined, page, limit: PAGE_SIZE },
         })
-      ).data as { entities: PendingEntity[]; total: number },
+      ).data as { invoices: PendingInvoice[]; total: number },
   });
-  const entities = data?.entities ?? [];
+  const invoices = data?.invoices ?? [];
   const total = data?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
@@ -236,7 +321,7 @@ export function PendingEntitiesPage() {
           </div>
         </div>
         <p className="pb-2 text-sm text-muted-foreground">
-          {total} {t('item(s)')}
+          {total} {t('invoice(s)')}
         </p>
       </div>
 
@@ -247,43 +332,49 @@ export function PendingEntitiesPage() {
               <tr className="border-b bg-muted/50 text-left text-xs uppercase tracking-wide text-muted-foreground">
                 <th className="px-4 py-3 font-medium">{t('Source')}</th>
                 <th className="px-4 py-3 font-medium">{t('Invoice #')}</th>
+                <th className="px-4 py-3 font-medium">{t('Vendor')}</th>
                 <th className="px-4 py-3 font-medium">{t('Date')}</th>
+                <th className="px-4 py-3 text-right font-medium">{t('Items')}</th>
                 <th className="px-4 py-3 text-right font-medium">{t('Amount')}</th>
               </tr>
             </thead>
             <tbody>
               {isLoading && (
                 <tr>
-                  <td colSpan={4} className="px-4 py-10 text-center text-muted-foreground">
+                  <td colSpan={6} className="px-4 py-10 text-center text-muted-foreground">
                     {t('Loading…')}
                   </td>
                 </tr>
               )}
               {!isLoading &&
-                entities.map((e) => (
+                invoices.map((inv) => (
                   <tr
-                    key={e.id}
+                    key={inv.id}
                     className="cursor-pointer border-b last:border-0 hover:bg-muted/30"
-                    onClick={() => setViewing(e)}
+                    onClick={() => setViewing(inv)}
                   >
                     <td className="px-4 py-3 text-muted-foreground">
-                      {sourceLabel(t, e.sourceType)}
+                      {sourceLabel(t, inv.sourceType)}
                     </td>
-                    <td className="px-4 py-3 font-medium">{e.sourceNo}</td>
+                    <td className="px-4 py-3 font-medium">{inv.sourceNo}</td>
+                    <td className="px-4 py-3">{inv.vendorName}</td>
                     <td className="px-4 py-3 text-muted-foreground">
-                      {new Date(e.date).toLocaleDateString()}
+                      {new Date(inv.date).toLocaleDateString()}
+                    </td>
+                    <td className="px-4 py-3 text-right tabular-nums text-muted-foreground">
+                      {inv.pricedCount}/{inv.itemCount} {t('priced')}
                     </td>
                     <td className="px-4 py-3 text-right tabular-nums font-medium">
-                      {e.lineTotal !== undefined ? formatCurrency(e.lineTotal) : '—'}
+                      {inv.total !== undefined ? formatCurrency(inv.total) : '—'}
                     </td>
                   </tr>
                 ))}
-              {!isLoading && entities.length === 0 && (
+              {!isLoading && invoices.length === 0 && (
                 <tr>
-                  <td colSpan={4} className="px-4 py-10 text-center text-muted-foreground">
+                  <td colSpan={6} className="px-4 py-10 text-center text-muted-foreground">
                     {status === 'PENDING'
-                      ? t('All caught up — no pending items')
-                      : t('No completed entities yet.')}
+                      ? t('All caught up — no pending invoices')
+                      : t('No completed invoices yet.')}
                   </td>
                 </tr>
               )}
@@ -301,7 +392,11 @@ export function PendingEntitiesPage() {
       </Card>
 
       {viewing && (
-        <EntityDetailDialog entity={viewing} canPrice={canPrice} onClose={() => setViewing(null)} />
+        <InvoiceItemsDialog
+          invoice={viewing}
+          canPrice={canPrice}
+          onClose={() => setViewing(null)}
+        />
       )}
     </div>
   );
