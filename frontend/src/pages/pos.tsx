@@ -17,12 +17,19 @@ import {
   NotepadTextDashed,
   AlertTriangle,
   X,
+  ChevronDown,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+} from '@/components/ui/dropdown-menu';
 import { api } from '@/lib/api';
 import { formatCurrency, cn } from '@/lib/utils';
 import { useWarehouseStore } from '@/store/warehouse';
@@ -1153,17 +1160,35 @@ export function PosPage() {
                                 })}
                               </select>
                             ) : (
-                              <select
-                                className="h-9 w-full min-w-[180px] rounded-md border bg-transparent px-2 text-sm"
-                                value={l.vendorId ?? ''}
-                                onChange={(e) => setLineVendor(l.key, e.target.value)}
-                              >
-                                {vendors.map((v) => (
-                                  <option key={v.id} value={v.id}>
-                                    {v.name}
-                                  </option>
-                                ))}
-                              </select>
+                              <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                  <button
+                                    type="button"
+                                    className="flex h-9 w-full min-w-[180px] items-center justify-between rounded-md border bg-transparent px-2 text-sm"
+                                  >
+                                    <span className="truncate">
+                                      {l.vendorName || t('Select vendor…')}
+                                    </span>
+                                    <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
+                                  </button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent
+                                  align="start"
+                                  className="max-h-64 w-[var(--radix-dropdown-menu-trigger-width)] overflow-y-auto"
+                                >
+                                  {vendors.map((v) => (
+                                    <DropdownMenuItem
+                                      key={v.id}
+                                      onSelect={() => setLineVendor(l.key, v.id)}
+                                    >
+                                      {v.id === l.vendorId && <Check className="h-4 w-4" />}
+                                      <span className={cn(v.id !== l.vendorId && 'pl-6')}>
+                                        {v.name}
+                                      </span>
+                                    </DropdownMenuItem>
+                                  ))}
+                                </DropdownMenuContent>
+                              </DropdownMenu>
                             )}
                           </td>
                           <td className="px-3 py-2">

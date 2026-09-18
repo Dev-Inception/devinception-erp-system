@@ -476,14 +476,14 @@ export function VendorSaleNewPage() {
               </div>
 
               <div className="overflow-x-auto rounded-lg border">
-                <table className="w-full text-sm">
+                <table className="w-full table-fixed text-sm">
                   <thead>
                     <tr className="border-b bg-muted/50 text-left text-xs uppercase tracking-wide text-muted-foreground">
                       <th className="px-3 py-2 font-medium">{t('Product')}</th>
-                      <th className="px-3 py-2 text-right font-medium">{t('Qty')}</th>
-                      <th className="px-3 py-2 text-right font-medium">{t('Price')}</th>
-                      <th className="px-3 py-2 text-right font-medium">{t('Total')}</th>
-                      <th className="w-8" />
+                      <th className="w-28 px-3 py-2 text-right font-medium">{t('Qty')}</th>
+                      <th className="w-32 px-3 py-2 text-right font-medium">{t('Price')}</th>
+                      <th className="w-28 px-3 py-2 text-right font-medium">{t('Total')}</th>
+                      <th className="w-10" />
                     </tr>
                   </thead>
                   <tbody>

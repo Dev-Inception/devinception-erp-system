@@ -24,7 +24,7 @@ import {
   DialogDescription,
 } from '@/components/ui/dialog';
 import { api } from '@/lib/api';
-import { formatCurrency, cn, resizeImageToDataUrl } from '@/lib/utils';
+import { cn, resizeImageToDataUrl } from '@/lib/utils';
 import { useWarehouses } from '@/components/layout/warehouse-switcher';
 import { useStorefrontFilter } from '@/store/storefront';
 import { useAuthStore } from '@/store/auth';
@@ -460,8 +460,6 @@ export function ProductsPage() {
                 <th className="px-4 py-3 font-medium">{t('SKU')}</th>
                 <th className="px-4 py-3 font-medium">{t('Category')}</th>
                 <th className="px-4 py-3 font-medium">{t('Warehouse')}</th>
-                <th className="px-4 py-3 text-right font-medium">{t('Purchase')}</th>
-                <th className="px-4 py-3 text-right font-medium">{t('Sale')}</th>
                 <th className="px-4 py-3 text-right font-medium">{t('Stock')}</th>
                 {canManage && <th className="px-4 py-3 text-right font-medium">{t('Action')}</th>}
               </tr>
@@ -470,7 +468,7 @@ export function ProductsPage() {
               {isLoading && (
                 <tr>
                   <td
-                    colSpan={canManage ? 8 : 7}
+                    colSpan={canManage ? 6 : 5}
                     className="px-4 py-10 text-center text-muted-foreground"
                   >
                     Loading…
@@ -514,10 +512,6 @@ export function ProductsPage() {
                           product's static owning warehouse, so the two stay consistent. */}
                       {warehouseName(warehouse || p.warehouseId)}
                     </td>
-                    <td className="px-4 py-3 text-right">
-                      {formatCurrency(Number(p.purchasePrice))}
-                    </td>
-                    <td className="px-4 py-3 text-right">{formatCurrency(Number(p.salePrice))}</td>
                     <td className="px-4 py-3 text-right">
                       <span
                         className={cn(
@@ -564,7 +558,7 @@ export function ProductsPage() {
               {!isLoading && pageItems.length === 0 && (
                 <tr>
                   <td
-                    colSpan={canManage ? 8 : 7}
+                    colSpan={canManage ? 6 : 5}
                     className="px-4 py-10 text-center text-muted-foreground"
                   >
                     No products found.
