@@ -336,6 +336,16 @@ function sumWhere(entries, predicate) {
   return total;
 }
 
+// True when an entry actually moved cash or bank funds, as opposed to
+// merely booking a payable (e.g. Dr Expense / Cr AP_TRANSPORT for a
+// transporter fare owed but not yet paid). Day Book is a same-day
+// cash/bank activity register, not the accrual ledger — pending vendor,
+// transporter, supplier, and labour liabilities belong to their own
+// account statements, not here.
+function isSettledInCashOrBank(entry) {
+  return entry.lines.some((l) => l.account === ACCOUNT.CASH || l.account === ACCOUNT.BANK);
+}
+
 /**
  * Day Book: a chronological register of every journal entry (voucher) posted
  * on the day(s) in range — sales, stock receipts, vendor payments, customer
@@ -390,7 +400,14 @@ async function dayBookReport({ from, to, warehouseIds, store }) {
       entries,
       (l, e) => e.refType === REF.PURCHASE && l.account === ACCOUNT.INVENTORY && l.debit > 0,
     ),
-    totalExpenses: sumWhere(entries, (l) => l.account === ACCOUNT.OPERATING_EXPENSE && l.debit > 0),
+    // Only expenses actually paid out in cash/bank on this day — an expense
+    // booked as owed to a transporter/labourer/supplier (Cr AP_*) sits in
+    // the accrual ledger until it's settled, so it shouldn't inflate the
+    // Day Book's expense total.
+    totalExpenses: sumWhere(
+      entries,
+      (l, e) => l.account === ACCOUNT.OPERATING_EXPENSE && l.debit > 0 && isSettledInCashOrBank(e),
+    ),
     totalVendorPayments: sumWhere(entries, (l) => l.account === ACCOUNT.AP && l.debit > 0),
     totalCustomerReceipts: sumWhere(entries, (l) => l.account === ACCOUNT.AR && l.credit > 0),
     cashIn: sumWhere(entries, (l) => l.account === ACCOUNT.CASH && l.debit > 0),

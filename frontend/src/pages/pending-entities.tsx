@@ -402,7 +402,7 @@ export function PendingEntitiesPage() {
                       {new Date(inv.date).toLocaleDateString()}
                     </td>
                     <td className="px-4 py-3 text-right tabular-nums text-muted-foreground">
-                      {inv.pricedCount}/{inv.itemCount} {t('priced')}
+                      {inv.pricedCount}/{inv.itemCount} {t('Items')}
                     </td>
                     <td className="px-4 py-3 text-right tabular-nums font-medium">
                       {inv.total !== undefined ? formatCurrency(inv.total) : '—'}

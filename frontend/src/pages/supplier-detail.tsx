@@ -313,7 +313,6 @@ export function SupplierDetailPage() {
                   <th className="px-4 py-3 font-medium">{t('Date')}</th>
                   <th className="px-4 py-3 font-medium">{t('Product')}</th>
                   <th className="px-4 py-3 text-right font-medium">{t('Qty')}</th>
-                  <th className="px-4 py-3 font-medium">{t('Status')}</th>
                   <th className="px-4 py-3 text-right font-medium">{t('Price')}</th>
                   <th className="px-4 py-3 text-right font-medium">{t('Total')}</th>
                 </tr>
@@ -321,7 +320,7 @@ export function SupplierDetailPage() {
               <tbody>
                 {purchasesLoading && (
                   <tr>
-                    <td colSpan={8} className="px-4 py-10 text-center text-muted-foreground">
+                    <td colSpan={7} className="px-4 py-10 text-center text-muted-foreground">
                       {t('Loading…')}
                     </td>
                   </tr>
@@ -336,11 +335,6 @@ export function SupplierDetailPage() {
                       </td>
                       <td className="px-4 py-3">{e.productName}</td>
                       <td className="px-4 py-3 text-right tabular-nums">{e.quantity}</td>
-                      <td className="px-4 py-3">
-                        <span className={e.status === 'PRICED' ? 'text-success' : 'text-blue-500'}>
-                          {e.status === 'PRICED' ? t('Priced') : t('Pending')}
-                        </span>
-                      </td>
                       <td className="px-4 py-3 text-right tabular-nums">
                         {e.purchasePrice !== undefined ? formatCurrency(e.purchasePrice) : '—'}
                       </td>
@@ -351,7 +345,7 @@ export function SupplierDetailPage() {
                   ))}
                 {!purchasesLoading && purchases.length === 0 && (
                   <tr>
-                    <td colSpan={8} className="px-4 py-10 text-center text-muted-foreground">
+                    <td colSpan={7} className="px-4 py-10 text-center text-muted-foreground">
                       {t('Nothing purchased from this supplier yet.')}
                     </td>
                   </tr>
@@ -377,7 +371,7 @@ export function SupplierDetailPage() {
                 <tr className="border-b bg-muted/50 text-left text-xs uppercase tracking-wide text-muted-foreground">
                   <th className="px-4 py-3 font-medium">{t('Receipt #')}</th>
                   <th className="px-4 py-3 font-medium">{t('Date')}</th>
-                  <th className="px-4 py-3 text-right font-medium">{t('Priced Total')}</th>
+                  <th className="px-4 py-3 text-right font-medium">{t('Total')}</th>
                   <th className="px-4 py-3 text-right font-medium">{t('Paid')}</th>
                   <th className="px-4 py-3 text-right font-medium">{t('Balance Due')}</th>
                   <th className="px-4 py-3 text-right font-medium">{t('Actions')}</th>

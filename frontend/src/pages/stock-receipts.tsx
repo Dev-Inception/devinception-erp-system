@@ -1086,17 +1086,19 @@ function ReceiptDetailDialog({
             <thead>
               <tr className="border-b bg-muted/50 text-left text-xs uppercase text-muted-foreground">
                 <th className="px-3 py-2 font-medium">{t('Product')}</th>
-                <th className="px-3 py-2 text-right font-medium">{t('Qty Good')}</th>
-                <th className="px-3 py-2 text-right font-medium">{t('Qty Damaged')}</th>
+                <th className="px-3 py-2 text-right font-medium">{t('Quantity')}</th>
+                <th className="px-3 py-2 text-right font-medium">{t('Damaged')}</th>
                 <th className="px-3 py-2 text-right font-medium">{t('Purchase Price')}</th>
-                <th className="px-3 py-2 text-right font-medium">{t('Line Total')}</th>
+                <th className="px-3 py-2 text-right font-medium">{t('Total')}</th>
               </tr>
             </thead>
             <tbody>
               {receipt.items.map((it) => (
                 <tr key={it.productId} className="border-b last:border-0">
                   <td className="px-3 py-2">{it.name}</td>
-                  <td className="px-3 py-2 text-right tabular-nums">{it.receivedQuantity}</td>
+                  <td className="px-3 py-2 text-right tabular-nums">
+                    {it.receivedQuantity + it.damagedQuantity}
+                  </td>
                   <td className="px-3 py-2 text-right tabular-nums">
                     {it.damagedQuantity > 0 ? (
                       <span className="text-destructive">{it.damagedQuantity}</span>
@@ -1120,7 +1122,9 @@ function ReceiptDetailDialog({
             <tfoot>
               <tr className="border-t bg-muted/30 font-medium">
                 <td className="px-3 py-2">{t('Total')}</td>
-                <td className="px-3 py-2 text-right tabular-nums">{totalReceived}</td>
+                <td className="px-3 py-2 text-right tabular-nums">
+                  {totalReceived + totalDamaged}
+                </td>
                 <td className="px-3 py-2 text-right tabular-nums">{totalDamaged}</td>
                 <td className="px-3 py-2" />
                 <td className="px-3 py-2 text-right tabular-nums">
@@ -1166,7 +1170,7 @@ function ReceiptDetailDialog({
 
         <div className="grid grid-cols-3 gap-x-4 rounded-md border p-3 text-sm">
           <div>
-            <p className="text-muted-foreground">{t('Priced Total')}</p>
+            <p className="text-muted-foreground">{t('Total')}</p>
             <p className="font-medium">{formatCurrency(receipt.pricedTotal)}</p>
           </div>
           <div>

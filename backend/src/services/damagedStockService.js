@@ -59,9 +59,10 @@ async function listOutstanding({ supplier, store, warehouse, search, actor, ...q
               sri.damaged_quantity AS "damagedQuantity", sri.returned_quantity AS "returnedQuantity",
               sr.id AS "stockReceiptId", sr.number AS "receiptNumber", sr.date,
               sr.supplier_id AS "supplierId", sr.supplier_name AS "supplierName",
-              sr.store_id AS "storeId", sr.warehouse_id AS "warehouseId"
+              sr.store_id AS "storeId", sr.warehouse_id AS "warehouseId", w.name AS "warehouseName"
        FROM stock_receipt_items sri
        JOIN stock_receipts sr ON sr.id = sri.stock_receipt_id
+       LEFT JOIN warehouses w ON w.id = sr.warehouse_id
        WHERE ${where}
        ORDER BY sr.date DESC, sri.position ASC
        LIMIT :limit OFFSET :offset`,

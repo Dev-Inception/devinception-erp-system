@@ -22,7 +22,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { GatePassDialog } from '@/components/gate-pass-dialog';
 import { api } from '@/lib/api';
-import { formatCurrency } from '@/lib/utils';
+import { cn, formatCurrency } from '@/lib/utils';
 import { openDamagedStockReturnInvoicePopup } from '@/lib/invoicePopup';
 import { useAuthStore } from '@/store/auth';
 import { grantsPermission } from '@/lib/modules';
@@ -43,6 +43,7 @@ interface OutstandingItem {
   supplierName: string;
   storeId: string;
   warehouseId: string;
+  warehouseName: string;
 }
 
 interface DamagedReturn {
@@ -442,6 +443,7 @@ export function DamagedStockPage() {
   const [creating, setCreating] = useState(false);
   const [viewingReturn, setViewingReturn] = useState<DamagedReturn | null>(null);
   const [viewingGatePass, setViewingGatePass] = useState<DamagedReturn | null>(null);
+  const [tab, setTab] = useState<'pending' | 'returned'>('pending');
 
   const { data: outstandingData } = useQuery({
     queryKey: ['damaged-stock', storefront.store],
@@ -501,89 +503,165 @@ export function DamagedStockPage() {
         )}
       </div>
 
-      <Card className="overflow-hidden">
-        <div className="border-b px-4 py-3 text-sm font-medium">{t('Returns to Supplier')}</div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b bg-muted/50 text-left text-xs uppercase tracking-wide text-muted-foreground">
-                <th className="px-4 py-3 font-medium">{t('Return #')}</th>
-                <th className="px-4 py-3 font-medium">{t('Date')}</th>
-                <th className="px-4 py-3 font-medium">{t('Supplier')}</th>
-                <th className="px-4 py-3 font-medium">{t('Warehouse')}</th>
-                <th className="px-4 py-3 text-right font-medium">{t('Items')}</th>
-                <th className="px-4 py-3 text-right font-medium">{t('Value')}</th>
-                <th className="px-4 py-3 text-right font-medium">{t('Actions')}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {loadingReturns && (
-                <tr>
-                  <td colSpan={7} className="px-4 py-10 text-center text-muted-foreground">
-                    {t('Loading…')}
-                  </td>
+      <div className="flex gap-1 rounded-lg bg-muted p-1 w-fit">
+        {(
+          [
+            ['pending', 'Pending'],
+            ['returned', 'Returned'],
+          ] as const
+        ).map(([key, label]) => (
+          <button
+            key={key}
+            onClick={() => setTab(key)}
+            className={cn(
+              'rounded-md px-3 py-1.5 text-sm font-medium transition',
+              tab === key ? 'bg-background shadow-sm' : 'text-muted-foreground',
+            )}
+          >
+            {t(label)}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'pending' && (
+        <Card className="overflow-hidden">
+          <div className="border-b px-4 py-3 text-sm font-medium">
+            {t('Damaged Stock Awaiting Return')}
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b bg-muted/50 text-left text-xs uppercase tracking-wide text-muted-foreground">
+                  <th className="px-4 py-3 font-medium">{t('Product')}</th>
+                  <th className="px-4 py-3 font-medium">{t('Receipt #')}</th>
+                  <th className="px-4 py-3 font-medium">{t('Date')}</th>
+                  <th className="px-4 py-3 font-medium">{t('Supplier')}</th>
+                  <th className="px-4 py-3 font-medium">{t('Warehouse')}</th>
+                  <th className="px-4 py-3 text-right font-medium">{t('Damaged')}</th>
+                  <th className="px-4 py-3 text-right font-medium">{t('Returned')}</th>
+                  <th className="px-4 py-3 text-right font-medium">{t('Outstanding')}</th>
                 </tr>
-              )}
-              {!loadingReturns &&
-                returns.map((r) => (
-                  <tr
-                    key={r.id}
-                    className="cursor-pointer border-b last:border-0 hover:bg-muted/30"
-                    onClick={() => setViewingReturn(r)}
-                  >
-                    <td className="px-4 py-3 font-medium">{r.number}</td>
+              </thead>
+              <tbody>
+                {outstanding.map((it) => (
+                  <tr key={it.itemId} className="border-b last:border-0 hover:bg-muted/30">
+                    <td className="px-4 py-3">{it.name}</td>
+                    <td className="px-4 py-3 text-muted-foreground">{it.receiptNumber}</td>
                     <td className="px-4 py-3 text-muted-foreground">
-                      {new Date(r.date).toLocaleDateString()}
+                      {new Date(it.date).toLocaleDateString()}
                     </td>
-                    <td className="px-4 py-3 text-muted-foreground">{r.supplierName}</td>
-                    <td className="px-4 py-3 text-muted-foreground">{r.warehouseName}</td>
+                    <td className="px-4 py-3 text-muted-foreground">{it.supplierName}</td>
+                    <td className="px-4 py-3 text-muted-foreground">{it.warehouseName}</td>
                     <td className="px-4 py-3 text-right tabular-nums text-muted-foreground">
-                      {r.items.length}
+                      {it.damagedQuantity}
+                    </td>
+                    <td className="px-4 py-3 text-right tabular-nums text-muted-foreground">
+                      {it.returnedQuantity}
                     </td>
                     <td className="px-4 py-3 text-right tabular-nums font-medium">
-                      {formatCurrency(r.total)}
-                    </td>
-                    <td className="px-4 py-3 text-right" onClick={(e) => e.stopPropagation()}>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8"
-                            title={t('Actions')}
-                          >
-                            <MoreHorizontal className="h-4 w-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem onSelect={() => setViewingReturn(r)}>
-                            <Eye className="h-4 w-4" /> {t('View Details')}
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onSelect={() => handlePrintInvoice(r)}>
-                            <Printer className="h-4 w-4" /> {t('Print Debit Note')}
-                          </DropdownMenuItem>
-                          {r.gatePassId && (
-                            <DropdownMenuItem onSelect={() => setViewingGatePass(r)}>
-                              <QrCode className="h-4 w-4" /> {t('View Gate Pass')}
-                            </DropdownMenuItem>
-                          )}
-                        </DropdownMenuContent>
-                      </DropdownMenu>
+                      {it.outstandingQuantity}
                     </td>
                   </tr>
                 ))}
-              {!loadingReturns && returns.length === 0 && (
-                <tr>
-                  <td colSpan={7} className="px-4 py-10 text-center text-muted-foreground">
-                    <Truck className="mx-auto mb-2 h-5 w-5 opacity-50" />
-                    {t('No returns recorded yet.')}
-                  </td>
+                {outstanding.length === 0 && (
+                  <tr>
+                    <td colSpan={8} className="px-4 py-10 text-center text-muted-foreground">
+                      <PackageX className="mx-auto mb-2 h-5 w-5 opacity-50" />
+                      {t('No damaged stock awaiting return.')}
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      )}
+
+      {tab === 'returned' && (
+        <Card className="overflow-hidden">
+          <div className="border-b px-4 py-3 text-sm font-medium">{t('Returns to Supplier')}</div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b bg-muted/50 text-left text-xs uppercase tracking-wide text-muted-foreground">
+                  <th className="px-4 py-3 font-medium">{t('Return #')}</th>
+                  <th className="px-4 py-3 font-medium">{t('Date')}</th>
+                  <th className="px-4 py-3 font-medium">{t('Supplier')}</th>
+                  <th className="px-4 py-3 font-medium">{t('Warehouse')}</th>
+                  <th className="px-4 py-3 text-right font-medium">{t('Items')}</th>
+                  <th className="px-4 py-3 text-right font-medium">{t('Value')}</th>
+                  <th className="px-4 py-3 text-right font-medium">{t('Actions')}</th>
                 </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </Card>
+              </thead>
+              <tbody>
+                {loadingReturns && (
+                  <tr>
+                    <td colSpan={7} className="px-4 py-10 text-center text-muted-foreground">
+                      {t('Loading…')}
+                    </td>
+                  </tr>
+                )}
+                {!loadingReturns &&
+                  returns.map((r) => (
+                    <tr
+                      key={r.id}
+                      className="cursor-pointer border-b last:border-0 hover:bg-muted/30"
+                      onClick={() => setViewingReturn(r)}
+                    >
+                      <td className="px-4 py-3 font-medium">{r.number}</td>
+                      <td className="px-4 py-3 text-muted-foreground">
+                        {new Date(r.date).toLocaleDateString()}
+                      </td>
+                      <td className="px-4 py-3 text-muted-foreground">{r.supplierName}</td>
+                      <td className="px-4 py-3 text-muted-foreground">{r.warehouseName}</td>
+                      <td className="px-4 py-3 text-right tabular-nums text-muted-foreground">
+                        {r.items.length}
+                      </td>
+                      <td className="px-4 py-3 text-right tabular-nums font-medium">
+                        {formatCurrency(r.total)}
+                      </td>
+                      <td className="px-4 py-3 text-right" onClick={(e) => e.stopPropagation()}>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8"
+                              title={t('Actions')}
+                            >
+                              <MoreHorizontal className="h-4 w-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem onSelect={() => setViewingReturn(r)}>
+                              <Eye className="h-4 w-4" /> {t('View Details')}
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onSelect={() => handlePrintInvoice(r)}>
+                              <Printer className="h-4 w-4" /> {t('Print Debit Note')}
+                            </DropdownMenuItem>
+                            {r.gatePassId && (
+                              <DropdownMenuItem onSelect={() => setViewingGatePass(r)}>
+                                <QrCode className="h-4 w-4" /> {t('View Gate Pass')}
+                              </DropdownMenuItem>
+                            )}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </td>
+                    </tr>
+                  ))}
+                {!loadingReturns && returns.length === 0 && (
+                  <tr>
+                    <td colSpan={7} className="px-4 py-10 text-center text-muted-foreground">
+                      <Truck className="mx-auto mb-2 h-5 w-5 opacity-50" />
+                      {t('No returns recorded yet.')}
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      )}
 
       {creating && (
         <ReturnToSupplierDialog outstanding={outstanding} onClose={() => setCreating(false)} />
