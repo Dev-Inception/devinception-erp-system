@@ -754,18 +754,17 @@ export function EstimatesPage() {
           {isSearching ? estimates.length : total} estimate(s)
         </p>
         <div className="flex flex-wrap items-end gap-3">
-          <div className="flex gap-1">
+          <select
+            value={status}
+            onChange={(e) => setStatus(e.target.value as typeof status)}
+            className="flex h-9 rounded-md border border-input bg-transparent px-3 text-sm"
+          >
             {(['ALL', 'PENDING', 'FOLLOWED_UP', 'LOST'] as const).map((value) => (
-              <Button
-                key={value}
-                size="sm"
-                variant={status === value ? 'default' : 'outline'}
-                onClick={() => setStatus(value)}
-              >
+              <option key={value} value={value}>
                 {value === 'ALL' ? t('All') : t(STATUS_LABEL[value])}
-              </Button>
+              </option>
             ))}
-          </div>
+          </select>
           <Button
             size="sm"
             variant={dueOnly ? 'default' : 'outline'}

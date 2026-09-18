@@ -212,12 +212,6 @@ async function resolveTransportFarePayment(
     undefined,
     transaction,
   );
-  await paymentService.assertSufficientFunds(
-    settle.account,
-    settle.ref,
-    transportFarePaisa,
-    transaction,
-  );
   return { amount: transportFarePaisa, settle };
 }
 

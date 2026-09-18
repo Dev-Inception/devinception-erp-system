@@ -175,13 +175,18 @@ async function buildInvoiceHtml(sale: SaleForInvoice) {
     taxNumber: settings.taxNumber,
     logoUrl: settings.logoUrl,
   };
+  // Sale/Credit/Return badge shown next to the invoice number — a return
+  // (partial or full) takes priority over the payment method, since at that
+  // point the money movement the invoice documents is a refund, not a sale.
+  const documentType =
+    Number(sale.returnedTotal) > 0 ? 'Return' : sale.paymentMethod === 'CREDIT' ? 'Credit' : 'Sale';
   return renderTemplate('INVOICE_A4', {
     company,
     number: sale.saleNumber,
     date: new Date(sale.date).toLocaleString(),
+    documentType,
     partyName: sale.customer?.name ?? 'Walk-in Customer',
     partyPhone: sale.customer?.phone || undefined,
-    invoiceType: sale.paymentMethod ? PAYMENT_METHOD_LABEL[sale.paymentMethod] : undefined,
     items: sale.items.map((i) => ({
       name: i.name,
       qty: Number(i.quantity),
@@ -196,14 +201,6 @@ async function buildInvoiceHtml(sale: SaleForInvoice) {
     total: Number(sale.grandTotal),
     paidAmount: sale.paidAmount !== undefined ? Number(sale.paidAmount) : undefined,
     balanceDue: sale.balanceDue !== undefined ? Number(sale.balanceDue) : undefined,
-    previousBalance:
-      sale.previousBalance !== undefined && sale.previousBalance !== null
-        ? Number(sale.previousBalance)
-        : null,
-    totalRemaining:
-      sale.totalRemaining !== undefined && sale.totalRemaining !== null
-        ? Number(sale.totalRemaining)
-        : null,
     labour: sale.labour,
     transport: sale.transport,
     returnedTotal: sale.returnedTotal ? Number(sale.returnedTotal) : undefined,

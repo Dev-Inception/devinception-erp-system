@@ -58,37 +58,30 @@ function sourceLabel(t: (s: string) => string, sourceType: SourceType) {
 }
 
 /** One row of an invoice's item table: product, quantity and — for those who
- * can price it — an inline purchase-price form that posts that single line's
- * real cost. Each item is priced independently via the same endpoint the old
- * single-item dialog used, just rendered N-up inside the invoice modal now. */
+ * can price it — a purchase-price input. The price itself is held in the
+ * parent dialog's state and saved for every priced row at once via the
+ * dialog's single Save/Update button, rather than each row posting on its
+ * own. */
 function InvoiceItemRow({
   item,
   canPrice,
-  onPriced,
+  price,
+  onPriceChange,
 }: {
   item: InvoiceItem;
   canPrice: boolean;
-  onPriced: () => void;
+  price: string;
+  onPriceChange: (id: string, value: string) => void;
 }) {
   const { t } = useLanguage();
   const editing = item.status === 'PRICED';
-  const [purchasePrice, setPurchasePrice] = useState(
-    editing && item.purchasePrice !== undefined ? String(item.purchasePrice) : '',
-  );
-
-  const save = useMutation({
-    mutationFn: async () =>
-      (
-        await api.patch(`/pending-entities/${item.id}/price`, {
-          purchasePrice: Number(purchasePrice),
-        })
-      ).data,
-    onSuccess: () => {
-      toast.success(editing ? 'Purchase price updated' : 'Purchase price recorded');
-      onPriced();
-    },
-    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Could not set the price'),
-  });
+  const enteredPrice = Number(price);
+  const hasEnteredPrice = price.trim() !== '' && Number.isFinite(enteredPrice) && enteredPrice > 0;
+  const lineTotal = hasEnteredPrice
+    ? enteredPrice * item.quantity
+    : editing
+      ? (item.lineTotal ?? 0)
+      : null;
 
   return (
     <tr className="border-b last:border-0">
@@ -96,28 +89,15 @@ function InvoiceItemRow({
       <td className="px-3 py-2 text-right tabular-nums">{item.quantity}</td>
       <td className="px-3 py-2 text-right">
         {canPrice ? (
-          <form
-            className="flex items-center justify-end gap-1.5"
-            onSubmit={(e) => {
-              e.preventDefault();
-              save.mutate();
-            }}
-          >
-            <Input
-              type="number"
-              required
-              min={0.01}
-              step="0.01"
-              value={purchasePrice}
-              onChange={(e) => setPurchasePrice(e.target.value)}
-              placeholder="0.00"
-              className="h-8 w-24 text-right"
-            />
-            <Button type="submit" size="sm" disabled={save.isPending} className="h-8 px-2">
-              {save.isPending && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-              {editing ? t('Update') : t('Save')}
-            </Button>
-          </form>
+          <Input
+            type="number"
+            min={0.01}
+            step="0.01"
+            value={price}
+            onChange={(e) => onPriceChange(item.id, e.target.value)}
+            placeholder="0.00"
+            className="ml-auto h-8 w-28 text-right"
+          />
         ) : editing ? (
           formatCurrency(item.purchasePrice ?? 0)
         ) : (
@@ -125,10 +105,20 @@ function InvoiceItemRow({
         )}
       </td>
       <td className="px-3 py-2 text-right tabular-nums">
-        {editing ? formatCurrency(item.lineTotal ?? 0) : '—'}
+        {lineTotal !== null ? formatCurrency(lineTotal) : '—'}
       </td>
     </tr>
   );
+}
+
+// Live line total for a row: the price currently typed (even if unsaved)
+// times quantity, falling back to the last-saved amount once priced.
+function effectiveLineTotal(item: InvoiceItem, price: string | undefined) {
+  const entered = Number(price);
+  if (price !== undefined && price.trim() !== '' && Number.isFinite(entered) && entered > 0) {
+    return entered * item.quantity;
+  }
+  return item.status === 'PRICED' ? (item.lineTotal ?? 0) : 0;
 }
 
 /** One invoice/receipt's full line-item breakdown, opened from a row in the
@@ -160,6 +150,20 @@ function InvoiceItemsDialog({
   });
   const items = data?.items ?? [];
 
+  const [prices, setPrices] = useState<Record<string, string>>({});
+  useEffect(() => {
+    if (!data) return;
+    setPrices((prev) => {
+      const next = { ...prev };
+      for (const it of data.items) {
+        if (next[it.id] === undefined) {
+          next[it.id] = it.purchasePrice !== undefined ? String(it.purchasePrice) : '';
+        }
+      }
+      return next;
+    });
+  }, [data]);
+
   const refresh = () => {
     qc.invalidateQueries({
       queryKey: ['pending-invoice-items', invoice.sourceType, invoice.sourceNo],
@@ -167,6 +171,26 @@ function InvoiceItemsDialog({
     qc.invalidateQueries({ queryKey: ['pending-invoices'] });
     qc.invalidateQueries({ queryKey: ['vendors'] });
   };
+
+  const save = useMutation({
+    mutationFn: async () => {
+      const updates = items
+        .map((it) => ({ id: it.id, purchasePrice: Number(prices[it.id]) }))
+        .filter((u) => Number.isFinite(u.purchasePrice) && u.purchasePrice > 0);
+      if (updates.length === 0) throw new Error(t('Enter at least one purchase price'));
+      await Promise.all(
+        updates.map((u) =>
+          api.patch(`/pending-entities/${u.id}/price`, { purchasePrice: u.purchasePrice }),
+        ),
+      );
+    },
+    onSuccess: () => {
+      toast.success(t('Purchase price(s) saved'));
+      refresh();
+    },
+    onError: (e: any) =>
+      toast.error(e?.response?.data?.message ?? e?.message ?? t('Could not save prices')),
+  });
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
@@ -217,10 +241,11 @@ function InvoiceItemsDialog({
               {!isLoading &&
                 items.map((item) => (
                   <InvoiceItemRow
-                    key={`${item.id}-${item.status}-${item.purchasePrice ?? ''}`}
+                    key={item.id}
                     item={item}
                     canPrice={canPrice}
-                    onPriced={refresh}
+                    price={prices[item.id] ?? ''}
+                    onPriceChange={(id, value) => setPrices((prev) => ({ ...prev, [id]: value }))}
                   />
                 ))}
               {!isLoading && items.length === 0 && (
@@ -238,7 +263,9 @@ function InvoiceItemsDialog({
                     {t('Total')}
                   </td>
                   <td className="px-3 py-2 text-right tabular-nums">
-                    {formatCurrency(items.reduce((s, it) => s + (it.lineTotal ?? 0), 0))}
+                    {formatCurrency(
+                      items.reduce((s, it) => s + effectiveLineTotal(it, prices[it.id]), 0),
+                    )}
                   </td>
                 </tr>
               </tfoot>
@@ -246,10 +273,23 @@ function InvoiceItemsDialog({
           </table>
         </div>
 
-        <div className="flex justify-end">
+        <div className="flex justify-end gap-2">
           <Button type="button" variant="outline" onClick={onClose}>
             {t('Close')}
           </Button>
+          {canPrice && (
+            <Button
+              type="button"
+              aria-disabled={save.isPending}
+              className={cn(save.isPending && 'pointer-events-none opacity-50')}
+              onClick={() => {
+                if (!save.isPending) save.mutate();
+              }}
+            >
+              {save.isPending && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+              {invoice.status === 'PRICED' ? t('Update') : t('Save')}
+            </Button>
+          )}
         </div>
       </DialogContent>
     </Dialog>

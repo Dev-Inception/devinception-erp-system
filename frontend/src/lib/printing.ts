@@ -28,6 +28,11 @@ interface DocData {
   docNumberLabel?: string;
   number: string;
   date: string;
+  // Short badge shown right next to the doc number in the header — e.g.
+  // "Sale", "Credit", "Return" for a customer sale invoice. Distinct from
+  // invoiceType below (a free-text blurb some other document kinds show in
+  // the Invoice Details box).
+  documentType?: string;
   partyName?: string;
   partyPhone?: string;
   invoiceType?: string;
@@ -309,6 +314,7 @@ export function renderTemplate(type: TemplateType, d: DocData): string {
           <div class="doc-title">${d.docTitle ?? 'Invoice'}</div>
           <div class="inv-meta">
             <div class="row"><span class="label">${d.docNumberLabel ?? 'Invoice #'}</span><span class="value">${d.number}</span></div>
+            ${d.documentType ? `<div class="row"><span class="label">Invoice Type</span><span class="value">${d.documentType}</span></div>` : ''}
             <div class="row"><span class="label">Date</span><span class="value">${d.date}</span></div>
           </div>
         </div>
@@ -426,17 +432,10 @@ export interface GatePassDocData {
   partyName: string;
   documentLabel: string; // e.g. "Sale #", "Purchase #", "Return #"
   documentNumber: string;
-  contactPerson?: string;
-  reference?: string;
-  address?: string;
   purpose: string;
   items: {
     name: string;
-    brandModel?: string;
     quantity: number;
-    unit?: string;
-    serialRef?: string;
-    remarks?: string;
   }[];
   preparedBy?: string;
   authorizedBy?: string;
@@ -469,10 +468,10 @@ const gatePassStyles = `
     .gp-doc-meta strong { color: #111; }
     .rule { border: 0; border-top: 2px solid ${NAVY}; margin: 0; }
     .gp-info-card { border: 1px solid #e5e7eb; border-radius: 6px; overflow: hidden; }
-    .gp-info-grid { display: grid; grid-template-columns: 1fr 1fr; }
+    .gp-info-grid { display: grid; grid-template-columns: repeat(3, 1fr); }
     .gp-info-row { padding: 6px 10px; border-bottom: 1px solid #e5e7eb; border-right: 1px solid #e5e7eb; }
-    .gp-info-grid .gp-info-row:nth-child(2n) { border-right: none; }
-    .gp-info-grid .gp-info-row:nth-last-child(-n+2) { border-bottom: none; }
+    .gp-info-grid .gp-info-row:nth-child(3n) { border-right: none; }
+    .gp-info-grid .gp-info-row:nth-last-child(-n+3) { border-bottom: none; }
     .gp-info-row .k { display: block; font-size: 7.8px; color: #6b7280; text-transform: uppercase; letter-spacing: 0.3px; }
     .gp-info-row .v { display: block; margin-top: 2px; font-size: 9.5px; font-weight: 600; color: #111; }
     table { width: 100%; border-collapse: collapse; margin-top: 2px; }
@@ -498,7 +497,7 @@ function gatePassItemRows(items: GatePassDocData['items']) {
   return items
     .map(
       (it, idx) =>
-        `<tr><td class="c">${idx + 1}</td><td>${it.name}</td><td>${it.brandModel || '—'}</td><td class="r">${it.quantity}</td><td class="c">${it.unit || '—'}</td><td>${it.serialRef || '—'}</td><td>${it.remarks || '—'}</td></tr>`,
+        `<tr><td class="c">${idx + 1}</td><td>${it.name}</td><td class="r">${it.quantity}</td></tr>`,
     )
     .join('');
 }
@@ -535,15 +534,12 @@ export function renderGatePassTemplate(d: GatePassDocData): string {
         <div class="gp-info-grid">
           <div class="gp-info-row"><span class="k">Customer / Company</span><span class="v">${d.partyName}</span></div>
           <div class="gp-info-row"><span class="k">${d.documentLabel}</span><span class="v">${d.documentNumber}</span></div>
-          <div class="gp-info-row"><span class="k">Contact Person</span><span class="v">${d.contactPerson || '—'}</span></div>
-          <div class="gp-info-row"><span class="k">Reference / Order No.</span><span class="v">${d.reference || '—'}</span></div>
-          <div class="gp-info-row"><span class="k">Address</span><span class="v">${d.address || '—'}</span></div>
           <div class="gp-info-row"><span class="k">Purpose</span><span class="v">${d.purpose}</span></div>
         </div>
       </div>
       <div class="section-label">Items / Material Details</div>
       <table>
-        <thead><tr>${th('#', 'c')}${th('Product / Description')}${th('Brand / Model')}${th('Qty', 'r')}${th('Unit', 'c')}${th('Serial / Ref')}${th('Remarks')}</tr></thead>
+        <thead><tr>${th('#', 'c')}${th('Product / Description')}${th('Qty', 'r')}</tr></thead>
         <tbody>${gatePassItemRows(d.items)}</tbody>
       </table>
       <div class="gp-total-qty">Total Quantity / Packages: <strong>${totalQty}</strong></div>

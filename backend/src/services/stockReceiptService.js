@@ -34,6 +34,29 @@ const {
  * the whole receipt.
  */
 
+// The receipt form only collects a calendar date (`<input type="date">`,
+// e.g. "2026-09-18"), with no time of day. Parsing that string directly with
+// `new Date()` treats it as UTC midnight, which lands on an unrelated
+// wall-clock time in any timezone ahead of UTC (e.g. shows as 5:00 AM in
+// PKT/UTC+5) — the bogus early-morning timestamps seen in the Day Book cash
+// flow. Anchor the chosen calendar date to the actual moment of submission
+// instead, so the ledger's time-of-day reflects when the receipt/payment
+// was really made.
+function dateWithCurrentTime(dateStr) {
+  const now = new Date();
+  if (!dateStr) return now;
+  const [year, month, day] = dateStr.split('-').map(Number);
+  return new Date(
+    year,
+    month - 1,
+    day,
+    now.getHours(),
+    now.getMinutes(),
+    now.getSeconds(),
+    now.getMilliseconds(),
+  );
+}
+
 // Looks up an optional Transporter reference — a receipt is free to have
 // none at all (the free-text truck.driverName/driverPhone still works
 // standalone), but if an id is given it must resolve to a real transporter.
@@ -74,7 +97,6 @@ async function resolveTruckFarePayment(
     undefined,
     transaction,
   );
-  await paymentService.assertSufficientFunds(settle.account, settle.ref, amount, transaction);
   return { amount, settle };
 }
 
@@ -305,7 +327,7 @@ async function createReceipt(
       lines.push({ product, receivedQuantity, damagedQuantity, unitCost });
     }
 
-    const when = date ? new Date(date) : new Date();
+    const when = dateWithCurrentTime(date);
     // Opening-stock entries get their own OPN- numbering series so they read
     // as distinct from a real truck delivery (GRN-) in reports/search.
     const number = await counterService.nextDocNumber(
@@ -604,7 +626,7 @@ async function updateReceipt(
     );
     const labourRentPaisa = receiptLabour.reduce((s, l) => s + l.rent, 0);
 
-    const when = date ? new Date(date) : receipt.date;
+    const when = date ? dateWithCurrentTime(date) : receipt.date;
 
     let totalReceivedValue = 0;
     for (const line of lines) {
@@ -780,7 +802,6 @@ async function recordPayment(actor, id, { amount, method, bankAccount, note }) {
       undefined,
       transaction,
     );
-    await paymentService.assertSufficientFunds(settle.account, settle.ref, amt, transaction);
     const when = new Date();
 
     await journalService.post({

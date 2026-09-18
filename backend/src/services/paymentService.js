@@ -1,7 +1,7 @@
 const { getPostgres } = require('../db/postgres');
 const { initializeModels } = require('../db/models');
 const ApiError = require('../utils/ApiError');
-const { toPaisa, toRupees } = require('../utils/money');
+const { toPaisa } = require('../utils/money');
 const { ACCOUNT, REF, PAYMENT_METHOD, BANK_METHODS } = require('../utils/finance');
 const journalService = require('./journalService');
 const counterService = require('./counterService');
@@ -43,18 +43,6 @@ async function settlementAccount(method, bankAccountId, store, transaction) {
   throw ApiError.badRequest('Unsupported payment method');
 }
 
-// Refuse to move more money out of a cash/bank account than it holds, so the
-// drawer or bank balance can't be driven negative.
-async function assertSufficientFunds(account, ref, amount, transaction) {
-  const balance = await journalService.accountBalance(account, ref, { transaction });
-  if (balance < amount) {
-    const where = account === ACCOUNT.BANK ? 'bank account' : 'cash drawer';
-    throw ApiError.badRequest(
-      `Insufficient funds in the ${where}. Available: Rs ${toRupees(balance)}; required: Rs ${toRupees(amount)}`,
-    );
-  }
-}
-
 // Pay a vendor: Dr Accounts-Payable (vendor) / Cr Cash|Bank.
 async function payVendor(
   actor,
@@ -70,7 +58,6 @@ async function payVendor(
     if (amt <= 0) throw ApiError.badRequest('Amount must be positive');
 
     const settle = await settlementAccount(method, bankAccount, storeDoc.id, transaction);
-    await assertSufficientFunds(settle.account, settle.ref, amt, transaction);
     const when = date ? new Date(date) : new Date();
     const number = await counterService.nextDocNumber('PAY', when.getFullYear(), 4, transaction);
 
@@ -105,7 +92,6 @@ async function paySupplier(
     if (amt <= 0) throw ApiError.badRequest('Amount must be positive');
 
     const settle = await settlementAccount(method, bankAccount, storeDoc.id, transaction);
-    await assertSufficientFunds(settle.account, settle.ref, amt, transaction);
     const when = date ? new Date(date) : new Date();
     const number = await counterService.nextDocNumber('PAY', when.getFullYear(), 4, transaction);
 
@@ -140,7 +126,6 @@ async function payLabour(
     if (amt <= 0) throw ApiError.badRequest('Amount must be positive');
 
     const settle = await settlementAccount(method, bankAccount, storeDoc.id, transaction);
-    await assertSufficientFunds(settle.account, settle.ref, amt, transaction);
     const when = date ? new Date(date) : new Date();
     const number = await counterService.nextDocNumber('PAY', when.getFullYear(), 4, transaction);
 
@@ -175,7 +160,6 @@ async function payTransport(
     if (amt <= 0) throw ApiError.badRequest('Amount must be positive');
 
     const settle = await settlementAccount(method, bankAccount, storeDoc.id, transaction);
-    await assertSufficientFunds(settle.account, settle.ref, amt, transaction);
     const when = date ? new Date(date) : new Date();
     const number = await counterService.nextDocNumber('PAY', when.getFullYear(), 4, transaction);
 
@@ -284,7 +268,6 @@ async function refundVendorReceivable(
     if (amt <= 0) throw ApiError.badRequest('Amount must be positive');
 
     const settle = await settlementAccount(method, bankAccount, storeDoc.id, transaction);
-    await assertSufficientFunds(settle.account, settle.ref, amt, transaction);
     const when = date ? new Date(date) : new Date();
     const number = await counterService.nextDocNumber('PAY', when.getFullYear(), 4, transaction);
 
@@ -316,8 +299,6 @@ async function cashEntry(actor, { direction, store, amount, date, note }) {
       throw ApiError.badRequest('Direction must be IN or OUT');
     }
     const storeDoc = await requireStore(actor, store, transaction);
-    // Taking cash out can't drive the drawer negative.
-    if (direction === 'OUT') await assertSufficientFunds(ACCOUNT.CASH, null, amt, transaction);
     const when = date ? new Date(date) : new Date();
 
     const lines =
@@ -360,7 +341,6 @@ async function recordExpense(
     if (amt <= 0) throw ApiError.badRequest('Amount must be positive');
 
     const settle = await settlementAccount(method, bankAccount, storeDoc.id, transaction);
-    await assertSufficientFunds(settle.account, settle.ref, amt, transaction);
     const when = date ? new Date(date) : new Date();
     const number = await counterService.nextDocNumber('EXP', when.getFullYear(), 6, transaction);
 
@@ -392,5 +372,4 @@ module.exports = {
   cashEntry,
   recordExpense,
   settlementAccount,
-  assertSufficientFunds,
 };

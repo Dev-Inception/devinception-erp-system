@@ -25,12 +25,8 @@ interface GatePassDetail {
   items: {
     name: string;
     quantity: number;
-    loadedQuantity?: number;
     returnedQuantity?: number;
-    sku?: string;
-    barcode?: string;
   }[];
-  driver?: { name?: string; phone?: string; vehicleNumber?: string };
   status: 'PENDING' | 'PROCESSED' | 'CANCELLED';
   processedAt?: string;
   processedBy?: { name?: string };
@@ -100,18 +96,10 @@ export function GatePassDialog({
         data.partyName || (isPurchase || isSupplierReturn ? 'Supplier' : 'Walk-in Customer'),
       documentLabel: docLabel,
       documentNumber: data.saleNumber,
-      contactPerson: data.driver?.name,
-      reference: data.driver?.vehicleNumber ? `Vehicle: ${data.driver.vehicleNumber}` : undefined,
       purpose: `${directionLabel.charAt(0).toUpperCase()}${directionLabel.slice(1)}`,
       items: data.items.map((it) => ({
         name: it.name,
         quantity: it.quantity,
-        serialRef: it.sku || it.barcode,
-        remarks: it.returnedQuantity
-          ? `${it.returnedQuantity} returned`
-          : it.loadedQuantity != null && it.loadedQuantity !== it.quantity
-            ? `${it.loadedQuantity} loaded`
-            : undefined,
       })),
       preparedBy: data.createdBy?.name,
       authorizedBy: data.processedBy?.name ?? data.scannedBy?.name,

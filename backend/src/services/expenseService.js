@@ -7,7 +7,7 @@ const { toPaisa, view } = require('../utils/money');
 const { ACCOUNT, REF } = require('../utils/finance');
 const journalService = require('./journalService');
 const counterService = require('./counterService');
-const { settlementAccount, assertSufficientFunds } = require('./paymentService');
+const { settlementAccount } = require('./paymentService');
 const { parsePagination, escapeLike } = require('../utils/query');
 const {
   resolveStoreScope,
@@ -91,7 +91,6 @@ async function postExpenseJournal(expense, actor, transaction) {
     expense.store,
     transaction,
   );
-  await assertSufficientFunds(settle.account, settle.ref, expense.amount, transaction);
   const entry = await journalService.post({
     date: expense.date,
     description: expense.note || `${expense.categoryName} expense ${expense.number}`,

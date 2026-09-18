@@ -30,15 +30,14 @@ interface GatePassDetail {
   saleNumber: string;
   saleDate: string;
   items: GatePassItem[];
-  driver?: {
-    name: string;
-    phone?: string;
-    licenseNumber?: string;
-    vehicleNumber: string;
-  };
+  driverName?: string;
+  driverPhone?: string;
+  driverLicenseNumber?: string;
+  driverVehicleNumber?: string;
   // Captured at POS time for SALE-sourced passes — display-only, distinct
-  // from `driver` above (which only formal purchase-side processing sets).
-  transport?: { driverName?: string; driverPhone?: string; vehicleNumber?: string };
+  // from the driver* fields above (which only formal purchase-side
+  // processing sets).
+  saleTransport?: { driverName?: string; driverPhone?: string; vehicleNumber?: string };
   labour?: { name: string; phoneNumber?: string }[];
   loadNotes?: string;
   status: 'PENDING' | 'PROCESSED' | 'CANCELLED';
@@ -202,16 +201,16 @@ export function GatePassScanPage() {
                 {data.labour && data.labour.length > 0 && (
                   <Row label="Labour" value={data.labour.map((l) => l.name).join(', ')} />
                 )}
-                {data.transport?.driverName && (
-                  <Row label="Driver" value={data.transport.driverName} />
+                {data.saleTransport?.driverName && (
+                  <Row label="Driver" value={data.saleTransport.driverName} />
                 )}
-                {data.transport?.vehicleNumber && (
-                  <Row label="Vehicle" value={data.transport.vehicleNumber} />
+                {data.saleTransport?.vehicleNumber && (
+                  <Row label="Vehicle" value={data.saleTransport.vehicleNumber} />
                 )}
-                {data.transport?.driverPhone && (
-                  <Row label="Phone" value={data.transport.driverPhone} />
+                {data.saleTransport?.driverPhone && (
+                  <Row label="Phone" value={data.saleTransport.driverPhone} />
                 )}
-                {!data.labour?.length && !data.transport?.driverName && (
+                {!data.labour?.length && !data.saleTransport?.driverName && (
                   <p className="text-muted-foreground">
                     No labour or transport details were recorded.
                   </p>
@@ -330,13 +329,15 @@ export function GatePassScanPage() {
                     />
                   </div>
                 )}
-                {data.driver && (
+                {data.driverName && (
                   <div className="space-y-1 border-t pt-3">
-                    <Row label="Driver" value={data.driver.name} />
-                    <Row label="Vehicle" value={data.driver.vehicleNumber} />
-                    {data.driver.phone && <Row label="Phone" value={data.driver.phone} />}
-                    {data.driver.licenseNumber && (
-                      <Row label="License" value={data.driver.licenseNumber} />
+                    <Row label="Driver" value={data.driverName} />
+                    {data.driverVehicleNumber && (
+                      <Row label="Vehicle" value={data.driverVehicleNumber} />
+                    )}
+                    {data.driverPhone && <Row label="Phone" value={data.driverPhone} />}
+                    {data.driverLicenseNumber && (
+                      <Row label="License" value={data.driverLicenseNumber} />
                     )}
                   </div>
                 )}

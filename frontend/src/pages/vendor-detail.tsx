@@ -157,7 +157,7 @@ function PurchaseDetailDialog({
               <tr className="border-b bg-muted/50 text-left text-xs uppercase text-muted-foreground">
                 <th className="px-3 py-2 font-medium">{t('Product')}</th>
                 <th className="px-3 py-2 text-right font-medium">{t('Qty')}</th>
-                <th className="px-3 py-2 font-medium">{t('Status')}</th>
+
                 <th className="px-3 py-2 text-right font-medium">{t('Price')}</th>
                 <th className="px-3 py-2 text-right font-medium">{t('Amount')}</th>
               </tr>
@@ -167,11 +167,7 @@ function PurchaseDetailDialog({
                 <tr key={idx} className="border-b last:border-0">
                   <td className="px-3 py-2">{it.name}</td>
                   <td className="px-3 py-2 text-right tabular-nums">{it.quantity}</td>
-                  <td className="px-3 py-2">
-                    <span className={it.status === 'PRICED' ? 'text-success' : 'text-blue-500'}>
-                      {it.status === 'PRICED' ? t('Priced') : t('Pending')}
-                    </span>
-                  </td>
+
                   <td className="px-3 py-2 text-right tabular-nums">
                     {it.purchasePrice !== undefined ? formatCurrency(it.purchasePrice) : '—'}
                   </td>
