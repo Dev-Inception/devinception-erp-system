@@ -4,6 +4,8 @@ import { Link, useNavigate } from 'react-router-dom';
 import {
   ShoppingCart,
   FileText,
+  Mail,
+  MessageCircle,
   MoreHorizontal,
   QrCode,
   Search,
@@ -28,6 +30,7 @@ import { ReturnProductDialog } from '@/components/return-product-dialog';
 import { SaleReturnsDialog } from '@/components/sale-returns-dialog';
 import { RecordPaymentDialog } from '@/components/record-payment-dialog';
 import { SaleInvoiceSheet } from '@/components/sale-invoice-sheet';
+import { SendInvoiceDialog } from '@/components/send-invoice-dialog';
 import { Pagination } from '@/components/ui/pagination';
 import { api } from '@/lib/api';
 import { formatCurrency, cn } from '@/lib/utils';
@@ -71,7 +74,7 @@ export interface Sale {
   transport?: { driverName?: string; driverPhone?: string; vehicleNumber?: string };
   paymentMethod: string;
   status: string;
-  customer?: { name: string };
+  customer?: { name: string; phone?: string; email?: string };
   storeId?: string;
   storeName?: string;
   items: SaleItem[];
@@ -150,6 +153,10 @@ export function SalesPage() {
   const [viewingReturnsFor, setViewingReturnsFor] = useState<Sale | null>(null);
   const [payingSale, setPayingSale] = useState<Sale | null>(null);
   const [viewingInvoiceFor, setViewingInvoiceFor] = useState<Sale | null>(null);
+  const [sendingInvoice, setSendingInvoice] = useState<{
+    sale: Sale;
+    channel: 'email' | 'whatsapp';
+  } | null>(null);
 
   const filteredSales = isSearching
     ? sales.filter(
@@ -326,6 +333,16 @@ export function SalesPage() {
                             <DropdownMenuItem onSelect={() => setViewingInvoiceFor(s)}>
                               <FileText className="h-4 w-4" /> View Invoice
                             </DropdownMenuItem>
+                            <DropdownMenuItem
+                              onSelect={() => setSendingInvoice({ sale: s, channel: 'email' })}
+                            >
+                              <Mail className="h-4 w-4" /> {t('Send via Email')}
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              onSelect={() => setSendingInvoice({ sale: s, channel: 'whatsapp' })}
+                            >
+                              <MessageCircle className="h-4 w-4" /> {t('Send via WhatsApp')}
+                            </DropdownMenuItem>
                             {(s.warehouseGatePasses ?? []).map((g) => {
                               const wh = warehouses.find((w) => w.id === g.warehouseId);
                               const multiple = (s.warehouseGatePasses?.length ?? 0) > 1;
@@ -437,6 +454,14 @@ export function SalesPage() {
         onOpenChange={(o) => !o && setViewingInvoiceFor(null)}
         onPrint={handleViewInvoice}
       />
+
+      {sendingInvoice && (
+        <SendInvoiceDialog
+          sale={sendingInvoice.sale}
+          channel={sendingInvoice.channel}
+          onClose={() => setSendingInvoice(null)}
+        />
+      )}
 
       <SaleReturnsDialog
         sale={viewingReturnsFor}

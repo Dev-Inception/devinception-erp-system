@@ -1194,7 +1194,13 @@ function mapSale(s: any) {
       vendorName: it.vendorName || '',
       warehouseId: it.warehouse ? String(it.warehouse?._id ?? it.warehouse) : undefined,
     })),
-    customer: cname ? { name: cname, phone: s.customer?.phone || undefined } : undefined,
+    customer: cname
+      ? {
+          name: cname,
+          phone: s.customer?.phone || undefined,
+          email: s.customer?.email || undefined,
+        }
+      : undefined,
     labour: Array.isArray(s.labour)
       ? s.labour.map((l: any) => ({
           id: String(l.labour?._id ?? l.labour),
@@ -1313,6 +1319,17 @@ async function realRecordSalePayment(id: string, body: any) {
     note: body.note || undefined,
   });
   return mapSale(res.data.sale);
+}
+
+/* ── Sending a document (invoice) on to a customer — the frontend renders
+   the content (same INVOICE_A4 HTML as printing, or a plain-text summary
+   for WhatsApp) and this just relays it through the store's configured
+   SMTP/Twilio credentials (see Settings > Notifications). ── */
+async function realSendEmail(body: { store?: string; to: string; subject: string; html: string }) {
+  return (await http.post('/notifications/email', body)).data;
+}
+async function realSendWhatsApp(body: { store?: string; to: string; message: string }) {
+  return (await http.post('/notifications/whatsapp', body)).data;
 }
 function mapSaleReturn(r: any) {
   return {
@@ -2004,6 +2021,7 @@ function mapEstimate(e: any) {
       byName: f.by?.name,
     })),
     nextFollowUpDate: e.nextFollowUpDate || undefined,
+    validUntil: e.validUntil || undefined,
     lostReason: e.lostReason || '',
     convertedSaleId: e.convertedSale ? String(e.convertedSale._id ?? e.convertedSale) : undefined,
     convertedAt: e.convertedAt || undefined,
@@ -2045,6 +2063,7 @@ function estimatePayload(body: any) {
     discount: body.discountTotal || 0,
     taxPercent: body.taxPercent || 0,
     notes: body.notes || undefined,
+    validUntil: body.validUntil || null,
   };
 }
 async function realCreateEstimate(body: any) {
@@ -2296,6 +2315,24 @@ async function realReport(type: string, params: any) {
         amount: r.amount,
       })),
       summary: report.summary,
+      cashFlowRows: ((report.cashFlowRows ?? []) as any[]).map((r) => ({
+        id: r.id,
+        date: r.date,
+        voucherNo: r.voucherNo,
+        description: r.description,
+        cashIn: r.cashIn,
+        cashOut: r.cashOut,
+        balance: r.balance,
+      })),
+      bankReconciliationRows: ((report.bankReconciliationRows ?? []) as any[]).map((r) => ({
+        id: r.id,
+        date: r.date,
+        voucherNo: r.voucherNo,
+        description: r.description,
+        bankName: r.bankName,
+        transactionId: r.transactionId,
+        amount: r.amount,
+      })),
     };
   }
   // pnl
@@ -2449,6 +2486,14 @@ async function realUpdateSettings(body: any, params: any) {
         gmail: body.gmail,
         tiktok: body.tiktok,
         website: body.website,
+        smtpHost: body.smtpHost,
+        smtpPort: body.smtpPort || undefined,
+        smtpUser: body.smtpUser,
+        smtpPass: body.smtpPass || undefined,
+        smtpFrom: body.smtpFrom,
+        twilioAccountSid: body.twilioAccountSid,
+        twilioAuthToken: body.twilioAuthToken || undefined,
+        twilioWhatsAppFrom: body.twilioWhatsAppFrom,
       },
       { params },
     )
@@ -2686,6 +2731,8 @@ async function tryReal(
     if (url === '/sales') return wrap(await realCreateSale(body));
     if (seg[0] === 'sales' && seg[1] && seg[2] === 'payments')
       return wrap(await realRecordSalePayment(seg[1], body));
+    if (url === '/notifications/email') return wrap(await realSendEmail(body));
+    if (url === '/notifications/whatsapp') return wrap(await realSendWhatsApp(body));
     if (seg[0] === 'sales' && seg[1] && seg[2] === 'returns')
       return wrap(await realCreateSaleReturn(seg[1], body));
     if (url === '/finance/payments/customer') return wrap(await realReceiveCustomerPayment(body));

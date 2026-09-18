@@ -15,4 +15,6 @@ module.exports = [
   require('./014-damaged-stock-returns'),
   require('./015-vendor-sales'),
   require('./016-vendor-sale-returns'),
+  require('./017-estimate-valid-until'),
+  require('./018-notification-settings'),
 ];

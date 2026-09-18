@@ -53,6 +53,8 @@ const SUMMARY_MONEY = {
     'netBank',
   ],
 };
+const CASH_FLOW_MONEY = ['cashIn', 'cashOut', 'balance'];
+const BANK_RECONCILIATION_MONEY = ['amount'];
 
 function serialize(type, data) {
   if (type === 'profit-loss') {
@@ -72,6 +74,14 @@ function serialize(type, data) {
     ...data,
     rows: (data.rows || []).map((r) => view(r, ROW_MONEY[type] || [])),
     summary: view(data.summary || {}, SUMMARY_MONEY[type] || []),
+    ...(type === 'day-book'
+      ? {
+          cashFlowRows: (data.cashFlowRows || []).map((r) => view(r, CASH_FLOW_MONEY)),
+          bankReconciliationRows: (data.bankReconciliationRows || []).map((r) =>
+            view(r, BANK_RECONCILIATION_MONEY),
+          ),
+        }
+      : {}),
   };
 }
 

@@ -1,12 +1,18 @@
 import { useState } from 'react';
 import { useNavigate, useParams, Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Banknote, Printer, QrCode } from 'lucide-react';
+import { ArrowLeft, Banknote, MoreHorizontal, Printer, QrCode } from 'lucide-react';
 import { toast } from 'sonner';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+} from '@/components/ui/dropdown-menu';
 import { api } from '@/lib/api';
 import { cn, formatCurrency } from '@/lib/utils';
 import { useStorefrontFilter } from '@/store/storefront';
@@ -401,52 +407,50 @@ export function SupplierDetailPage() {
                       <td className="px-4 py-3 text-right tabular-nums font-medium">
                         {formatCurrency(r.balanceDue)}
                       </td>
-                      <td className="px-4 py-3">
-                        <div className="flex justify-end gap-1">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8"
-                            title={t('Print Invoice')}
-                            onClick={() => handlePrintReceiptInvoice(r)}
-                          >
-                            <Printer className="h-4 w-4" />
-                          </Button>
-                          {r.balanceDue > 0 && (
+                      <td className="px-4 py-3 text-right">
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
                             <Button
-                              variant="ghost"
                               size="icon"
-                              className="h-8 w-8"
-                              title={t('Record Payment')}
-                              onClick={() =>
-                                setPayingReceipt({
-                                  id: r.id,
-                                  receiptNumber: r.number,
-                                  balanceDue: r.balanceDue,
-                                })
-                              }
-                            >
-                              <Banknote className="h-4 w-4" />
-                            </Button>
-                          )}
-                          {r.gatePassId && (
-                            <Button
                               variant="ghost"
-                              size="icon"
                               className="h-8 w-8"
-                              title={t('View Gate Pass')}
-                              onClick={() =>
-                                setViewingGatePass({
-                                  gatePassId: r.gatePassId,
-                                  gatePassQrUrl: r.gatePassQrUrl,
-                                  title: r.number,
-                                })
-                              }
+                              title={t('Actions')}
                             >
-                              <QrCode className="h-4 w-4" />
+                              <MoreHorizontal className="h-4 w-4" />
                             </Button>
-                          )}
-                        </div>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem onSelect={() => handlePrintReceiptInvoice(r)}>
+                              <Printer className="h-4 w-4" /> {t('Print Invoice')}
+                            </DropdownMenuItem>
+                            {r.balanceDue > 0 && (
+                              <DropdownMenuItem
+                                onSelect={() =>
+                                  setPayingReceipt({
+                                    id: r.id,
+                                    receiptNumber: r.number,
+                                    balanceDue: r.balanceDue,
+                                  })
+                                }
+                              >
+                                <Banknote className="h-4 w-4" /> {t('Record Payment')}
+                              </DropdownMenuItem>
+                            )}
+                            {r.gatePassId && (
+                              <DropdownMenuItem
+                                onSelect={() =>
+                                  setViewingGatePass({
+                                    gatePassId: r.gatePassId,
+                                    gatePassQrUrl: r.gatePassQrUrl,
+                                    title: r.number,
+                                  })
+                                }
+                              >
+                                <QrCode className="h-4 w-4" /> {t('View Gate Pass')}
+                              </DropdownMenuItem>
+                            )}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
                       </td>
                     </tr>
                   ))}

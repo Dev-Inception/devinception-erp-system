@@ -29,6 +29,10 @@ const estimateFieldsValidator = [
     .isFloat({ min: 0, max: 100 })
     .withMessage('Tax % must be 0–100'),
   body('notes').optional({ values: 'falsy' }).trim().isLength({ max: 1000 }),
+  body('validUntil')
+    .optional({ values: 'falsy' })
+    .isISO8601()
+    .withMessage('Invalid valid-until date'),
 ];
 
 const createEstimateValidator = [

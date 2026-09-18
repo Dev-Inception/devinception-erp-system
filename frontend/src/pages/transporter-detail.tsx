@@ -59,7 +59,6 @@ export function TransporterDetailPage() {
   const storefront = useStorefrontFilter();
   const [tab, setTab] = useState<Tab>('statement');
   const [paying, setPaying] = useState(false);
-  const [charging, setCharging] = useState(false);
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
 
@@ -159,9 +158,6 @@ export function TransporterDetailPage() {
                 {formatCurrency(transporter?.outstanding ?? 0)}
               </p>
             </div>
-            <Button variant="outline" onClick={() => setCharging(true)} disabled={!transporter}>
-              <Receipt className="h-4 w-4" /> {t('Record Charge')}
-            </Button>
             <Button onClick={() => setPaying(true)} disabled={!transporter}>
               <Banknote className="h-4 w-4" /> {t('Pay Transport')}
             </Button>
@@ -337,14 +333,6 @@ export function TransporterDetailPage() {
         open={paying}
         onOpenChange={(o) => {
           setPaying(o);
-          if (!o) qc.invalidateQueries({ queryKey: ['transporter-ledger', id] });
-        }}
-      />
-      <RecordChargeDialog
-        transporterId={id}
-        open={charging}
-        onOpenChange={(o) => {
-          setCharging(o);
           if (!o) qc.invalidateQueries({ queryKey: ['transporter-ledger', id] });
         }}
       />

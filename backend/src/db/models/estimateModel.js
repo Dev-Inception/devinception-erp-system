@@ -32,6 +32,7 @@ module.exports = function defineEstimate(db) {
         validate: { isIn: [['PENDING', 'FOLLOWED_UP', 'CONVERTED', 'LOST']] },
       },
       nextFollowUpDate: { type: DataTypes.DATE },
+      validUntil: { type: DataTypes.DATE, field: 'valid_until' },
       lostReason: { type: DataTypes.STRING(500), allowNull: false, defaultValue: '' },
       convertedSale: { type: DataTypes.STRING(24), field: 'converted_sale_id' },
       convertedAt: { type: DataTypes.DATE },

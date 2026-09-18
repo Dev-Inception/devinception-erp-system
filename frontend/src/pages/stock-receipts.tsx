@@ -1358,27 +1358,20 @@ export function StockReceiptsPage() {
                 <th className="px-4 py-3 font-medium">{t('Receipt #')}</th>
                 <th className="px-4 py-3 font-medium">{t('Date')}</th>
                 <th className="px-4 py-3 font-medium">{t('Supplier')}</th>
-                <th className="px-4 py-3 font-medium">{t('Store')}</th>
                 <th className="px-4 py-3 font-medium">{t('Warehouse')}</th>
-                <th className="px-4 py-3 font-medium">{t('Truck')}</th>
-                <th className="px-4 py-3 text-right font-medium">{t('Items')}</th>
-                <th className="px-4 py-3 text-right font-medium">{t('Qty Good')}</th>
-                <th className="px-4 py-3 text-right font-medium">{t('Qty Damaged')}</th>
                 <th className="px-4 py-3 text-right font-medium">{t('Actions')}</th>
               </tr>
             </thead>
             <tbody>
               {isLoading && (
                 <tr>
-                  <td colSpan={10} className="px-4 py-10 text-center text-muted-foreground">
+                  <td colSpan={5} className="px-4 py-10 text-center text-muted-foreground">
                     Loading…
                   </td>
                 </tr>
               )}
               {!isLoading &&
                 receipts.map((receipt) => {
-                  const totalReceived = receipt.items.reduce((s, it) => s + it.receivedQuantity, 0);
-                  const totalDamaged = receipt.items.reduce((s, it) => s + it.damagedQuantity, 0);
                   return (
                     <tr
                       key={receipt.id}
@@ -1390,32 +1383,7 @@ export function StockReceiptsPage() {
                         {new Date(receipt.date).toLocaleDateString()}
                       </td>
                       <td className="px-4 py-3 text-muted-foreground">{receipt.supplierName}</td>
-                      <td className="px-4 py-3 text-muted-foreground">
-                        {receipt.storeName ?? '—'}
-                      </td>
                       <td className="px-4 py-3 text-muted-foreground">{receipt.warehouseName}</td>
-                      <td className="px-4 py-3 text-muted-foreground">
-                        {receipt.isOpeningStock ? (
-                          <span className="rounded-full bg-muted px-2 py-0.5 text-xs">
-                            {t('Opening Stock')}
-                          </span>
-                        ) : (
-                          receipt.truck.vehicleNumber
-                        )}
-                      </td>
-                      <td className="px-4 py-3 text-right tabular-nums text-muted-foreground">
-                        {receipt.items.length}
-                      </td>
-                      <td className="px-4 py-3 text-right tabular-nums font-medium">
-                        {totalReceived}
-                      </td>
-                      <td className="px-4 py-3 text-right tabular-nums">
-                        {totalDamaged > 0 ? (
-                          <span className="font-medium text-destructive">{totalDamaged}</span>
-                        ) : (
-                          <span className="text-muted-foreground">0</span>
-                        )}
-                      </td>
                       <td className="px-4 py-3 text-right" onClick={(e) => e.stopPropagation()}>
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
@@ -1467,7 +1435,7 @@ export function StockReceiptsPage() {
                 })}
               {!isLoading && receipts.length === 0 && (
                 <tr>
-                  <td colSpan={10} className="px-4 py-10 text-center text-muted-foreground">
+                  <td colSpan={5} className="px-4 py-10 text-center text-muted-foreground">
                     No stock receipts recorded yet.
                   </td>
                 </tr>

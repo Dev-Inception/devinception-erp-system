@@ -170,8 +170,6 @@ export const ACTION_TRANSLATIONS: Record<string, string> = {
   'Vehicle Number': 'گاڑی نمبر',
   'Pay Transport': 'ٹرانسپورٹ کو ادائیگی کریں',
   'Back to Transporters': 'ٹرانسپورٹرز کی طرف واپس',
-  'Record Charge': 'چارج درج کریں',
-  'Books a delivery fare owed to this transporter.': 'اس ٹرانسپورٹر کا واجب الادا کرایہ درج کریں۔',
   'No transporters yet.': 'ابھی تک کوئی ٹرانسپورٹر نہیں۔',
   'No suppliers yet.': 'ابھی تک کوئی سپلائر نہیں۔',
   'Transporter (optional)': 'ٹرانسپورٹر (اختیاری)',

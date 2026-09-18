@@ -23,6 +23,17 @@ function serialize(settings) {
     gmail: s.gmail || '',
     tiktok: s.tiktok || '',
     website: s.website || '',
+    smtpHost: s.smtpHost || '',
+    smtpPort: s.smtpPort || undefined,
+    smtpUser: s.smtpUser || '',
+    smtpFrom: s.smtpFrom || '',
+    // Secrets never round-trip raw — only whether one is already saved, so
+    // the form can show "configured" without ever displaying/re-sending the
+    // actual credential (see settingsService.updateSettings for the write side).
+    smtpPassSet: !!s.smtpPass,
+    twilioAccountSid: s.twilioAccountSid || '',
+    twilioAuthTokenSet: !!s.twilioAuthToken,
+    twilioWhatsAppFrom: s.twilioWhatsAppFrom || '',
   };
 }
 

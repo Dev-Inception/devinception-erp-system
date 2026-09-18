@@ -1,5 +1,6 @@
 import { renderTemplate } from './printing';
 import { api } from './api';
+import { formatCurrency } from './utils';
 import { usePrintPreviewStore } from '@/store/printPreview';
 
 /**
@@ -31,7 +32,7 @@ export interface SaleForInvoice {
   storeId?: string;
   storeName?: string;
   storeAddress?: string;
-  customer?: { name: string; phone?: string };
+  customer?: { name: string; phone?: string; email?: string };
   paymentMethod?: string;
   items: SaleItemForInvoice[];
   subtotal: number | string;
@@ -138,6 +139,23 @@ async function invoiceFooterNote(storeId?: string): Promise<string | undefined> 
   }
 }
 
+// Replaces the generic store return-policy footer note on an Estimate print
+// with the estimate's own validity window — a fixed "goods aren't returnable
+// after N days" line doesn't apply to a quote that hasn't been sold yet.
+// Omitted (falls back to no footer note at all) once an estimate has no
+// `validUntil` set, rather than showing a stale/incorrect date.
+function estimateValidityNote(validUntil?: string): string | undefined {
+  if (!validUntil) return undefined;
+  const until = new Date(validUntil);
+  if (Number.isNaN(until.getTime())) return undefined;
+  const MS_PER_DAY = 24 * 60 * 60 * 1000;
+  const daysLeft = Math.ceil((until.setHours(23, 59, 59, 999) - Date.now()) / MS_PER_DAY);
+  const formatted = until.toLocaleDateString();
+  if (daysLeft < 0) return `This estimate expired on ${formatted}.`;
+  if (daysLeft === 0) return `This estimate is valid until today (${formatted}).`;
+  return `This estimate is valid for ${daysLeft} more day${daysLeft === 1 ? '' : 's'} (until ${formatted}).`;
+}
+
 async function buildInvoiceHtml(sale: SaleForInvoice) {
   const [bankNote, footerNote, settings] = await Promise.all([
     bankNoteFor(sale.storeId),
@@ -206,6 +224,47 @@ async function buildInvoiceHtml(sale: SaleForInvoice) {
 export async function openSaleInvoicePopup(sale: SaleForInvoice) {
   const html = await buildInvoiceHtml(sale);
   usePrintPreviewStore.getState().open(html);
+}
+
+/** Emails a sale invoice to a customer — same INVOICE_A4 HTML as the print
+ * popup above, relayed through the issuing store's SMTP (Settings >
+ * Notifications; falls back to the platform's shared SMTP if unconfigured).
+ * Throws (with the backend's message) if sending fails. */
+export async function sendSaleInvoiceEmail(sale: SaleForInvoice, to: string) {
+  const html = await buildInvoiceHtml(sale);
+  await api.post('/notifications/email', {
+    store: sale.storeId,
+    to,
+    subject: `Invoice ${sale.saleNumber}`,
+    html,
+  });
+}
+
+// WhatsApp has no rich layout, so this is a short plain-text summary rather
+// than the full HTML invoice — number, date, total, and balance due if any.
+function saleWhatsAppMessage(sale: SaleForInvoice) {
+  const lines = [
+    `Invoice ${sale.saleNumber}`,
+    `Date: ${new Date(sale.date).toLocaleDateString()}`,
+    `Total: ${formatCurrency(Number(sale.grandTotal))}`,
+  ];
+  if (sale.balanceDue !== undefined && Number(sale.balanceDue) > 0) {
+    lines.push(`Balance due: ${formatCurrency(Number(sale.balanceDue))}`);
+  }
+  lines.push('Thank you for shopping with us!');
+  return lines.join('\n');
+}
+
+/** Sends a sale invoice summary over WhatsApp (Twilio — Settings >
+ * Notifications; no fallback, since a WhatsApp sender number can't be
+ * shared the way SMTP can). Throws (with the backend's message, e.g.
+ * "not configured") if sending fails. */
+export async function sendSaleInvoiceWhatsApp(sale: SaleForInvoice, to: string) {
+  await api.post('/notifications/whatsapp', {
+    store: sale.storeId,
+    to,
+    message: saleWhatsAppMessage(sale),
+  });
 }
 
 /** A GRN-style supplier invoice for a stock receipt — same INVOICE_A4
@@ -522,14 +581,15 @@ export interface EstimateForInvoice {
   discountTotal: number | string;
   grandTotal: number | string;
   notes?: string;
+  validUntil?: string;
 }
 
 async function buildEstimateInvoiceHtml(estimate: EstimateForInvoice) {
-  const [bankNote, footerNote, settings] = await Promise.all([
+  const [bankNote, settings] = await Promise.all([
     bankNoteFor(estimate.storeId),
-    invoiceFooterNote(estimate.storeId),
     companyInfo(estimate.storeId),
   ]);
+  const footerNote = estimateValidityNote(estimate.validUntil);
   const company = {
     name: estimate.storeName || settings.name,
     address: estimate.storeAddress || settings.address,

@@ -28,6 +28,7 @@ const gatePassRoutes = require('./gatePassRoutes');
 const gatePassPublicRoutes = require('./gatePassPublicRoutes');
 const dayEndRoutes = require('./dayEndRoutes');
 const subscriptionRoutes = require('./subscriptionRoutes');
+const notificationRoutes = require('./notificationRoutes');
 
 const router = express.Router();
 
@@ -60,6 +61,7 @@ router.use('/labour', labourRoutes);
 router.use('/pending-entities', pendingEntityRoutes);
 router.use('/day-end', dayEndRoutes);
 router.use('/subscriptions', subscriptionRoutes);
+router.use('/notifications', notificationRoutes);
 // Must be registered before the protected `/gate-passes` mount below —
 // otherwise its `protect` middleware would intercept these paths first.
 router.use('/gate-passes/public', gatePassPublicRoutes);

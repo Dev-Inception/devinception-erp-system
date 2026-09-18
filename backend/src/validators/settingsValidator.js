@@ -44,6 +44,15 @@ const updateSettingsValidator = [
     .withMessage('Invalid website URL')
     .isLength({ max: 300 }),
   body('store').optional({ values: 'falsy' }).isMongoId().withMessage('Invalid store'),
+  // Notification config (SMTP + Twilio WhatsApp) — see docs/INTEGRATIONS.md.
+  body('smtpHost').optional({ values: 'falsy' }).trim().isLength({ max: 200 }),
+  body('smtpPort').optional({ values: 'falsy' }).isInt({ min: 1, max: 65535 }).toInt(),
+  body('smtpUser').optional({ values: 'falsy' }).trim().isLength({ max: 200 }),
+  body('smtpPass').optional({ values: 'falsy' }).isLength({ max: 300 }),
+  body('smtpFrom').optional({ values: 'falsy' }).trim().isLength({ max: 200 }),
+  body('twilioAccountSid').optional({ values: 'falsy' }).trim().isLength({ max: 120 }),
+  body('twilioAuthToken').optional({ values: 'falsy' }).trim().isLength({ max: 120 }),
+  body('twilioWhatsAppFrom').optional({ values: 'falsy' }).trim().isLength({ max: 40 }),
 ];
 
 module.exports = { updateSettingsValidator };

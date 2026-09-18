@@ -78,6 +78,7 @@ interface Estimate {
   status: EstimateStatus;
   followUps: FollowUp[];
   nextFollowUpDate?: string;
+  validUntil?: string;
   lostReason: string;
   convertedSaleId?: string;
   convertedAt?: string;
@@ -153,6 +154,7 @@ function EstimateDialog({
   const [discount, setDiscount] = useState(0);
   const [taxPercent, setTaxPercent] = useState(0);
   const [notes, setNotes] = useState('');
+  const [validUntil, setValidUntil] = useState('');
 
   useEffect(() => {
     if (!open) return;
@@ -173,6 +175,7 @@ function EstimateDialog({
     setDiscount(Number(estimate?.discountTotal ?? 0));
     setTaxPercent(Number(estimate?.taxPercent ?? 0));
     setNotes(estimate?.notes ?? '');
+    setValidUntil(estimate?.validUntil ? estimate.validUntil.slice(0, 10) : '');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, estimate?.id]);
 
@@ -248,6 +251,7 @@ function EstimateDialog({
         discountTotal: discountAmount,
         taxPercent: Math.max(0, taxPercent),
         notes,
+        validUntil: validUntil || null,
       };
       return editing
         ? (await api.patch(`/estimates/${estimate!.id}`, payload)).data
@@ -465,7 +469,7 @@ function EstimateDialog({
             )}
           </div>
 
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid gap-3 sm:grid-cols-3">
             <div className="space-y-1.5">
               <Label>{t('Discount (Rs)')}</Label>
               <Input
@@ -485,6 +489,15 @@ function EstimateDialog({
                 step="0.01"
                 value={taxPercent || ''}
                 onChange={(e) => setTaxPercent(Number(e.target.value))}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>{t('Valid Until (optional)')}</Label>
+              <Input
+                type="date"
+                min={new Date().toISOString().slice(0, 10)}
+                value={validUntil}
+                onChange={(e) => setValidUntil(e.target.value)}
               />
             </div>
           </div>
@@ -722,6 +735,7 @@ export function EstimatesPage() {
         discountTotal: e.discountTotal,
         grandTotal: e.grandTotal,
         notes: e.notes,
+        validUntil: e.validUntil,
       });
     } catch {
       toast.error('Could not prepare the estimate');

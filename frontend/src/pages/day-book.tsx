@@ -32,6 +32,26 @@ interface DayBookRow {
   amount: number;
 }
 
+interface CashFlowRow {
+  id: string;
+  date: string;
+  voucherNo: string;
+  description: string;
+  cashIn: number;
+  cashOut: number;
+  balance: number;
+}
+
+interface BankReconciliationRow {
+  id: string;
+  date: string;
+  voucherNo: string;
+  description: string;
+  bankName: string;
+  transactionId: string;
+  amount: number;
+}
+
 interface DayBookSummary {
   transactionCount: number;
   totalSales: number;
@@ -52,20 +72,9 @@ interface DayBookResult {
   title: string;
   rows: DayBookRow[];
   summary: DayBookSummary;
+  cashFlowRows: CashFlowRow[];
+  bankReconciliationRows: BankReconciliationRow[];
 }
-
-// Money in vs money out vs neutral stock/adjustment vouchers, so the type
-// pill gives a reader an at-a-glance read before they even check the amount.
-const VOUCHER_STYLES: Record<string, string> = {
-  SALE: 'bg-success/10 text-success',
-  RECEIPT: 'bg-success/10 text-success',
-  EXPENSE: 'bg-destructive/10 text-destructive',
-  PAYMENT: 'bg-destructive/10 text-destructive',
-  SALE_RETURN: 'bg-primary/10 text-primary',
-  PURCHASE: 'bg-primary/10 text-primary',
-  CASH_ADJUST: 'bg-muted text-muted-foreground',
-  OPENING: 'bg-muted text-muted-foreground',
-};
 
 // Formats a Date using its local calendar fields, not toISOString() (which is
 // always UTC and rolls the date back/forward a day in timezones offset from UTC).
@@ -95,6 +104,7 @@ export function DayBookPage() {
   const { t } = useLanguage();
   const qc = useQueryClient();
   const [date, setDate] = useState(todayStr);
+  const [tab, setTab] = useState<'cash-flow' | 'bank-reconciliation'>('cash-flow');
   const today = todayStr();
   const storefront = useStorefrontFilter();
   const currentStoreId = useStorefrontStore((s) => s.currentStoreId);
@@ -153,56 +163,97 @@ export function DayBookPage() {
     if (window.confirm(`Reopen ${date} for this store?`)) reopenDay.mutate();
   };
 
-  const rows = data?.rows ?? [];
   const summary = data?.summary;
+  const cashFlowRows = data?.cashFlowRows ?? [];
+  const bankReconciliationRows = data?.bankReconciliationRows ?? [];
 
   const downloadCsv = () => {
     if (!data) return;
-    const header = ['Time', 'Type', 'Voucher #', 'Description', 'Warehouse', 'Amount'].join(',');
-    const lines = rows.map((r) =>
-      [
-        new Date(r.date).toLocaleTimeString(),
-        r.voucherLabel,
-        r.voucherNo,
-        r.description,
-        r.warehouse,
-        r.amount,
-      ]
-        .map(csvEscape)
-        .join(','),
-    );
+    let header: string;
+    let lines: string[];
+    if (tab === 'cash-flow') {
+      header = ['Date', 'Invoice #', 'Detail', 'Cash In', 'Cash Out', 'Balance'].join(',');
+      lines = cashFlowRows.map((r) =>
+        [
+          new Date(r.date).toLocaleDateString(),
+          r.voucherNo,
+          r.description,
+          r.cashIn,
+          r.cashOut,
+          r.balance,
+        ]
+          .map(csvEscape)
+          .join(','),
+      );
+    } else {
+      header = ['Date', 'Invoice #', 'Detail', 'Bank Name', 'Trans ID', 'Amount'].join(',');
+      lines = bankReconciliationRows.map((r) =>
+        [
+          new Date(r.date).toLocaleDateString(),
+          r.voucherNo,
+          r.description,
+          r.bankName,
+          r.transactionId,
+          r.amount,
+        ]
+          .map(csvEscape)
+          .join(','),
+      );
+    }
     const csv = [header, ...lines].join('\n');
     const blob = new Blob([csv], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `day-book-${date}.csv`;
+    a.download = `day-book-${tab}-${date}.csv`;
     a.click();
     URL.revokeObjectURL(url);
   };
 
-  const cards = summary
+  const primaryCards = summary
     ? [
+        {
+          key: 'transactionCount',
+          label: 'Total Transactions',
+          value: summary.transactionCount,
+          isCount: true,
+          tone: 'destructive' as const,
+        },
+        {
+          key: 'totalSales',
+          label: 'Total Sales',
+          value: summary.totalSales,
+          tone: 'destructive' as const,
+        },
         {
           key: 'totalExpenses',
           label: 'Total Expenses',
           value: summary.totalExpenses,
-          emphasize: true,
+          tone: 'destructive' as const,
         },
-        { key: 'totalSales', label: 'Total Sales', value: summary.totalSales },
-        { key: 'totalPurchases', label: 'Total Purchases', value: summary.totalPurchases },
+      ]
+    : [];
+
+  const cashCards = summary
+    ? [
         {
-          key: 'totalVendorPayments',
-          label: 'Vendor Payments',
-          value: summary.totalVendorPayments,
+          key: 'cashIn',
+          label: 'Cash Received',
+          value: summary.cashIn,
+          tone: 'success' as const,
         },
         {
-          key: 'totalCustomerReceipts',
-          label: 'Customer Receipts',
-          value: summary.totalCustomerReceipts,
+          key: 'bankIn',
+          label: 'Bank Transfer',
+          value: summary.bankIn,
+          tone: 'success' as const,
         },
-        { key: 'netCash', label: 'Net Cash Movement', value: summary.netCash },
-        { key: 'netBank', label: 'Net Bank Movement', value: summary.netBank },
+        {
+          key: 'netCash',
+          label: 'Cash On Hand',
+          value: summary.netCash,
+          tone: 'success' as const,
+        },
       ]
     : [];
 
@@ -287,7 +338,15 @@ export function DayBookPage() {
             <Button variant="outline" onClick={() => window.print()} disabled={!data}>
               <Printer className="h-4 w-4" /> {t('Print / PDF')}
             </Button>
-            <Button onClick={downloadCsv} disabled={!data || rows.length === 0}>
+            <Button
+              onClick={downloadCsv}
+              disabled={
+                !data ||
+                (tab === 'cash-flow'
+                  ? cashFlowRows.length === 0
+                  : bankReconciliationRows.length === 0)
+              }
+            >
               <Download className="h-4 w-4" /> {t('CSV')}
             </Button>
           </div>
@@ -295,96 +354,200 @@ export function DayBookPage() {
       </Card>
 
       {summary && (
-        <div className="flex flex-wrap gap-3">
-          {cards.map((c) => (
-            <Card
-              key={c.key}
-              className={cn('min-w-[160px] flex-1', c.emphasize && 'border-destructive/40')}
-            >
-              <CardContent className="p-4">
-                <p className="text-xs uppercase tracking-wide text-muted-foreground">{c.label}</p>
-                <p className={cn('text-lg font-bold', c.emphasize && 'text-destructive')}>
-                  {formatCurrency(c.value)}
-                </p>
-              </CardContent>
-            </Card>
-          ))}
-          <Card className="min-w-[160px] flex-1">
-            <CardContent className="p-4">
-              <p className="text-xs uppercase tracking-wide text-muted-foreground">Transactions</p>
-              <p className="text-lg font-bold">{summary.transactionCount}</p>
-            </CardContent>
-          </Card>
+        <div className="space-y-3">
+          <div className="flex flex-wrap gap-3">
+            {primaryCards.map((c) => (
+              <Card
+                key={c.key}
+                className={cn(
+                  'min-w-[160px] flex-1',
+                  c.tone === 'destructive' && 'border-destructive/40',
+                )}
+              >
+                <CardContent className="p-4">
+                  <p className="text-xs uppercase tracking-wide text-muted-foreground">{c.label}</p>
+                  <p
+                    className={cn(
+                      'text-lg font-bold',
+                      c.tone === 'destructive' && 'text-destructive',
+                    )}
+                  >
+                    {c.isCount ? c.value : formatCurrency(c.value)}
+                  </p>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+          <div className="flex flex-wrap gap-3">
+            {cashCards.map((c) => (
+              <Card
+                key={c.key}
+                className={cn('min-w-[160px] flex-1', c.tone === 'success' && 'border-success/40')}
+              >
+                <CardContent className="p-4">
+                  <p className="text-xs uppercase tracking-wide text-muted-foreground">{c.label}</p>
+                  <p className={cn('text-lg font-bold', c.tone === 'success' && 'text-success')}>
+                    {formatCurrency(c.value)}
+                  </p>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
         </div>
       )}
 
-      <Card className="overflow-hidden">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <BookText className="h-4 w-4" /> Day Book
-          </CardTitle>
-          <p className="text-sm text-muted-foreground">Every transaction posted on {date}</p>
-        </CardHeader>
-        <CardContent className="p-0">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-y bg-muted/50 text-left text-xs uppercase text-muted-foreground">
-                  <th className="px-4 py-2 font-medium">{t('Time')}</th>
-                  <th className="px-4 py-2 font-medium">{t('Type')}</th>
-                  <th className="px-4 py-2 font-medium">{t('Voucher #')}</th>
-                  <th className="px-4 py-2 font-medium">{t('Description')}</th>
-                  <th className="px-4 py-2 font-medium">{t('Warehouse')}</th>
-                  <th className="px-4 py-2 text-right font-medium">{t('Amount')}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {isLoading && (
-                  <tr>
-                    <td className="px-4 py-10 text-center text-muted-foreground" colSpan={6}>
-                      Loading…
-                    </td>
+      <div className="flex gap-1 rounded-lg bg-muted p-1 w-fit">
+        {(
+          [
+            ['cash-flow', 'Cash Flow'],
+            ['bank-reconciliation', 'Bank Reconciliation'],
+          ] as const
+        ).map(([key, label]) => (
+          <button
+            key={key}
+            onClick={() => setTab(key)}
+            className={cn(
+              'rounded-md px-3 py-1.5 text-sm font-medium transition',
+              tab === key ? 'bg-background shadow-sm' : 'text-muted-foreground',
+            )}
+          >
+            {t(label)}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'cash-flow' && (
+        <Card className="overflow-hidden">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <BookText className="h-4 w-4" /> {t('Cash Flow')}
+            </CardTitle>
+            <p className="text-sm text-muted-foreground">Every cash movement posted on {date}</p>
+          </CardHeader>
+          <CardContent className="p-0">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-y bg-muted/50 text-left text-xs uppercase text-muted-foreground">
+                    <th className="px-4 py-2 font-medium">{t('Date')}</th>
+                    <th className="px-4 py-2 font-medium">{t('Invoice #')}</th>
+                    <th className="px-4 py-2 font-medium">{t('Detail')}</th>
+                    <th className="px-4 py-2 text-right font-medium">{t('Cash In')}</th>
+                    <th className="px-4 py-2 text-right font-medium">{t('Cash Out')}</th>
+                    <th className="px-4 py-2 text-right font-medium">{t('Balance')}</th>
                   </tr>
-                )}
-                {!isLoading &&
-                  rows.map((r) => (
-                    <tr key={r.id} className="border-b last:border-0 hover:bg-muted/30">
-                      <td className="px-4 py-2 text-muted-foreground">
-                        {new Date(r.date).toLocaleTimeString([], {
-                          hour: '2-digit',
-                          minute: '2-digit',
-                        })}
-                      </td>
-                      <td className="px-4 py-2">
-                        <span
-                          className={cn(
-                            'inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium',
-                            VOUCHER_STYLES[r.voucherType] ?? 'bg-muted text-muted-foreground',
-                          )}
-                        >
-                          {r.voucherLabel}
-                        </span>
-                      </td>
-                      <td className="px-4 py-2 text-muted-foreground">{r.voucherNo || '—'}</td>
-                      <td className="px-4 py-2">{r.description}</td>
-                      <td className="px-4 py-2 text-muted-foreground">{r.warehouse || '—'}</td>
-                      <td className="px-4 py-2 text-right tabular-nums font-medium">
-                        {formatCurrency(r.amount)}
+                </thead>
+                <tbody>
+                  {isLoading && (
+                    <tr>
+                      <td className="px-4 py-10 text-center text-muted-foreground" colSpan={6}>
+                        Loading…
                       </td>
                     </tr>
-                  ))}
-                {!isLoading && rows.length === 0 && (
-                  <tr>
-                    <td className="px-4 py-10 text-center text-muted-foreground" colSpan={6}>
-                      No transactions recorded for this day.
-                    </td>
+                  )}
+                  {!isLoading &&
+                    cashFlowRows.map((r) => (
+                      <tr key={r.id} className="border-b last:border-0 hover:bg-muted/30">
+                        <td className="px-4 py-2 text-muted-foreground">
+                          {new Date(r.date).toLocaleTimeString([], {
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })}
+                        </td>
+                        <td className="px-4 py-2 text-muted-foreground">{r.voucherNo || '—'}</td>
+                        <td className="px-4 py-2">{r.description}</td>
+                        <td className="px-4 py-2 text-right tabular-nums text-success">
+                          {r.cashIn ? formatCurrency(r.cashIn) : ''}
+                        </td>
+                        <td className="px-4 py-2 text-right tabular-nums text-destructive">
+                          {r.cashOut ? formatCurrency(r.cashOut) : ''}
+                        </td>
+                        <td className="px-4 py-2 text-right tabular-nums font-medium">
+                          {formatCurrency(r.balance)}
+                        </td>
+                      </tr>
+                    ))}
+                  {!isLoading && cashFlowRows.length === 0 && (
+                    <tr>
+                      <td className="px-4 py-10 text-center text-muted-foreground" colSpan={6}>
+                        No cash movements recorded for this day.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {tab === 'bank-reconciliation' && (
+        <Card className="overflow-hidden">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <BookText className="h-4 w-4" /> {t('Bank Reconciliation')}
+            </CardTitle>
+            <p className="text-sm text-muted-foreground">Every bank transaction posted on {date}</p>
+          </CardHeader>
+          <CardContent className="p-0">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-y bg-muted/50 text-left text-xs uppercase text-muted-foreground">
+                    <th className="px-4 py-2 font-medium">{t('Date')}</th>
+                    <th className="px-4 py-2 font-medium">{t('Invoice #')}</th>
+                    <th className="px-4 py-2 font-medium">{t('Detail')}</th>
+                    <th className="px-4 py-2 font-medium">{t('Bank Name')}</th>
+                    <th className="px-4 py-2 font-medium">{t('Trans ID')}</th>
+                    <th className="px-4 py-2 text-right font-medium">{t('Amount')}</th>
                   </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </CardContent>
-      </Card>
+                </thead>
+                <tbody>
+                  {isLoading && (
+                    <tr>
+                      <td className="px-4 py-10 text-center text-muted-foreground" colSpan={6}>
+                        Loading…
+                      </td>
+                    </tr>
+                  )}
+                  {!isLoading &&
+                    bankReconciliationRows.map((r) => (
+                      <tr key={r.id} className="border-b last:border-0 hover:bg-muted/30">
+                        <td className="px-4 py-2 text-muted-foreground">
+                          {new Date(r.date).toLocaleTimeString([], {
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })}
+                        </td>
+                        <td className="px-4 py-2 text-muted-foreground">{r.voucherNo || '—'}</td>
+                        <td className="px-4 py-2">{r.description}</td>
+                        <td className="px-4 py-2 text-muted-foreground">{r.bankName || '—'}</td>
+                        <td className="px-4 py-2 text-muted-foreground">
+                          {r.transactionId || '—'}
+                        </td>
+                        <td
+                          className={cn(
+                            'px-4 py-2 text-right tabular-nums font-medium',
+                            r.amount >= 0 ? 'text-success' : 'text-destructive',
+                          )}
+                        >
+                          {formatCurrency(r.amount)}
+                        </td>
+                      </tr>
+                    ))}
+                  {!isLoading && bankReconciliationRows.length === 0 && (
+                    <tr>
+                      <td className="px-4 py-10 text-center text-muted-foreground" colSpan={6}>
+                        No bank transactions recorded for this day.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

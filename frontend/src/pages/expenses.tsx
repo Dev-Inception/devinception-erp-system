@@ -507,21 +507,20 @@ export function ExpensesPage() {
           </p>
         </div>
         <div className="flex flex-wrap items-end gap-3">
-          <div className="flex gap-1">
+          <select
+            value={statusFilter}
+            onChange={(e) => {
+              setStatusFilter(e.target.value as typeof statusFilter);
+              setPage(1);
+            }}
+            className="flex h-9 rounded-md border border-input bg-transparent px-3 text-sm"
+          >
             {(['ALL', 'PENDING', 'APPROVED', 'REJECTED'] as const).map((value) => (
-              <Button
-                key={value}
-                size="sm"
-                variant={statusFilter === value ? 'default' : 'outline'}
-                onClick={() => {
-                  setStatusFilter(value);
-                  setPage(1);
-                }}
-              >
+              <option key={value} value={value}>
                 {value === 'ALL' ? t('All') : t(STATUS_LABEL[value])}
-              </Button>
+              </option>
             ))}
-          </div>
+          </select>
           <select
             value={categoryFilter}
             onChange={(e) => {

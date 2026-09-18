@@ -22,6 +22,21 @@ module.exports = function defineSettings(db) {
       gmail: { type: DataTypes.STRING(120), allowNull: false, defaultValue: '' },
       tiktok: { type: DataTypes.STRING(300), allowNull: false, defaultValue: '' },
       website: { type: DataTypes.STRING(300), allowNull: false, defaultValue: '' },
+      smtpHost: { type: DataTypes.STRING(200), allowNull: false, defaultValue: '' },
+      smtpPort: { type: DataTypes.INTEGER, allowNull: true },
+      smtpUser: { type: DataTypes.STRING(200), allowNull: false, defaultValue: '' },
+      smtpPass: { type: DataTypes.STRING(300), allowNull: false, defaultValue: '' },
+      smtpFrom: { type: DataTypes.STRING(200), allowNull: false, defaultValue: '' },
+      twilioAccountSid: { type: DataTypes.STRING(120), allowNull: false, defaultValue: '' },
+      twilioAuthToken: { type: DataTypes.STRING(120), allowNull: false, defaultValue: '' },
+      // Explicit `field` because Sequelize's `underscored` auto-conversion
+      // would otherwise split "WhatsApp" into "whats_app".
+      twilioWhatsAppFrom: {
+        type: DataTypes.STRING(40),
+        allowNull: false,
+        defaultValue: '',
+        field: 'twilio_whatsapp_from',
+      },
     },
     { tableName: 'settings' },
   );

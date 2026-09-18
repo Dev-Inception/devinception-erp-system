@@ -69,24 +69,82 @@ interface DamagedReturn {
   gatePassQrUrl?: string;
 }
 
-/* ── Selected outstanding items → a new Damaged Stock Return, with an
-   optional truck (for the pickup) and a note. Quantities default to the
-   full outstanding amount but can be reduced (a partial return). ── */
-function CreateReturnDialog({ items, onClose }: { items: OutstandingItem[]; onClose: () => void }) {
+/* ── Pick a supplier, see their outstanding damaged stock, and select which
+   line(s) to send back — one return document (and its one gate pass) can
+   only cover a single supplier + warehouse, so once anything is checked the
+   rest of the picker is narrowed to that same warehouse. Quantities default
+   to the full outstanding amount but can be reduced (a partial return). ── */
+function ReturnToSupplierDialog({
+  outstanding,
+  onClose,
+}: {
+  outstanding: OutstandingItem[];
+  onClose: () => void;
+}) {
   const qc = useQueryClient();
   const { t } = useLanguage();
-  const [quantities, setQuantities] = useState<Record<string, number>>(() =>
-    Object.fromEntries(items.map((it) => [it.itemId, it.outstandingQuantity])),
+
+  const suppliers = useMemo(() => {
+    const byId = new Map<string, string>();
+    for (const it of outstanding) byId.set(it.supplierId, it.supplierName);
+    return Array.from(byId, ([id, name]) => ({ id, name })).sort((a, b) =>
+      a.name.localeCompare(b.name),
+    );
+  }, [outstanding]);
+
+  const [supplierId, setSupplierId] = useState('');
+  const supplierItems = useMemo(
+    () => outstanding.filter((it) => it.supplierId === supplierId),
+    [outstanding, supplierId],
   );
+
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [quantities, setQuantities] = useState<Record<string, number>>({});
   const [vehicleNumber, setVehicleNumber] = useState('');
   const [driverName, setDriverName] = useState('');
   const [driverPhone, setDriverPhone] = useState('');
   const [note, setNote] = useState('');
 
-  const first = items[0];
-  const canSubmit = items.every(
-    (it) => quantities[it.itemId] > 0 && quantities[it.itemId] <= it.outstandingQuantity,
-  );
+  // Switching supplier starts the picker over — a fresh set of quantities
+  // (defaulted to each line's full outstanding amount) and no selection.
+  useEffect(() => {
+    setSelected(new Set());
+    setQuantities(
+      Object.fromEntries(supplierItems.map((it) => [it.itemId, it.outstandingQuantity])),
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [supplierId]);
+
+  const toggle = (it: OutstandingItem) => {
+    setSelected((s) => {
+      const next = new Set(s);
+      if (next.has(it.itemId)) next.delete(it.itemId);
+      else next.add(it.itemId);
+      return next;
+    });
+  };
+
+  // Once something's checked, the rest of the picker narrows to that same
+  // warehouse; before anything's picked, "Select all" defaults to the first
+  // warehouse present (the common case: a supplier with just the one).
+  const activeWarehouse =
+    supplierItems.find((it) => selected.has(it.itemId))?.warehouseId ??
+    supplierItems[0]?.warehouseId ??
+    null;
+  const selectableItems = supplierItems.filter((it) => it.warehouseId === activeWarehouse);
+  const allSelected =
+    selectableItems.length > 0 && selectableItems.every((it) => selected.has(it.itemId));
+  const toggleAll = () =>
+    setSelected(allSelected ? new Set() : new Set(selectableItems.map((it) => it.itemId)));
+
+  const selectedItems = supplierItems.filter((it) => selected.has(it.itemId));
+  const first = selectedItems[0];
+
+  const canSubmit =
+    selectedItems.length > 0 &&
+    selectedItems.every(
+      (it) => quantities[it.itemId] > 0 && quantities[it.itemId] <= it.outstandingQuantity,
+    );
 
   const save = useMutation({
     mutationFn: async () =>
@@ -103,7 +161,7 @@ function CreateReturnDialog({ items, onClose }: { items: OutstandingItem[]; onCl
                   driverPhone: driverPhone || undefined,
                 }
               : undefined,
-          items: items.map((it) => ({
+          items: selectedItems.map((it) => ({
             stockReceiptItemId: it.itemId,
             quantity: quantities[it.itemId],
           })),
@@ -126,14 +184,15 @@ function CreateReturnDialog({ items, onClose }: { items: OutstandingItem[]; onCl
 
   return (
     <Dialog open onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="max-h-[85vh] max-w-lg overflow-y-auto">
+      <DialogContent className="max-h-[85vh] max-w-2xl overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <PackageX className="h-4 w-4" /> {t('Return Damaged Stock to Supplier')}
           </DialogTitle>
           <DialogDescription>
-            {first.supplierName} — {items.length} {items.length === 1 ? t('item') : t('items')}.
-            {t(' A gate pass is generated automatically for the truck taking this stock away.')}
+            {t(
+              'Pick a supplier to see their outstanding damaged stock, then select what to send back. A gate pass is generated automatically for the truck taking this stock away.',
+            )}
           </DialogDescription>
         </DialogHeader>
         <form
@@ -143,69 +202,114 @@ function CreateReturnDialog({ items, onClose }: { items: OutstandingItem[]; onCl
             if (canSubmit) save.mutate();
           }}
         >
-          <div className="overflow-x-auto rounded-md border">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b bg-muted/50 text-left text-xs uppercase text-muted-foreground">
-                  <th className="px-3 py-2 font-medium">{t('Product')}</th>
-                  <th className="px-3 py-2 text-right font-medium">{t('Outstanding')}</th>
-                  <th className="px-3 py-2 text-right font-medium">{t('Qty to Return')}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {items.map((it) => (
-                  <tr key={it.itemId} className="border-b last:border-0">
-                    <td className="px-3 py-2">
-                      {it.name}
-                      <span className="block text-xs text-muted-foreground">
-                        {it.receiptNumber}
-                      </span>
-                    </td>
-                    <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">
-                      {it.outstandingQuantity}
-                    </td>
-                    <td className="px-3 py-2 text-right">
-                      <Input
-                        type="number"
-                        min={0}
-                        max={it.outstandingQuantity}
-                        step="any"
-                        className="h-8 w-24 ml-auto"
-                        value={quantities[it.itemId] ?? ''}
-                        onChange={(e) =>
-                          setQuantities((q) => ({ ...q, [it.itemId]: Number(e.target.value) }))
-                        }
-                      />
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          <div className="grid gap-3 sm:grid-cols-3">
-            <div className="space-y-1.5">
-              <Label>{t('Truck / Vehicle Number')}</Label>
-              <Input
-                value={vehicleNumber}
-                onChange={(e) => setVehicleNumber(e.target.value)}
-                placeholder="e.g. LEA-1234"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label>{t('Driver Name')}</Label>
-              <Input value={driverName} onChange={(e) => setDriverName(e.target.value)} />
-            </div>
-            <div className="space-y-1.5">
-              <Label>{t('Driver Phone')}</Label>
-              <Input value={driverPhone} onChange={(e) => setDriverPhone(e.target.value)} />
-            </div>
-          </div>
-
           <div className="space-y-1.5">
-            <Label>{t('Note (optional)')}</Label>
-            <Input value={note} onChange={(e) => setNote(e.target.value)} />
+            <Label>{t('Supplier')}</Label>
+            <select
+              value={supplierId}
+              onChange={(e) => setSupplierId(e.target.value)}
+              className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
+            >
+              <option value="">{t('Select supplier…')}</option>
+              {suppliers.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
+                </option>
+              ))}
+            </select>
           </div>
+
+          {supplierId &&
+            (supplierItems.length === 0 ? (
+              <p className="rounded-md border border-dashed p-3 text-center text-xs text-muted-foreground">
+                {t('No outstanding damaged stock for this supplier.')}
+              </p>
+            ) : (
+              <div className="overflow-x-auto rounded-md border">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b bg-muted/50 text-left text-xs uppercase text-muted-foreground">
+                      <th className="w-8 px-3 py-2">
+                        <input type="checkbox" checked={allSelected} onChange={toggleAll} />
+                      </th>
+                      <th className="px-3 py-2 font-medium">{t('Product')}</th>
+                      <th className="px-3 py-2 font-medium">{t('Receipt #')}</th>
+                      <th className="px-3 py-2 text-right font-medium">{t('Outstanding')}</th>
+                      <th className="px-3 py-2 text-right font-medium">{t('Qty to Return')}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {supplierItems.map((it) => {
+                      const disabled =
+                        !selected.has(it.itemId) && it.warehouseId !== activeWarehouse;
+                      return (
+                        <tr key={it.itemId} className="border-b last:border-0">
+                          <td className="px-3 py-2">
+                            <input
+                              type="checkbox"
+                              checked={selected.has(it.itemId)}
+                              disabled={disabled}
+                              title={
+                                disabled ? t('Selections must share one warehouse') : undefined
+                              }
+                              onChange={() => toggle(it)}
+                            />
+                          </td>
+                          <td className="px-3 py-2">{it.name}</td>
+                          <td className="px-3 py-2 text-muted-foreground">{it.receiptNumber}</td>
+                          <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">
+                            {it.outstandingQuantity}
+                          </td>
+                          <td className="px-3 py-2 text-right">
+                            <Input
+                              type="number"
+                              min={0}
+                              max={it.outstandingQuantity}
+                              step="any"
+                              className="h-8 w-24 ml-auto"
+                              value={quantities[it.itemId] ?? ''}
+                              onChange={(e) =>
+                                setQuantities((q) => ({
+                                  ...q,
+                                  [it.itemId]: Number(e.target.value),
+                                }))
+                              }
+                            />
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            ))}
+
+          {selectedItems.length > 0 && (
+            <>
+              <div className="grid gap-3 sm:grid-cols-3">
+                <div className="space-y-1.5">
+                  <Label>{t('Truck / Vehicle Number')}</Label>
+                  <Input
+                    value={vehicleNumber}
+                    onChange={(e) => setVehicleNumber(e.target.value)}
+                    placeholder="e.g. LEA-1234"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>{t('Driver Name')}</Label>
+                  <Input value={driverName} onChange={(e) => setDriverName(e.target.value)} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>{t('Driver Phone')}</Label>
+                  <Input value={driverPhone} onChange={(e) => setDriverPhone(e.target.value)} />
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label>{t('Note (optional)')}</Label>
+                <Input value={note} onChange={(e) => setNote(e.target.value)} />
+              </div>
+            </>
+          )}
 
           <div className="flex justify-end gap-2 pt-1">
             <DialogClose asChild>
@@ -335,12 +439,11 @@ export function DamagedStockPage() {
   const canManage = grantsPermission(authUser?.permissions, 'damaged-stock:manage');
   const storefront = useStorefrontFilter();
 
-  const [selected, setSelected] = useState<Set<string>>(new Set());
   const [creating, setCreating] = useState(false);
   const [viewingReturn, setViewingReturn] = useState<DamagedReturn | null>(null);
   const [viewingGatePass, setViewingGatePass] = useState<DamagedReturn | null>(null);
 
-  const { data: outstandingData, isLoading: loadingOutstanding } = useQuery({
+  const { data: outstandingData } = useQuery({
     queryKey: ['damaged-stock', storefront.store],
     queryFn: async () =>
       (await api.get('/damaged-stock', { params: { limit: 200, ...storefront } })).data as {
@@ -359,31 +462,6 @@ export function DamagedStockPage() {
       },
   });
   const returns = returnsData?.returns ?? [];
-
-  // Selection is capped to one supplier + warehouse at a time — that's what
-  // one return document (and its one gate pass) can cover.
-  const activeGroup = useMemo(() => {
-    const first = outstanding.find((it) => selected.has(it.itemId));
-    return first ? { supplierId: first.supplierId, warehouseId: first.warehouseId } : null;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selected, outstandingData]);
-
-  useEffect(() => {
-    // Drop any selected ids that vanished from the list (e.g. after a return).
-    setSelected((s) => new Set([...s].filter((id) => outstanding.some((it) => it.itemId === id))));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [outstandingData]);
-
-  const toggle = (it: OutstandingItem) => {
-    setSelected((s) => {
-      const next = new Set(s);
-      if (next.has(it.itemId)) next.delete(it.itemId);
-      else next.add(it.itemId);
-      return next;
-    });
-  };
-
-  const selectedItems = outstanding.filter((it) => selected.has(it.itemId));
 
   const handlePrintInvoice = async (r: DamagedReturn) => {
     try {
@@ -417,85 +495,11 @@ export function DamagedStockPage() {
           {t('awaiting return to supplier')}
         </p>
         {canManage && (
-          <Button disabled={selectedItems.length === 0} onClick={() => setCreating(true)}>
-            <PackageX className="h-4 w-4" /> {t('Return Selected to Supplier')}
+          <Button disabled={outstanding.length === 0} onClick={() => setCreating(true)}>
+            <PackageX className="h-4 w-4" /> {t('Return to Supplier')}
           </Button>
         )}
       </div>
-
-      <Card className="overflow-hidden">
-        <div className="border-b px-4 py-3 text-sm font-medium">
-          {t('Outstanding Damaged Stock')}
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b bg-muted/50 text-left text-xs uppercase tracking-wide text-muted-foreground">
-                {canManage && <th className="w-8 px-4 py-3" />}
-                <th className="px-4 py-3 font-medium">{t('Product')}</th>
-                <th className="px-4 py-3 font-medium">{t('Receipt #')}</th>
-                <th className="px-4 py-3 font-medium">{t('Supplier')}</th>
-                <th className="px-4 py-3 text-right font-medium">{t('Damaged')}</th>
-                <th className="px-4 py-3 text-right font-medium">{t('Returned')}</th>
-                <th className="px-4 py-3 text-right font-medium">{t('Outstanding')}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {loadingOutstanding && (
-                <tr>
-                  <td colSpan={7} className="px-4 py-10 text-center text-muted-foreground">
-                    {t('Loading…')}
-                  </td>
-                </tr>
-              )}
-              {!loadingOutstanding &&
-                outstanding.map((it) => {
-                  const disabled =
-                    !!activeGroup &&
-                    !selected.has(it.itemId) &&
-                    (activeGroup.supplierId !== it.supplierId ||
-                      activeGroup.warehouseId !== it.warehouseId);
-                  return (
-                    <tr key={it.itemId} className="border-b last:border-0 hover:bg-muted/30">
-                      {canManage && (
-                        <td className="px-4 py-3">
-                          <input
-                            type="checkbox"
-                            checked={selected.has(it.itemId)}
-                            disabled={disabled}
-                            title={
-                              disabled
-                                ? t('Selections must share one supplier and warehouse')
-                                : undefined
-                            }
-                            onChange={() => toggle(it)}
-                          />
-                        </td>
-                      )}
-                      <td className="px-4 py-3 font-medium">{it.name}</td>
-                      <td className="px-4 py-3 text-muted-foreground">{it.receiptNumber}</td>
-                      <td className="px-4 py-3 text-muted-foreground">{it.supplierName}</td>
-                      <td className="px-4 py-3 text-right tabular-nums">{it.damagedQuantity}</td>
-                      <td className="px-4 py-3 text-right tabular-nums text-muted-foreground">
-                        {it.returnedQuantity}
-                      </td>
-                      <td className="px-4 py-3 text-right tabular-nums font-medium text-destructive">
-                        {it.outstandingQuantity}
-                      </td>
-                    </tr>
-                  );
-                })}
-              {!loadingOutstanding && outstanding.length === 0 && (
-                <tr>
-                  <td colSpan={7} className="px-4 py-10 text-center text-muted-foreground">
-                    {t('No damaged stock outstanding.')}
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </Card>
 
       <Card className="overflow-hidden">
         <div className="border-b px-4 py-3 text-sm font-medium">{t('Returns to Supplier')}</div>
@@ -581,14 +585,8 @@ export function DamagedStockPage() {
         </div>
       </Card>
 
-      {creating && selectedItems.length > 0 && (
-        <CreateReturnDialog
-          items={selectedItems}
-          onClose={() => {
-            setCreating(false);
-            setSelected(new Set());
-          }}
-        />
+      {creating && (
+        <ReturnToSupplierDialog outstanding={outstanding} onClose={() => setCreating(false)} />
       )}
       {viewingReturn && (
         <ReturnDetailDialog

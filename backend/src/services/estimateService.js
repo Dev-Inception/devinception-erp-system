@@ -90,7 +90,7 @@ async function reloadWithItems(id, transaction) {
 }
 
 async function createEstimate(actor, input) {
-  const { store, date, items, discount = 0, taxPercent = 0, notes } = input;
+  const { store, date, items, discount = 0, taxPercent = 0, notes, validUntil } = input;
 
   return getPostgres().transaction(async (transaction) => {
     const { Estimate, EstimateItem, Store } = initializeModels();
@@ -118,6 +118,7 @@ async function createEstimate(actor, input) {
         tax: calculated.tax,
         total: calculated.total,
         notes: (notes || '').trim(),
+        validUntil: validUntil ? new Date(validUntil) : null,
         createdBy: actor ? actor.id : null,
       },
       { transaction },
@@ -153,7 +154,7 @@ async function updateEstimate(actor, id, input) {
       throw ApiError.badRequest('This estimate was marked lost and can no longer be edited');
     }
 
-    const { items, discount = 0, taxPercent = 0, notes } = input;
+    const { items, discount = 0, taxPercent = 0, notes, validUntil } = input;
     const customerFields = await resolveCustomer(actor, input, transaction);
     const resolvedItems = await resolveItems(items, transaction);
     const calculated = calculateInvoiceTotals(resolvedItems, { discount, taxPercent });
@@ -165,6 +166,8 @@ async function updateEstimate(actor, id, input) {
       tax: calculated.tax,
       total: calculated.total,
       notes: notes !== undefined ? notes.trim() : estimate.notes,
+      validUntil:
+        validUntil !== undefined ? (validUntil ? new Date(validUntil) : null) : estimate.validUntil,
     });
     await estimate.save({ transaction });
 

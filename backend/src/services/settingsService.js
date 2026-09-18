@@ -31,6 +31,12 @@ function defaults() {
   };
 }
 
+// Secrets: never echoed back raw over the API (see settingsController.serialize)
+// and left untouched by an update that doesn't actually send a new value (see
+// updateSettings below) — so the UI can't accidentally blank out a saved
+// credential just by re-saving the rest of the form.
+const SECRET_FIELDS = ['smtpPass', 'twilioAuthToken'];
+
 async function findOrCreateSettings(targetStore) {
   const { Settings } = initializeModels();
   let settings = await Settings.findOne({ where: { store: targetStore } });
@@ -68,6 +74,17 @@ const FALLBACK_FIELDS = [
   'gmail',
   'tiktok',
   'website',
+  // Notification config: a store that hasn't set up its own SMTP/WhatsApp
+  // falls back to the super-admin's — same "override what you need" model
+  // as everything else above.
+  'smtpHost',
+  'smtpPort',
+  'smtpUser',
+  'smtpPass',
+  'smtpFrom',
+  'twilioAccountSid',
+  'twilioAuthToken',
+  'twilioWhatsAppFrom',
 ];
 
 async function getSettings({ store, actor } = {}) {
@@ -98,12 +115,30 @@ const WRITABLE = [
   'gmail',
   'tiktok',
   'website',
+  'smtpHost',
+  'smtpPort',
+  'smtpUser',
+  'smtpFrom',
+  'twilioAccountSid',
+  'twilioWhatsAppFrom',
+  // Secrets: also writable, but through a truthy check below instead of the
+  // plain `!== undefined` the rest use, so an empty/omitted value never
+  // clears a previously saved credential.
+  ...SECRET_FIELDS,
 ];
 
 async function updateSettings({ store, actor } = {}, data = {}) {
   const targetStore = resolveOptionalWriteStore(actor, store);
   const settings = await findOrCreateSettings(targetStore);
-  for (const k of WRITABLE) if (data[k] !== undefined) settings[k] = data[k];
+  for (const k of WRITABLE) {
+    if (SECRET_FIELDS.includes(k)) {
+      // Only overwrite a secret when the caller actually sent a new one —
+      // never with undefined/empty (that's "leave it as-is", not "clear it").
+      if (data[k]) settings[k] = data[k];
+    } else if (data[k] !== undefined) {
+      settings[k] = data[k];
+    }
+  }
   await settings.save();
   return settings;
 }

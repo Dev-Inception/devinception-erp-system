@@ -344,7 +344,7 @@ function sumWhere(entries, predicate) {
  * total operating expenses.
  */
 async function dayBookReport({ from, to, warehouseIds, store }) {
-  const { JournalEntry, JournalLine, Warehouse } = initializeModels();
+  const { JournalEntry, JournalLine, Warehouse, BankAccount } = initializeModels();
   const range = resolveDayRange({ from, to });
   const where = { date: { [Op.gte]: range.from, [Op.lte]: range.to } };
   if (store) {
@@ -401,6 +401,61 @@ async function dayBookReport({ from, to, warehouseIds, store }) {
   summary.netCash = summary.cashIn - summary.cashOut;
   summary.netBank = summary.bankIn - summary.bankOut;
 
+  // Cash Flow: one row per entry that moved the (single, storewide) cash
+  // drawer, with a running balance across the day — starts at 0 rather than
+  // the drawer's real historical balance, same day-scoped convention as the
+  // "Cash On Hand" summary card above.
+  let cashRunning = 0;
+  const cashFlowRows = [];
+  for (const e of entries) {
+    const cashLine = e.lines.find((l) => l.account === ACCOUNT.CASH);
+    if (!cashLine) continue;
+    const cashIn = cashLine.debit || 0;
+    const cashOut = cashLine.credit || 0;
+    cashRunning += cashIn - cashOut;
+    cashFlowRows.push({
+      id: String(e.id),
+      date: e.date,
+      voucherNo: e.refNo || '',
+      description: e.description || VOUCHER_LABELS[e.refType] || e.refType,
+      cashIn,
+      cashOut,
+      balance: cashRunning,
+    });
+  }
+
+  // Bank Reconciliation: one row per entry that settled into a bank account
+  // (`line.ref` is the BankAccount id — see paymentService.settlementAccount),
+  // resolved to that bank's name in one follow-up query. A transaction ID
+  // isn't its own column anywhere yet (see recordPayment in saleService),
+  // just embedded in the description as "Txn ID: <value>" — parsed back out
+  // here so it lines up under its own header.
+  const bankLines = [];
+  const bankAccountIds = new Set();
+  for (const e of entries) {
+    const bankLine = e.lines.find((l) => l.account === ACCOUNT.BANK);
+    if (!bankLine) continue;
+    bankLines.push({ entry: e, line: bankLine });
+    if (bankLine.ref) bankAccountIds.add(String(bankLine.ref));
+  }
+  const bankAccounts = bankAccountIds.size
+    ? await BankAccount.findAll({ where: { id: Array.from(bankAccountIds) } })
+    : [];
+  const bankNameById = new Map(bankAccounts.map((b) => [String(b.id), b.bankName || b.name]));
+  const TXN_ID_RE = /Txn ID:\s*([^—]+)/i;
+  const bankReconciliationRows = bankLines.map(({ entry: e, line }) => {
+    const match = (e.description || '').match(TXN_ID_RE);
+    return {
+      id: String(e.id),
+      date: e.date,
+      voucherNo: e.refNo || '',
+      description: e.description || VOUCHER_LABELS[e.refType] || e.refType,
+      bankName: (line.ref && bankNameById.get(String(line.ref))) || '—',
+      transactionId: match ? match[1].trim() : '',
+      amount: (line.debit || 0) - (line.credit || 0),
+    };
+  });
+
   return {
     title: 'Day Book',
     columns: [
@@ -413,6 +468,8 @@ async function dayBookReport({ from, to, warehouseIds, store }) {
     ],
     rows,
     summary,
+    cashFlowRows,
+    bankReconciliationRows,
   };
 }
 

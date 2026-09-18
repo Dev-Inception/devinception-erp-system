@@ -327,7 +327,7 @@ async function reloadSaleWithAssociations(id, transaction) {
       { model: SaleItem, as: 'items', separate: true, order: [['position', 'ASC']] },
       { model: SaleLabour, as: 'labour', separate: true, order: [['position', 'ASC']] },
       { model: SaleWarehouseGatePass, as: 'warehouseGatePasses', separate: true },
-      { model: Customer, as: 'customerInfo', attributes: ['id', 'name', 'phone'] },
+      { model: Customer, as: 'customerInfo', attributes: ['id', 'name', 'phone', 'email'] },
       { model: Store, as: 'storeInfo', attributes: ['id', 'name', 'code', 'address'] },
       { model: Warehouse, as: 'warehouseInfo', attributes: ['id', 'name'] },
     ],
@@ -974,7 +974,7 @@ async function listSales({
   actor,
   ...query
 } = {}) {
-  const { Sale, SaleItem, SaleLabour, SaleWarehouseGatePass, Store, Transporter } =
+  const { Sale, SaleItem, SaleLabour, SaleWarehouseGatePass, Customer, Store, Transporter } =
     initializeModels();
   const { page, limit, skip } = parsePagination(query);
   const where = {};
@@ -1032,6 +1032,7 @@ async function listSales({
         as: 'transporterInfo',
         attributes: ['id', 'name', 'phone', 'vehicleNumber'],
       },
+      { model: Customer, as: 'customerInfo', attributes: ['id', 'name', 'phone', 'email'] },
       { model: SaleItem, as: 'items', separate: true, order: [['position', 'ASC']] },
       { model: SaleLabour, as: 'labour', separate: true, order: [['position', 'ASC']] },
       { model: SaleWarehouseGatePass, as: 'warehouseGatePasses', separate: true },
@@ -1056,7 +1057,7 @@ async function getSaleById(actor, id) {
       { model: SaleItem, as: 'items', separate: true, order: [['position', 'ASC']] },
       { model: SaleLabour, as: 'labour', separate: true, order: [['position', 'ASC']] },
       { model: SaleWarehouseGatePass, as: 'warehouseGatePasses', separate: true },
-      { model: Customer, as: 'customerInfo', attributes: ['id', 'name', 'phone'] },
+      { model: Customer, as: 'customerInfo', attributes: ['id', 'name', 'phone', 'email'] },
       { model: Store, as: 'storeInfo', attributes: ['id', 'name', 'code', 'address'] },
       { model: Warehouse, as: 'warehouseInfo', attributes: ['id', 'name'] },
     ],
