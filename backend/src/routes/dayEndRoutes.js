@@ -1,11 +1,12 @@
 const express = require('express');
 const dayEndController = require('../controllers/dayEndController');
 const { protect } = require('../middlewares/authMiddleware');
-const { authorize, requireMinRole } = require('../middlewares/roleMiddleware');
+const { requirePermission } = require('../middlewares/roleMiddleware');
 const { validate } = require('../middlewares/validateMiddleware');
-const { ROLES } = require('../utils/constants');
+const { PERMISSIONS } = require('../utils/permissions');
 const {
   statusQueryValidator,
+  openDayValidator,
   closeDayValidator,
   reopenDayValidator,
 } = require('../validators/dayEndValidator');
@@ -17,18 +18,27 @@ router.use(protect);
 
 router.get('/', statusQueryValidator, validate, dayEndController.getStatus);
 
-// A manager (or above) can close a store's day; only a super admin can
-// reopen one, or add sales after it's closed (see saleService.createSale).
+// Anyone who can see the Day Book (reports:read) can open or close a store's
+// day. Reopening a closed day is more sensitive — restricted to a super
+// admin or that store's own admin (enforced in dayEndService, which needs
+// the store_admins scoping requirePermission alone can't express).
+router.post(
+  '/open',
+  requirePermission(PERMISSIONS.REPORTS_READ),
+  openDayValidator,
+  validate,
+  dayEndController.openDay,
+);
 router.post(
   '/close',
-  requireMinRole(ROLES.MANAGER),
+  requirePermission(PERMISSIONS.REPORTS_READ),
   closeDayValidator,
   validate,
   dayEndController.closeDay,
 );
 router.post(
   '/reopen',
-  authorize(ROLES.SUPER_ADMIN),
+  requirePermission(PERMISSIONS.REPORTS_READ),
   reopenDayValidator,
   validate,
   dayEndController.reopenDay,

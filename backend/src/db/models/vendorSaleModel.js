@@ -41,6 +41,7 @@ module.exports = function defineVendorSale(db) {
       bankAccount: { type: DataTypes.STRING(24), field: 'bank_account_id' },
       transferReceiptRef: { type: DataTypes.STRING(300), allowNull: false, defaultValue: '' },
       note: { type: DataTypes.STRING(500), allowNull: false, defaultValue: '' },
+      gatePass: { type: DataTypes.STRING(24), field: 'gate_pass_id' },
 
       lastEditedAt: { type: DataTypes.DATE },
       lastEditedBy: { type: DataTypes.STRING(24), field: 'last_edited_by_id' },

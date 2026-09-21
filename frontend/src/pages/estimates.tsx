@@ -15,6 +15,7 @@ import {
   UserX,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { useConfirmDelete } from '@/components/confirm-provider';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -715,8 +716,9 @@ export function EstimatesPage() {
     },
     onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Could not delete estimate'),
   });
-  const remove = (e: Estimate) => {
-    if (window.confirm(`Delete estimate ${e.number}? This cannot be undone.`)) del.mutate(e.id);
+  const confirmDelete = useConfirmDelete();
+  const remove = async (e: Estimate) => {
+    if (await confirmDelete(`estimate ${e.number}`)) del.mutate(e.id);
   };
 
   const convert = (e: Estimate) => navigate(`/pos?estimateId=${e.id}`);

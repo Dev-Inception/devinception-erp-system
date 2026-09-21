@@ -8,6 +8,7 @@ const { PERMISSIONS } = require('../utils/permissions');
 const {
   listVendorSalesValidator,
   createVendorSaleValidator,
+  updateVendorSaleValidator,
   idParamValidator,
 } = require('../validators/vendorSaleValidator');
 const {
@@ -38,6 +39,13 @@ router.get(
   idParamValidator,
   validate,
   vendorSaleController.getVendorSale,
+);
+router.patch(
+  '/:id',
+  requirePermission(PERMISSIONS.VENDOR_SALES_MANAGE),
+  updateVendorSaleValidator,
+  validate,
+  vendorSaleController.updateVendorSale,
 );
 router.get(
   '/:vendorSaleId/returns',

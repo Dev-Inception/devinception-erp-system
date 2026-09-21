@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Plus, Search, Loader2, Pencil, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
+import { useConfirmDelete } from '@/components/confirm-provider';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -206,8 +207,9 @@ export function SuppliersPage() {
     onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Could not delete supplier'),
   });
 
-  const remove = (s: Supplier) => {
-    if (window.confirm(`Delete supplier “${s.name}”? This cannot be undone.`)) del.mutate(s.id);
+  const confirmDelete = useConfirmDelete();
+  const remove = async (s: Supplier) => {
+    if (await confirmDelete(`supplier "${s.name}"`)) del.mutate(s.id);
   };
 
   const colSpan = showActions ? 6 : 5;

@@ -1,25 +1,45 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
+import { useConfirm } from '@/components/confirm-provider';
 import { BookText, ChevronLeft, ChevronRight, Download, Lock, Printer, Unlock } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from '@/components/ui/dialog';
 import { api } from '@/lib/api';
 import { cn, formatCurrency } from '@/lib/utils';
+import { MODULES, canSeeModule } from '@/lib/modules';
 import { useStorefrontFilter, useStorefrontStore } from '@/store/storefront';
 import { useAuthStore } from '@/store/auth';
 import { useLanguage } from '@/components/language-provider';
 
 interface DayEndStatus {
   isOpen: boolean;
+  // The business date this session was opened on — stays the same across
+  // any number of midnights until the day is explicitly closed.
+  openDate?: string;
+  openedByName?: string;
+  openedAt?: string;
+  openingBalance?: number;
+  // Only present while open: opening balance + net cash movement since.
+  cashOnHand?: number;
   closedByName?: string;
   closedAt?: string;
+  handoverAmount?: number;
+  remainingBalance?: number;
   reopenedByName?: string;
   reopenedAt?: string;
 }
-const MANAGER_ROLES = ['MANAGER', 'ADMIN', 'SUPER_ADMIN'];
+
+const DAY_BOOK_MODULE = MODULES.find((m) => m.key === 'day-book');
 
 interface DayBookRow {
   id: string;
@@ -95,6 +115,14 @@ function shiftDate(date: string, days: number) {
   return formatLocalDate(d);
 }
 
+function formatDisplayDate(date: string) {
+  return new Date(`${date}T00:00:00`).toLocaleDateString(undefined, {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  });
+}
+
 function csvEscape(v: unknown) {
   const s = String(v ?? '').replace(/"/g, '""');
   return /[",\n]/.test(s) ? `"${s}"` : s;
@@ -105,20 +133,20 @@ export function DayBookPage() {
   const qc = useQueryClient();
   const [date, setDate] = useState(todayStr);
   const [tab, setTab] = useState<'cash-flow' | 'bank-reconciliation'>('cash-flow');
+  const [closeDialogOpen, setCloseDialogOpen] = useState(false);
+  const [handoverAmount, setHandoverAmount] = useState(0);
   const today = todayStr();
   const storefront = useStorefrontFilter();
   const currentStoreId = useStorefrontStore((s) => s.currentStoreId);
   const hasSpecificStore = !!currentStoreId && currentStoreId !== 'ALL';
   const role = useAuthStore((s) => s.user?.role);
-  const canClose = !!role && MANAGER_ROLES.includes(role);
-  const canReopen = role === 'SUPER_ADMIN';
-
-  const { data, isLoading } = useQuery<DayBookResult>({
-    queryKey: ['day-book', date, storefront.store],
-    queryFn: async () =>
-      (await api.get('/reports/day-book', { params: { from: date, to: date, ...storefront } }))
-        .data,
-  });
+  const permissions = useAuthStore((s) => s.user?.permissions);
+  // Anyone who can see the Day Book at all (same reports:read gate as the
+  // page itself) can open or close the day; reopening a closed day is more
+  // sensitive, so it's reserved for a super admin or this store's own admin.
+  const canOpenClose = !!DAY_BOOK_MODULE && canSeeModule(role, permissions, DAY_BOOK_MODULE);
+  const canReopen = role === 'ADMIN' || role === 'SUPER_ADMIN';
+  const isToday = date === today;
 
   const { data: dayEnd } = useQuery<DayEndStatus>({
     queryKey: ['day-end', currentStoreId, date],
@@ -127,22 +155,49 @@ export function DayBookPage() {
     enabled: hasSpecificStore,
   });
 
+  // A day that's still open keeps accumulating from the date it was opened
+  // on, no matter how many calendar dates have rolled by since — so while
+  // looking at "today" with an open day that started earlier, pull the
+  // whole open span into view instead of just today's slice.
+  const rangeFrom =
+    isToday && dayEnd?.isOpen && dayEnd.openDate && dayEnd.openDate < date ? dayEnd.openDate : date;
+  const isMultiDay = rangeFrom !== date;
+
+  const { data, isLoading } = useQuery<DayBookResult>({
+    queryKey: ['day-book', rangeFrom, date, storefront.store],
+    queryFn: async () =>
+      (
+        await api.get('/reports/day-book', {
+          params: { from: rangeFrom, to: date, ...storefront },
+        })
+      ).data,
+  });
+
   const invalidateDayEnd = () =>
     qc.invalidateQueries({ queryKey: ['day-end', currentStoreId, date] });
 
+  const openDay = useMutation({
+    mutationFn: async () => (await api.post('/day-end/open', { store: currentStoreId })).data,
+    onSuccess: () => {
+      toast.success('Day opened');
+      invalidateDayEnd();
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Could not open the day'),
+  });
+
   const closeDay = useMutation({
     mutationFn: async () =>
-      (await api.post('/day-end/close', { store: currentStoreId, date })).data,
+      (await api.post('/day-end/close', { store: currentStoreId, handoverAmount })).data,
     onSuccess: () => {
       toast.success('Day closed');
       invalidateDayEnd();
+      setCloseDialogOpen(false);
     },
     onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Could not close the day'),
   });
 
   const reopenDay = useMutation({
-    mutationFn: async () =>
-      (await api.post('/day-end/reopen', { store: currentStoreId, date })).data,
+    mutationFn: async () => (await api.post('/day-end/reopen', { store: currentStoreId })).data,
     onSuccess: () => {
       toast.success('Day reopened');
       invalidateDayEnd();
@@ -150,22 +205,47 @@ export function DayBookPage() {
     onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Could not reopen the day'),
   });
 
-  const handleCloseDay = () => {
-    if (
-      window.confirm(
-        `Close ${date} for this store? No one except a super admin will be able to add new sales for this date until it's reopened.`,
-      )
-    ) {
-      closeDay.mutate();
-    }
+  const confirm = useConfirm();
+  const handleOpenDay = async () => {
+    const carry = dayEnd?.remainingBalance;
+    const ok = await confirm({
+      title: 'Open a new day for this store?',
+      description:
+        typeof carry === 'number' && carry !== 0
+          ? `Opening balance will be ${formatCurrency(carry)}, carried forward from the last close.`
+          : undefined,
+      confirmLabel: 'Open Day',
+    });
+    if (ok) openDay.mutate();
   };
-  const handleReopenDay = () => {
-    if (window.confirm(`Reopen ${date} for this store?`)) reopenDay.mutate();
+  const openCloseDialog = () => {
+    setHandoverAmount(dayEnd?.cashOnHand ?? 0);
+    setCloseDialogOpen(true);
+  };
+  const handleReopenDay = async () => {
+    const ok = await confirm({
+      title: 'Reopen the day for this store?',
+      description: "It will accept new sales again until it's closed.",
+      confirmLabel: 'Reopen Day',
+    });
+    if (ok) reopenDay.mutate();
   };
 
   const summary = data?.summary;
   const cashFlowRows = data?.cashFlowRows ?? [];
   const bankReconciliationRows = data?.bankReconciliationRows ?? [];
+  const remainingAfterHandover = (dayEnd?.cashOnHand ?? 0) - handoverAmount;
+
+  const formatRowStamp = (value: string) =>
+    isMultiDay
+      ? new Date(value).toLocaleString([], {
+          day: '2-digit',
+          month: 'short',
+          year: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit',
+        })
+      : new Date(value).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
   const downloadCsv = () => {
     if (!data) return;
@@ -234,6 +314,17 @@ export function DayBookPage() {
       ]
     : [];
 
+  // The report's netCash is just cash movement within the queried range — it
+  // has no concept of a carried-forward opening balance. While the day is
+  // open, the actual drawer balance is openingBalance + movement since open
+  // (already combined server-side in dayEnd.cashOnHand); fall back to the
+  // range's net movement only when there's no live open-session figure to
+  // show (day closed, or viewing history).
+  const cashOnHandValue =
+    isToday && dayEnd?.isOpen && typeof dayEnd.cashOnHand === 'number'
+      ? dayEnd.cashOnHand
+      : (summary?.netCash ?? 0);
+
   const cashCards = summary
     ? [
         {
@@ -251,7 +342,7 @@ export function DayBookPage() {
         {
           key: 'netCash',
           label: 'Cash On Hand',
-          value: summary.netCash,
+          value: cashOnHandValue,
           tone: 'success' as const,
         },
       ]
@@ -298,7 +389,7 @@ export function DayBookPage() {
             </Button>
           )}
           {hasSpecificStore && dayEnd && (
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <span
                 className={cn(
                   'flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-medium',
@@ -309,20 +400,38 @@ export function DayBookPage() {
               >
                 {dayEnd.isOpen ? <Unlock className="h-4 w-4" /> : <Lock className="h-4 w-4" />}
                 {dayEnd.isOpen
-                  ? t('Day is open')
+                  ? dayEnd.openDate && dayEnd.openDate < today
+                    ? `${t('Day is open')} — ${t('since')} ${formatDisplayDate(dayEnd.openDate)}`
+                    : t('Day is open')
                   : `${t('Closed by')} ${dayEnd.closedByName ?? ''}`.trim()}
               </span>
-              {dayEnd.isOpen && canClose && (
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={handleCloseDay}
-                  disabled={closeDay.isPending}
-                >
+              {!dayEnd.isOpen && typeof dayEnd.remainingBalance === 'number' && (
+                <span className="text-xs text-muted-foreground">
+                  {t('Submitted')} {formatCurrency(dayEnd.handoverAmount ?? 0)} ·{' '}
+                  {t('Carried forward')} {formatCurrency(dayEnd.remainingBalance)}
+                </span>
+              )}
+              {dayEnd.isOpen && !!dayEnd.openingBalance && (
+                <span className="text-xs text-muted-foreground">
+                  {t('Opening balance')} {formatCurrency(dayEnd.openingBalance)}
+                </span>
+              )}
+              {isToday && dayEnd.isOpen && canOpenClose && (
+                <Button type="button" variant="outline" onClick={openCloseDialog}>
                   <Lock className="h-4 w-4" /> {t('Day End')}
                 </Button>
               )}
-              {!dayEnd.isOpen && canReopen && (
+              {isToday && !dayEnd.isOpen && canOpenClose && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={handleOpenDay}
+                  disabled={openDay.isPending}
+                >
+                  <Unlock className="h-4 w-4" /> {t('Day Open')}
+                </Button>
+              )}
+              {isToday && !dayEnd.isOpen && canReopen && (
                 <Button
                   type="button"
                   variant="outline"
@@ -422,7 +531,11 @@ export function DayBookPage() {
             <CardTitle className="flex items-center gap-2">
               <BookText className="h-4 w-4" /> {t('Cash Flow')}
             </CardTitle>
-            <p className="text-sm text-muted-foreground">Every cash movement posted on {date}</p>
+            <p className="text-sm text-muted-foreground">
+              {isMultiDay
+                ? `Every cash movement since the day opened on ${formatDisplayDate(rangeFrom)}`
+                : `Every cash movement posted on ${date}`}
+            </p>
           </CardHeader>
           <CardContent className="p-0">
             <div className="overflow-x-auto">
@@ -449,10 +562,7 @@ export function DayBookPage() {
                     cashFlowRows.map((r) => (
                       <tr key={r.id} className="border-b last:border-0 hover:bg-muted/30">
                         <td className="px-4 py-2 text-muted-foreground">
-                          {new Date(r.date).toLocaleTimeString([], {
-                            hour: '2-digit',
-                            minute: '2-digit',
-                          })}
+                          {formatRowStamp(r.date)}
                         </td>
                         <td className="px-4 py-2 text-muted-foreground">{r.voucherNo || '—'}</td>
                         <td className="px-4 py-2">{r.description}</td>
@@ -487,7 +597,11 @@ export function DayBookPage() {
             <CardTitle className="flex items-center gap-2">
               <BookText className="h-4 w-4" /> {t('Bank Reconciliation')}
             </CardTitle>
-            <p className="text-sm text-muted-foreground">Every bank transaction posted on {date}</p>
+            <p className="text-sm text-muted-foreground">
+              {isMultiDay
+                ? `Every bank transaction since the day opened on ${formatDisplayDate(rangeFrom)}`
+                : `Every bank transaction posted on ${date}`}
+            </p>
           </CardHeader>
           <CardContent className="p-0">
             <div className="overflow-x-auto">
@@ -514,10 +628,7 @@ export function DayBookPage() {
                     bankReconciliationRows.map((r) => (
                       <tr key={r.id} className="border-b last:border-0 hover:bg-muted/30">
                         <td className="px-4 py-2 text-muted-foreground">
-                          {new Date(r.date).toLocaleTimeString([], {
-                            hour: '2-digit',
-                            minute: '2-digit',
-                          })}
+                          {formatRowStamp(r.date)}
                         </td>
                         <td className="px-4 py-2 text-muted-foreground">{r.voucherNo || '—'}</td>
                         <td className="px-4 py-2">{r.description}</td>
@@ -548,6 +659,62 @@ export function DayBookPage() {
           </CardContent>
         </Card>
       )}
+
+      <Dialog open={closeDialogOpen} onOpenChange={setCloseDialogOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>{t('Day End')}</DialogTitle>
+            <DialogDescription>
+              {t(
+                'Enter how much cash you are submitting to the admin. Anything left over carries forward as tomorrow’s opening balance.',
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <form
+            className="space-y-4"
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (!closeDay.isPending && handoverAmount >= 0) closeDay.mutate();
+            }}
+          >
+            <div className="rounded-lg border bg-muted/20 p-3 text-sm">
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">{t('Cash on hand')}</span>
+                <span className="font-medium">{formatCurrency(dayEnd?.cashOnHand ?? 0)}</span>
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label>{t('Amount submitted to admin')} *</Label>
+              <Input
+                type="number"
+                min={0}
+                step="0.01"
+                value={handoverAmount || ''}
+                onChange={(e) => setHandoverAmount(Number(e.target.value))}
+                required
+                autoFocus
+              />
+            </div>
+            <div className="rounded-lg border bg-muted/20 p-3 text-sm">
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">{t('Carried forward to next day')}</span>
+                <span
+                  className={cn('font-medium', remainingAfterHandover < 0 && 'text-destructive')}
+                >
+                  {formatCurrency(remainingAfterHandover)}
+                </span>
+              </div>
+            </div>
+            <Button
+              type="submit"
+              className="w-full"
+              disabled={closeDay.isPending || handoverAmount < 0}
+            >
+              {closeDay.isPending ? t('Closing…') : t('Close Day')}
+            </Button>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

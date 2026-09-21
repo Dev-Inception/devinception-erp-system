@@ -47,9 +47,11 @@ export const ACTION_TRANSLATIONS: Record<string, string> = {
   'Add Store': 'اسٹور شامل کریں',
   'Add Warehouse': 'گودام شامل کریں',
   'Add Labour': 'مزدور شامل کریں',
+  'Add Labour Service': 'مزدوری سروس شامل کریں',
   'Add Role': 'کردار شامل کریں',
   'Add User': 'صارف شامل کریں',
   'New Category': 'نئی کیٹیگری',
+  'New Labour Service': 'نئی مزدوری سروس',
   'New Customer': 'نیا کسٹمر',
   'New Vendor': 'نیا وینڈر',
   'New Supplier': 'نیا سپلائر',
@@ -78,6 +80,7 @@ export const ACTION_TRANSLATIONS: Record<string, string> = {
   // Table row actions
   'Edit Category': 'کیٹیگری میں ترمیم کریں',
   'Delete Category': 'کیٹیگری حذف کریں',
+  'Edit Labour Service': 'مزدوری سروس میں ترمیم کریں',
 
   // Users
   'Create User': 'صارف بنائیں',
@@ -253,6 +256,8 @@ export const ACTION_TRANSLATIONS: Record<string, string> = {
   Type: 'قسم',
   'Voucher #': 'واؤچر نمبر',
   Category: 'کیٹیگری',
+  Label: 'لیبل',
+  'Labour Services': 'مزدوری سروسز',
   Purchase: 'خریداری',
   Sale: 'فروخت',
   SKU: 'ایس کے یو',
@@ -279,7 +284,6 @@ export const ACTION_TRANSLATIONS: Record<string, string> = {
 
   // POS — steps, form labels, and messages
   Products: 'پروڈکٹس',
-  'Labour & Transport': 'مزدور اور ٹرانسپورٹ',
   Done: 'مکمل',
   'Who is this sale for?': 'یہ فروخت کس کے لیے ہے؟',
   "Enter the customer's details to start.": 'شروع کرنے کے لیے کسٹمر کی تفصیلات درج کریں۔',
@@ -297,9 +301,14 @@ export const ACTION_TRANSLATIONS: Record<string, string> = {
   'not stocked here': 'یہاں اسٹاک میں نہیں',
   'Optionally select who is loading the goods.':
     'اختیاری طور پر منتخب کریں کہ سامان کون لوڈ کر رہا ہے۔',
+  'Optionally select who is working on this sale, and which services they did.':
+    'اختیاری طور پر منتخب کریں کہ اس فروخت پر کون کام کر رہا ہے، اور انہوں نے کون سی خدمات انجام دیں۔',
+  'Optionally arrange a driver to deliver the goods.':
+    'اختیاری طور پر سامان کی ترسیل کے لیے ڈرائیور کا بندوبست کریں۔',
   'Click to browse, or search labour…': 'براؤز کرنے کے لیے کلک کریں، یا مزدور تلاش کریں…',
   'No labour found': 'کوئی مزدور نہیں ملا',
   'Selected labour · rent': 'منتخب مزدور · کرایہ',
+  '+ Add service…': '+ سروس شامل کریں…',
   Rent: 'کرایہ',
   Transport: 'ٹرانسپورٹ',
   'Name *': 'نام *',
@@ -307,6 +316,8 @@ export const ACTION_TRANSLATIONS: Record<string, string> = {
   Address: 'پتہ',
   'Driver name *': 'ڈرائیور کا نام *',
   'Vehicle number *': 'گاڑی نمبر *',
+  'Driver name': 'ڈرائیور کا نام',
+  'Vehicle number': 'گاڑی نمبر',
   'Driver phone': 'ڈرائیور کا فون',
   'Transport fare': 'ٹرانسپورٹ کرایہ',
   'Transport Fare': 'ٹرانسپورٹ کرایہ',
@@ -345,6 +356,7 @@ export const ACTION_TRANSLATIONS: Record<string, string> = {
 
   // Search box placeholders
   'Search categories…': 'کیٹیگریز تلاش کریں…',
+  'Search labour services…': 'مزدوری سروسز تلاش کریں…',
   'Search customers…': 'کسٹمرز تلاش کریں…',
   'Search labour…': 'مزدور تلاش کریں…',
   'Search by gate pass #…': 'گیٹ پاس نمبر سے تلاش کریں…',

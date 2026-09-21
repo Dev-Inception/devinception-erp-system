@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Plus, Loader2, Pencil, Trash2, HardHat, Search } from 'lucide-react';
 import { toast } from 'sonner';
+import { useConfirmDelete } from '@/components/confirm-provider';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -228,8 +229,9 @@ export function RolePage() {
     onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Could not delete Role'),
   });
 
-  const remove = (l: Role) => {
-    if (window.confirm(`Delete role "${l.label}"? This cannot be undone.`)) del.mutate(l.id);
+  const confirmDelete = useConfirmDelete();
+  const remove = async (l: Role) => {
+    if (await confirmDelete(`role "${l.label}"`)) del.mutate(l.id);
   };
 
   return (

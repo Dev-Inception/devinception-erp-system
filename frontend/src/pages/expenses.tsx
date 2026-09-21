@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Check, Loader2, Pencil, Plus, Receipt, Search, Trash2, X } from 'lucide-react';
 import { toast } from 'sonner';
+import { useConfirmDelete } from '@/components/confirm-provider';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -50,6 +51,10 @@ interface Expense {
 
 const PAGE_SIZE = 20;
 const SEARCH_FETCH_LIMIT = 200;
+// Rupees — mirrors backend/src/services/expenseService.js's
+// AUTO_APPROVE_THRESHOLD_RUPEES. Informational only; the server is the one
+// that actually decides and enforces the status on create.
+const AUTO_APPROVE_THRESHOLD = 1000;
 
 const METHOD_LABEL: Record<ExpenseMethod, string> = {
   CASH: 'Cash',
@@ -200,11 +205,17 @@ function ExpenseDialog({
               {t('Select a specific store from the header before recording an expense.')}
             </p>
           )}
-          {!editing && !isSuperAdmin && (
-            <p className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-600">
-              {t('This will need approval before it affects the books.')}
-            </p>
-          )}
+          {!editing &&
+            !isSuperAdmin &&
+            (amount > AUTO_APPROVE_THRESHOLD ? (
+              <p className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-600">
+                {`Over ${formatCurrency(AUTO_APPROVE_THRESHOLD)} needs approval before it affects the books.`}
+              </p>
+            ) : (
+              <p className="rounded-md border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-600">
+                {`${formatCurrency(AUTO_APPROVE_THRESHOLD)} or under is auto-approved.`}
+              </p>
+            ))}
 
           <div className="space-y-1.5">
             <Label>{t('Category')}</Label>
@@ -481,8 +492,9 @@ export function ExpensesPage() {
     },
     onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Could not delete expense'),
   });
-  const remove = (e: Expense) => {
-    if (window.confirm(`Delete expense ${e.number}? This cannot be undone.`)) del.mutate(e.id);
+  const confirmDelete = useConfirmDelete();
+  const remove = async (e: Expense) => {
+    if (await confirmDelete(`expense ${e.number}`)) del.mutate(e.id);
   };
 
   const approve = useMutation({

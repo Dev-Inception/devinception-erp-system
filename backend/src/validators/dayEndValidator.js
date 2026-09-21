@@ -7,11 +7,18 @@ const statusQueryValidator = [
   query('date').matches(CALENDAR_DATE).withMessage('date must be in YYYY-MM-DD format'),
 ];
 
+const openDayValidator = [body('store').isMongoId().withMessage('A valid store is required')];
+
 const closeDayValidator = [
   body('store').isMongoId().withMessage('A valid store is required'),
-  body('date').matches(CALENDAR_DATE).withMessage('date must be in YYYY-MM-DD format'),
+  body('handoverAmount').isFloat({ min: 0 }).withMessage('A valid amount to submit is required'),
 ];
 
-const reopenDayValidator = closeDayValidator;
+const reopenDayValidator = [body('store').isMongoId().withMessage('A valid store is required')];
 
-module.exports = { statusQueryValidator, closeDayValidator, reopenDayValidator };
+module.exports = {
+  statusQueryValidator,
+  openDayValidator,
+  closeDayValidator,
+  reopenDayValidator,
+};

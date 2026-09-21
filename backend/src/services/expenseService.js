@@ -19,6 +19,10 @@ const { ROLES } = require('../utils/constants');
 
 const EXPENSE_STATUS = { PENDING: 'PENDING', APPROVED: 'APPROVED', REJECTED: 'REJECTED' };
 
+// Small, everyday spend doesn't need a sign-off — only amounts above this
+// (in rupees) go to PENDING and wait for someone with expenses:approve.
+const AUTO_APPROVE_THRESHOLD_RUPEES = 1000;
+
 /**
  * Day-to-day operating expenses — food, utility bills, office/equipment
  * upkeep, and anything else that isn't a purchase or a sale. Each create/
@@ -179,12 +183,15 @@ async function createExpense(actor, input) {
       createdBy: actor ? actor.id : null,
     });
 
-    // A super admin's own entry needs no one else's sign-off; everyone
-    // else's stays PENDING — no journal effect — until a super admin
-    // approves it (see approveExpense/rejectExpense below).
-    if (actor && actor.role === ROLES.SUPER_ADMIN) {
+    // A super admin's own entry needs no one else's sign-off, and small
+    // day-to-day spend (at or under the auto-approve threshold) doesn't
+    // either. Anything else stays PENDING — no journal effect — until
+    // someone with expenses:approve signs off (see approveExpense below).
+    const autoApprove =
+      (actor && actor.role === ROLES.SUPER_ADMIN) || amt <= toPaisa(AUTO_APPROVE_THRESHOLD_RUPEES);
+    if (autoApprove) {
       expense.status = EXPENSE_STATUS.APPROVED;
-      expense.approvedBy = actor.id;
+      expense.approvedBy = actor ? actor.id : null;
       expense.approvedAt = new Date();
       await expense.save({ transaction });
       await postExpenseJournal(expense, actor, transaction);

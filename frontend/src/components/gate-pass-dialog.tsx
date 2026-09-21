@@ -17,7 +17,7 @@ interface GatePassDetail {
   id: string;
   number: string;
   storeId?: string;
-  sourceType?: 'SALE' | 'PURCHASE' | 'RETURN' | 'SUPPLIER_RETURN';
+  sourceType?: 'SALE' | 'PURCHASE' | 'RETURN' | 'SUPPLIER_RETURN' | 'VENDOR_SALE';
   direction?: 'IN' | 'OUT';
   partyName?: string;
   saleNumber: string;
@@ -93,7 +93,12 @@ export function GatePassDialog({
       direction:
         data.direction ?? (isSupplierReturn ? 'OUT' : isPurchase || isReturn ? 'IN' : 'OUT'),
       partyName:
-        data.partyName || (isPurchase || isSupplierReturn ? 'Supplier' : 'Walk-in Customer'),
+        data.partyName ||
+        (isPurchase || isSupplierReturn
+          ? 'Supplier'
+          : isVendorSale
+            ? 'Vendor'
+            : 'Walk-in Customer'),
       documentLabel: docLabel,
       documentNumber: data.saleNumber,
       purpose: `${directionLabel.charAt(0).toUpperCase()}${directionLabel.slice(1)}`,
@@ -112,14 +117,23 @@ export function GatePassDialog({
   const isPurchase = data?.sourceType === 'PURCHASE';
   const isReturn = data?.sourceType === 'RETURN';
   const isSupplierReturn = data?.sourceType === 'SUPPLIER_RETURN';
-  const docLabel = isPurchase ? 'Purchase #' : isReturn || isSupplierReturn ? 'Return #' : 'Sale #';
+  const isVendorSale = data?.sourceType === 'VENDOR_SALE';
+  const docLabel = isPurchase
+    ? 'Purchase #'
+    : isReturn || isSupplierReturn
+      ? 'Return #'
+      : isVendorSale
+        ? 'Vendor Sale #'
+        : 'Sale #';
   const directionLabel = isSupplierReturn
     ? 'damaged goods going back out to the supplier'
     : isReturn
       ? 'goods coming back in'
       : isPurchase
         ? 'goods coming in'
-        : 'goods going out';
+        : isVendorSale
+          ? 'goods going out to the vendor'
+          : 'goods going out';
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

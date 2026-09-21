@@ -72,39 +72,63 @@ async function deleteLabour(actor, id) {
 
 /**
  * Resolves a raw `labour` input — either a plain array of labour ids, or
- * `{ labour, rent }` objects when each labourer has a per-job charge
- * attached — into snapshot line items `{ labour, name, phoneNumber, rent }`
- * (rent in paisa). Shared by any flow that charges labour on a document
- * (POS sales, stock receiving).
+ * `{ labour, service, rent }` objects when each labourer has a per-job
+ * charge attached — into snapshot line items
+ * `{ labour, name, phoneNumber, service, serviceName, rent }` (rent in
+ * paisa). Shared by any flow that charges labour on a document (POS sales,
+ * stock receiving).
+ *
+ * Unlike a plain labour id (deduped by document), `service` entries are NOT
+ * deduped — a POS sale attaches one line per (labour, service) pair, so the
+ * same labourer can appear more than once, each line billing a different
+ * service. Stock receiving doesn't pass `service` at all, so it keeps
+ * getting exactly one line per labourer, same as before.
  */
 async function resolveLabourLines(labourInput, storeId, transaction) {
-  const { Labour } = initializeModels();
+  const { Labour, LabourService } = initializeModels();
   const input = Array.isArray(labourInput) ? labourInput : [];
-  const ids = Array.from(
-    new Set(
-      input
-        .map((l) => (l && typeof l === 'object' ? l.labour : l))
-        .filter(Boolean)
-        .map(String),
-    ),
-  );
-  const docs = ids.length
-    ? await Labour.findAll({ where: { id: { [Op.in]: ids } }, transaction })
+  const entries = input
+    .map((l) => (l && typeof l === 'object' ? l : { labour: l }))
+    .filter((l) => l.labour);
+
+  const labourIds = Array.from(new Set(entries.map((l) => String(l.labour))));
+  const labourDocs = labourIds.length
+    ? await Labour.findAll({ where: { id: { [Op.in]: labourIds } }, transaction })
     : [];
-  if (docs.length !== ids.length || docs.some((doc) => String(doc.store) !== String(storeId))) {
+  if (
+    labourDocs.length !== labourIds.length ||
+    labourDocs.some((doc) => String(doc.store) !== String(storeId))
+  ) {
     throw ApiError.badRequest('One or more labour entries are invalid');
   }
-  const rentById = new Map(
-    input
-      .filter((l) => l && typeof l === 'object' && l.labour)
-      .map((l) => [String(l.labour), toPaisa(l.rent || 0)]),
+  const labourById = new Map(labourDocs.map((doc) => [String(doc.id), doc]));
+
+  const serviceIds = Array.from(
+    new Set(entries.map((l) => (l.service ? String(l.service) : null)).filter(Boolean)),
   );
-  return docs.map((doc) => ({
-    labour: doc.id,
-    name: doc.name,
-    phoneNumber: doc.phoneNumber,
-    rent: rentById.get(String(doc.id)) || 0,
-  }));
+  const serviceDocs = serviceIds.length
+    ? await LabourService.findAll({ where: { id: { [Op.in]: serviceIds } }, transaction })
+    : [];
+  if (
+    serviceDocs.length !== serviceIds.length ||
+    serviceDocs.some((doc) => String(doc.store) !== String(storeId))
+  ) {
+    throw ApiError.badRequest('One or more labour services are invalid');
+  }
+  const serviceById = new Map(serviceDocs.map((doc) => [String(doc.id), doc]));
+
+  return entries.map((l) => {
+    const doc = labourById.get(String(l.labour));
+    const serviceDoc = l.service ? serviceById.get(String(l.service)) : null;
+    return {
+      labour: doc.id,
+      name: doc.name,
+      phoneNumber: doc.phoneNumber,
+      service: serviceDoc ? serviceDoc.id : null,
+      serviceName: serviceDoc ? serviceDoc.name : '',
+      rent: toPaisa(l.rent || 0),
+    };
+  });
 }
 
 /**

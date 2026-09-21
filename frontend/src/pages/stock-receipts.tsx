@@ -15,6 +15,7 @@ import {
   Wallet,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { useConfirm } from '@/components/confirm-provider';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -1270,14 +1271,15 @@ export function StockReceiptsPage() {
     onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Could not delete this receipt'),
   });
 
-  const removeReceipt = (r: StockReceipt) => {
-    if (
-      window.confirm(
-        `Delete receipt ${r.number}? This reverses the stock it added and cannot be undone.`,
-      )
-    ) {
-      del.mutate(r.id);
-    }
+  const confirm = useConfirm();
+  const removeReceipt = async (r: StockReceipt) => {
+    const ok = await confirm({
+      title: `Delete receipt ${r.number}?`,
+      description: 'This reverses the stock it added and cannot be undone.',
+      confirmLabel: 'Delete',
+      variant: 'destructive',
+    });
+    if (ok) del.mutate(r.id);
   };
 
   const handlePrintInvoice = async (r: StockReceipt) => {

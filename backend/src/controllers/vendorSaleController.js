@@ -36,6 +36,12 @@ function serialize(vendorSale) {
   if (Array.isArray(view0.items)) {
     view0.items = view0.items.map((it) => view(it, ['unitPrice', 'lineTotal', 'cost']));
   }
+  if (view0.gatePass) {
+    const gatePassId = String(view0.gatePass._id ?? view0.gatePass);
+    view0.gatePassId = gatePassId;
+    view0.gatePassUrl = `/gate-passes/${gatePassId}`;
+    view0.gatePassQrUrl = `/gate-passes/${gatePassId}/qr`;
+  }
   return view0;
 }
 
@@ -47,6 +53,11 @@ const createVendorSale = asyncHandler(async (req, res) => {
 const getVendorSale = asyncHandler(async (req, res) => {
   const vendorSale = await vendorSaleService.getVendorSale(req.user, req.params.id);
   return sendSuccess(res, 200, 'Vendor sale fetched', { vendorSale: serialize(vendorSale) });
+});
+
+const updateVendorSale = asyncHandler(async (req, res) => {
+  const vendorSale = await vendorSaleService.updateVendorSale(req.user, req.params.id, req.body);
+  return sendSuccess(res, 200, 'Vendor sale updated', { vendorSale: serialize(vendorSale) });
 });
 
 const listVendorSales = asyncHandler(async (req, res) => {
@@ -68,4 +79,4 @@ const listVendorSales = asyncHandler(async (req, res) => {
   });
 });
 
-module.exports = { createVendorSale, getVendorSale, listVendorSales };
+module.exports = { createVendorSale, getVendorSale, listVendorSales, updateVendorSale };

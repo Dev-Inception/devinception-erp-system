@@ -11,6 +11,7 @@ import {
   Search,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { useConfirmDelete } from '@/components/confirm-provider';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -221,8 +222,9 @@ export function WarehousesPage() {
     onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Could not delete warehouse'),
   });
 
-  const remove = (w: WarehouseRow) => {
-    if (window.confirm(`Delete warehouse “${w.name}”? This cannot be undone.`)) del.mutate(w.id);
+  const confirmDelete = useConfirmDelete();
+  const remove = async (w: WarehouseRow) => {
+    if (await confirmDelete(`warehouse "${w.name}"`)) del.mutate(w.id);
   };
 
   return (

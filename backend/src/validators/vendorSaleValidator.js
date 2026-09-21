@@ -29,8 +29,21 @@ const createVendorSaleValidator = [
   body('note').optional({ values: 'falsy' }).trim().isLength({ max: 500 }),
 ];
 
+const updateVendorSaleValidator = [
+  idParam,
+  body('warehouse').optional({ values: 'falsy' }).isMongoId().withMessage('Invalid warehouse'),
+  body('items').isArray({ min: 1 }).withMessage('At least one item is required'),
+  body('items.*.product').isMongoId().withMessage('Each item needs a valid product'),
+  body('items.*.quantity').isFloat({ gt: 0 }).withMessage('Each quantity must be positive'),
+  body('items.*.unitPrice').optional({ values: 'falsy' }).isFloat({ min: 0 }),
+  body('discount').optional({ values: 'falsy' }).isFloat({ min: 0 }),
+  body('taxPercent').optional({ values: 'falsy' }).isFloat({ min: 0, max: 100 }),
+  body('note').optional({ values: 'falsy' }).trim().isLength({ max: 500 }),
+];
+
 module.exports = {
   listVendorSalesValidator,
   createVendorSaleValidator,
+  updateVendorSaleValidator,
   idParamValidator: [idParam],
 };

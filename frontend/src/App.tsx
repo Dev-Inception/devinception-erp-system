@@ -4,6 +4,7 @@ import { Toaster } from 'sonner';
 import { PwaInstallPrompt } from '@/components/pwa-install-prompt';
 import { ThemeProvider } from '@/components/theme-provider';
 import { LanguageProvider } from '@/components/language-provider';
+import { ConfirmProvider } from '@/components/confirm-provider';
 import { AppLayout } from '@/components/layout/app-layout';
 import { useAuthStore } from '@/store/auth';
 import { MODULES, canSeeModule, landingPath } from '@/lib/modules';
@@ -14,10 +15,12 @@ import { PosPage } from '@/pages/pos';
 import { ProductsPage } from '@/pages/products';
 import { CategoriesPage } from '@/pages/categories';
 import { UnitsPage } from '@/pages/units';
+import { LabourServicesPage } from '@/pages/labour-services';
 import { VendorsPage } from '@/pages/vendors';
 import { VendorDetailPage } from '@/pages/vendor-detail';
 import { VendorSalesPage } from '@/pages/vendor-sales';
 import { VendorSaleNewPage } from '@/pages/vendor-sale-new';
+import { VendorSaleEditPage } from '@/pages/vendor-sale-edit';
 import { SuppliersPage } from '@/pages/suppliers';
 import { SupplierDetailPage } from '@/pages/supplier-detail';
 import { LabourDetailPage } from '@/pages/labour-detail';
@@ -81,6 +84,7 @@ const MODULE_ROUTES: { path: string; element: React.ReactElement }[] = [
   { path: 'products', element: <ProductsPage /> },
   { path: 'categories', element: <CategoriesPage /> },
   { path: 'units', element: <UnitsPage /> },
+  { path: 'labour-services', element: <LabourServicesPage /> },
   { path: 'warehouses', element: <WarehousesPage /> },
   { path: 'stores', element: <StoresPage /> },
   { path: 'sales', element: <SalesPage /> },
@@ -111,74 +115,84 @@ export default function App() {
   return (
     <ThemeProvider>
       <LanguageProvider>
-        <QueryClientProvider client={queryClient}>
-          <BrowserRouter>
-            <Routes>
-              <Route path="/login" element={<LoginPage />} />
-              <Route path="/gate-pass/scan/:token" element={<GatePassScanPage />} />
-              <Route element={<AppLayout />}>
-                <Route index element={<IndexRoute />} />
-                {MODULE_ROUTES.map((r) => (
+        <ConfirmProvider>
+          <QueryClientProvider client={queryClient}>
+            <BrowserRouter>
+              <Routes>
+                <Route path="/login" element={<LoginPage />} />
+                <Route path="/gate-pass/scan/:token" element={<GatePassScanPage />} />
+                <Route element={<AppLayout />}>
+                  <Route index element={<IndexRoute />} />
+                  {MODULE_ROUTES.map((r) => (
+                    <Route
+                      key={r.path}
+                      path={r.path}
+                      element={<ModuleGuard moduleKey={r.path}>{r.element}</ModuleGuard>}
+                    />
+                  ))}
                   <Route
-                    key={r.path}
-                    path={r.path}
-                    element={<ModuleGuard moduleKey={r.path}>{r.element}</ModuleGuard>}
+                    path="sales/:id/edit"
+                    element={
+                      <ModuleGuard moduleKey="sales">
+                        <SaleEditPage />
+                      </ModuleGuard>
+                    }
                   />
-                ))}
-                <Route
-                  path="sales/:id/edit"
-                  element={
-                    <ModuleGuard moduleKey="sales">
-                      <SaleEditPage />
-                    </ModuleGuard>
-                  }
-                />
-                <Route
-                  path="vendor-sales/new"
-                  element={
-                    <ModuleGuard moduleKey="vendor-sales">
-                      <VendorSaleNewPage />
-                    </ModuleGuard>
-                  }
-                />
-                <Route
-                  path="vendors/:id"
-                  element={
-                    <ModuleGuard moduleKey="vendors">
-                      <VendorDetailPage />
-                    </ModuleGuard>
-                  }
-                />
-                <Route
-                  path="suppliers/:id"
-                  element={
-                    <ModuleGuard moduleKey="suppliers">
-                      <SupplierDetailPage />
-                    </ModuleGuard>
-                  }
-                />
-                <Route
-                  path="labour/:id"
-                  element={
-                    <ModuleGuard moduleKey="labour">
-                      <LabourDetailPage />
-                    </ModuleGuard>
-                  }
-                />
-                <Route
-                  path="transporters/:id"
-                  element={
-                    <ModuleGuard moduleKey="transporters">
-                      <TransporterDetailPage />
-                    </ModuleGuard>
-                  }
-                />
-              </Route>
-            </Routes>
-          </BrowserRouter>
-          <Toaster richColors position="top-right" />
-          <PwaInstallPrompt />
-        </QueryClientProvider>
+                  <Route
+                    path="vendor-sales/new"
+                    element={
+                      <ModuleGuard moduleKey="vendor-sales">
+                        <VendorSaleNewPage />
+                      </ModuleGuard>
+                    }
+                  />
+                  <Route
+                    path="vendor-sales/:id/edit"
+                    element={
+                      <ModuleGuard moduleKey="vendor-sales">
+                        <VendorSaleEditPage />
+                      </ModuleGuard>
+                    }
+                  />
+                  <Route
+                    path="vendors/:id"
+                    element={
+                      <ModuleGuard moduleKey="vendors">
+                        <VendorDetailPage />
+                      </ModuleGuard>
+                    }
+                  />
+                  <Route
+                    path="suppliers/:id"
+                    element={
+                      <ModuleGuard moduleKey="suppliers">
+                        <SupplierDetailPage />
+                      </ModuleGuard>
+                    }
+                  />
+                  <Route
+                    path="labour/:id"
+                    element={
+                      <ModuleGuard moduleKey="labour">
+                        <LabourDetailPage />
+                      </ModuleGuard>
+                    }
+                  />
+                  <Route
+                    path="transporters/:id"
+                    element={
+                      <ModuleGuard moduleKey="transporters">
+                        <TransporterDetailPage />
+                      </ModuleGuard>
+                    }
+                  />
+                </Route>
+              </Routes>
+            </BrowserRouter>
+            <Toaster richColors position="top-right" />
+            <PwaInstallPrompt />
+          </QueryClientProvider>
+        </ConfirmProvider>
       </LanguageProvider>
     </ThemeProvider>
   );

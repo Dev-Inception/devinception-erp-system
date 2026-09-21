@@ -14,6 +14,7 @@ const modelFactories = {
   Brand: require('./brandModel'),
   Unit: require('./unitModel'),
   ExpenseCategory: require('./expenseCategoryModel'),
+  LabourService: require('./labourServiceModel'),
   Product: require('./productModel'),
   Customer: require('./customerModel'),
   Vendor: require('./vendorModel'),

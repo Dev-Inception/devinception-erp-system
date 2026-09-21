@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Plus, Loader2, Pencil, Trash2, Tags, Search } from 'lucide-react';
 import { toast } from 'sonner';
+import { useConfirmDelete } from '@/components/confirm-provider';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -206,8 +207,9 @@ export function CategoriesPage() {
     onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Could not delete category'),
   });
 
-  const remove = (c: Category) => {
-    if (window.confirm(`Delete category "${c.name}"? This cannot be undone.`)) del.mutate(c.id);
+  const confirmDelete = useConfirmDelete();
+  const remove = async (c: Category) => {
+    if (await confirmDelete(`category "${c.name}"`)) del.mutate(c.id);
   };
 
   return (

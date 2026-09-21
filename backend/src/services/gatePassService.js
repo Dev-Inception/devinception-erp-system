@@ -450,6 +450,103 @@ async function createForReceipt(stockReceipt, transaction) {
   return reloadWithItems(gatePass.id, transaction);
 }
 
+// Snapshot for a VENDOR_SALE gate pass — stock physically leaving our
+// warehouse for the vendor (see vendorSaleService.createVendorSale), same
+// direction as a customer SALE pass (see gatePassSerializer's `direction`).
+// `vendorSale` here is a plain object built at creation time (id, number,
+// vendorName, store, warehouse, date, items, createdBy) — no round trip
+// needed since the caller already has everything freshly in hand.
+function vendorSaleSnapshot(vendorSale) {
+  return {
+    sourceType: 'VENDOR_SALE',
+    kind: 'VENDOR',
+    vendorSale: vendorSale.id,
+    documentNumber: vendorSale.number,
+    partyName: vendorSale.vendorName || '',
+    store: refId(vendorSale.store) || null,
+    warehouse: refId(vendorSale.warehouse),
+    saleDate: vendorSale.date,
+    items: (vendorSale.items || []).map((item) => ({
+      product: refId(item.product),
+      name: item.name,
+      sku: '',
+      barcode: '',
+      quantity: item.quantity,
+      loadedQuantity: null,
+      loadConfirmed: false,
+    })),
+    createdBy: refId(vendorSale.createdBy) || null,
+  };
+}
+
+// Creates (or refreshes) the one VENDOR_SALE gate pass for a vendor sale —
+// re-snapshots an existing pass the same way createForSale/createForReceipt
+// do for a revised document, unless it's already been processed/used at the
+// gate, in which case it's left alone.
+async function createForVendorSale(vendorSale, transaction) {
+  if (!transaction) {
+    return getPostgres().transaction((t) => createForVendorSale(vendorSale, t));
+  }
+  const { GatePass } = initializeModels();
+  const snapshot = vendorSaleSnapshot(vendorSale);
+
+  let existing = await GatePass.findOne({
+    where: { sourceType: 'VENDOR_SALE', vendorSale: vendorSale.id },
+    transaction,
+    lock: transaction.LOCK.UPDATE,
+  });
+  if (existing) {
+    if (['PROCESSED', 'USED'].includes(existing.status)) {
+      return reloadWithItems(existing.id, transaction);
+    }
+    await existing.update(
+      {
+        documentNumber: snapshot.documentNumber,
+        partyName: snapshot.partyName,
+        store: snapshot.store,
+        warehouse: snapshot.warehouse,
+        saleDate: snapshot.saleDate,
+      },
+      { transaction },
+    );
+    await replaceItems(existing.id, snapshot.items, transaction);
+    return reloadWithItems(existing.id, transaction);
+  }
+
+  const when = vendorSale.date ? new Date(vendorSale.date) : new Date();
+  const number = await counterService.nextDocNumber('GATE', when.getFullYear(), 6, transaction);
+  let gatePass;
+  try {
+    gatePass = await GatePass.create(
+      {
+        number,
+        token: crypto.randomBytes(32).toString('hex'),
+        sourceType: 'VENDOR_SALE',
+        kind: 'VENDOR',
+        vendorSale: snapshot.vendorSale,
+        documentNumber: snapshot.documentNumber,
+        partyName: snapshot.partyName,
+        store: snapshot.store,
+        warehouse: snapshot.warehouse,
+        saleDate: snapshot.saleDate,
+        createdBy: snapshot.createdBy,
+      },
+      { transaction },
+    );
+    await replaceItems(gatePass.id, snapshot.items, transaction);
+  } catch (error) {
+    if (error.name === 'SequelizeUniqueConstraintError') {
+      gatePass = await GatePass.findOne({
+        where: { sourceType: 'VENDOR_SALE', vendorSale: vendorSale.id },
+        transaction,
+      });
+      if (gatePass) return reloadWithItems(gatePass.id, transaction);
+    }
+    throw error;
+  }
+  return reloadWithItems(gatePass.id, transaction);
+}
+
 // Snapshot for a SUPPLIER_RETURN gate pass — damaged units physically
 // leaving the warehouse back to the supplier that delivered them. Unlike a
 // PURCHASE pass (goods coming in), this is goods going out, so it's given
@@ -857,6 +954,7 @@ module.exports = {
   createForReturn,
   createGatePassesForReturn,
   createForReceipt,
+  createForVendorSale,
   createForSupplierReturn,
   getGatePassById,
   getGatePassByToken,

@@ -12,6 +12,7 @@ import {
   X,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { useConfirmDelete } from '@/components/confirm-provider';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -388,8 +389,9 @@ export function ProductsPage() {
     onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Could not delete product'),
   });
 
-  const remove = (p: Product) => {
-    if (window.confirm(`Delete product "${p.name}"? This cannot be undone.`)) del.mutate(p.id);
+  const confirmDelete = useConfirmDelete();
+  const remove = async (p: Product) => {
+    if (await confirmDelete(`product "${p.name}"`)) del.mutate(p.id);
   };
 
   return (

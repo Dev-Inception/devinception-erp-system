@@ -17,4 +17,9 @@ module.exports = [
   require('./016-vendor-sale-returns'),
   require('./017-estimate-valid-until'),
   require('./018-notification-settings'),
+  require('./019-labour-services'),
+  require('./020-labour-services-drop-label'),
+  require('./021-sale-labour-services'),
+  require('./022-vendor-sale-gate-pass'),
+  require('./023-day-end-sessions'),
 ];

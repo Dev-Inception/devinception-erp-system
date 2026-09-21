@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Plus, Loader2, Pencil, Trash2, Ruler, Search } from 'lucide-react';
+import { Plus, Loader2, Pencil, Trash2, Wrench, Search } from 'lucide-react';
 import { toast } from 'sonner';
 import { useConfirmDelete } from '@/components/confirm-provider';
 import { Card } from '@/components/ui/card';
@@ -22,28 +22,28 @@ import { grantsPermission } from '@/lib/modules';
 import { Pagination } from '@/components/ui/pagination';
 import { useLanguage } from '@/components/language-provider';
 
-interface Unit {
+interface LabourService {
   id: string;
   name: string;
-  abbreviation: string;
+  description?: string;
 }
 const SEARCH_FETCH_LIMIT = 200;
 const PAGE_SIZE = 20;
 
-/** Create (no `editing`) or edit (with `editing`) a unit of measurement. */
-function UnitDialog({
+/** Create (no `editing`) or edit (with `editing`) a labour service. */
+function LabourServiceDialog({
   open,
   onOpenChange,
   editing,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
-  editing: Unit | null;
+  editing: LabourService | null;
 }) {
   const qc = useQueryClient();
   const { t } = useLanguage();
   const isEditing = !!editing;
-  const [form, setForm] = useState({ name: '', abbreviation: '', store: '' });
+  const [form, setForm] = useState({ name: '', description: '', store: '' });
 
   const { data: stores = [] } = useQuery<{ id: string; name: string; code?: string }[]>({
     queryKey: ['stores'],
@@ -53,10 +53,16 @@ function UnitDialog({
 
   useEffect(() => {
     if (open) {
-      setForm({ name: editing?.name ?? '', abbreviation: editing?.abbreviation ?? '', store: '' });
+      setForm({
+        name: editing?.name ?? '',
+        description: editing?.description ?? '',
+        store: '',
+      });
     }
   }, [open, editing]);
 
+  // Default to the only store when there's just one — same convenience the
+  // store-scoped backend already applies server-side.
   useEffect(() => {
     if (!isEditing && stores.length === 1 && !form.store) {
       setForm((f) => ({ ...f, store: stores[0].id }));
@@ -68,30 +74,31 @@ function UnitDialog({
     mutationFn: async () =>
       isEditing
         ? (
-            await api.patch(`/units/${editing!.id}`, {
+            await api.patch(`/labour-services/${editing!.id}`, {
               name: form.name,
-              abbreviation: form.abbreviation,
+              description: form.description,
             })
           ).data
-        : (await api.post('/units', form)).data,
+        : (await api.post('/labour-services', form)).data,
     onSuccess: () => {
-      toast.success(isEditing ? 'Unit updated' : 'Unit created');
-      qc.invalidateQueries({ queryKey: ['units'] });
-      qc.invalidateQueries({ queryKey: ['catalog'] });
+      toast.success(isEditing ? 'Labour service updated' : 'Labour service created');
+      qc.invalidateQueries({ queryKey: ['labour-services'] });
       onOpenChange(false);
     },
-    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Could not save unit'),
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Could not save labour service'),
   });
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>{isEditing ? 'Edit Unit' : 'New Unit'}</DialogTitle>
+          <DialogTitle>
+            {isEditing ? t('Edit Labour Service') : t('New Labour Service')}
+          </DialogTitle>
           <DialogDescription>
             {isEditing
-              ? 'Update this unit of measurement.'
-              : 'Add a unit of measurement for products (e.g. Piece, Kilogram, Box).'}
+              ? 'Update this labour service.'
+              : 'Add a billable labour service (e.g. Ceiling, Panel, UV Sheet, Wooden floor).'}
           </DialogDescription>
         </DialogHeader>
         <form
@@ -107,23 +114,21 @@ function UnitDialog({
               required
               value={form.name}
               onChange={(e) => setForm({ ...form, name: e.target.value })}
-              placeholder="e.g. Kilogram"
+              placeholder="e.g. Ceiling"
             />
           </div>
           <div className="space-y-1.5">
-            <Label>Abbreviation *</Label>
+            <Label>Description</Label>
             <Input
-              required
-              value={form.abbreviation}
-              onChange={(e) => setForm({ ...form, abbreviation: e.target.value })}
-              placeholder="e.g. kg"
+              value={form.description}
+              onChange={(e) => setForm({ ...form, description: e.target.value })}
             />
           </div>
           {!isEditing && (
             <div className="space-y-1.5">
-              <Label htmlFor="new-unit-store">Store *</Label>
+              <Label htmlFor="new-labour-service-store">Store *</Label>
               <select
-                id="new-unit-store"
+                id="new-labour-service-store"
                 required
                 value={form.store}
                 onChange={(e) => setForm({ ...form, store: e.target.value })}
@@ -158,16 +163,14 @@ function UnitDialog({
   );
 }
 
-export function UnitsPage() {
+export function LabourServicesPage() {
   const qc = useQueryClient();
   const { t } = useLanguage();
   const perms = useAuthStore((s) => s.user?.permissions);
-  // Unit create/update/delete all require inventory:manage on the backend.
+  // Labour service create/update/delete all require inventory:manage on the backend.
   const canManage = grantsPermission(perms, 'inventory:manage');
   const storefront = useStorefrontFilter();
   const [search, setSearch] = useState('');
-  const [from, setFrom] = useState('');
-  const [to, setTo] = useState('');
   const [page, setPage] = useState(1);
 
   const q = search.trim().toLowerCase();
@@ -175,42 +178,43 @@ export function UnitsPage() {
   const fetchPage = isSearching ? 1 : page;
   const fetchLimit = isSearching ? SEARCH_FETCH_LIMIT : PAGE_SIZE;
 
-  const { data: units = [], isLoading } = useQuery<Unit[]>({
-    queryKey: ['units', storefront.store],
-    queryFn: async () => (await api.get('/units', { params: storefront })).data,
+  const { data: labourServices = [], isLoading } = useQuery<LabourService[]>({
+    queryKey: ['labour-services', storefront.store],
+    queryFn: async () => (await api.get('/labour-services', { params: storefront })).data,
   });
 
   const filtered = useMemo(
     () =>
       isSearching
-        ? units.filter(
-            (u) => u.name.toLowerCase().includes(q) || u.abbreviation.toLowerCase().includes(q),
+        ? labourServices.filter(
+            (s) =>
+              s.name.toLowerCase().includes(q) || (s.description ?? '').toLowerCase().includes(q),
           )
-        : units,
-    [units, isSearching, q],
+        : labourServices,
+    [labourServices, isSearching, q],
   );
-
-  const [dialogOpen, setDialogOpen] = useState(false);
-  const [editing, setEditing] = useState<Unit | null>(null);
   const total = filtered.length;
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const pageItems = isSearching
     ? filtered.slice(0, fetchLimit)
     : filtered.slice((fetchPage - 1) * PAGE_SIZE, fetchPage * PAGE_SIZE);
 
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [editing, setEditing] = useState<LabourService | null>(null);
+
   const del = useMutation({
-    mutationFn: async (id: string) => (await api.delete(`/units/${id}`)).data,
+    mutationFn: async (id: string) => (await api.delete(`/labour-services/${id}`)).data,
     onSuccess: () => {
-      toast.success('Unit deleted');
-      qc.invalidateQueries({ queryKey: ['units'] });
-      qc.invalidateQueries({ queryKey: ['catalog'] });
+      toast.success('Labour service deleted');
+      qc.invalidateQueries({ queryKey: ['labour-services'] });
     },
-    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Could not delete unit'),
+    onError: (e: any) =>
+      toast.error(e?.response?.data?.message ?? 'Could not delete labour service'),
   });
 
   const confirmDelete = useConfirmDelete();
-  const remove = async (u: Unit) => {
-    if (await confirmDelete(`unit "${u.name}"`)) del.mutate(u.id);
+  const remove = async (s: LabourService) => {
+    if (await confirmDelete(`labour service "${s.name}"`)) del.mutate(s.id);
   };
 
   return (
@@ -224,12 +228,12 @@ export function UnitsPage() {
               <Input
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                placeholder={t('Search units…')}
+                placeholder={t('Search labour services…')}
                 className="w-72 pl-8"
               />
             </div>
           </div>
-          <p className="pb-2 text-sm text-muted-foreground">{total} unit(s)</p>
+          <p className="pb-2 text-sm text-muted-foreground">{total} labour service(s)</p>
         </div>
         {canManage && (
           <Button
@@ -238,7 +242,7 @@ export function UnitsPage() {
               setDialogOpen(true);
             }}
           >
-            <Plus className="h-4 w-4" /> {t('Add Unit')}
+            <Plus className="h-4 w-4" /> {t('Add Labour Service')}
           </Button>
         )}
       </div>
@@ -249,7 +253,7 @@ export function UnitsPage() {
             <thead>
               <tr className="border-b bg-muted/50 text-left text-xs uppercase tracking-wide text-muted-foreground">
                 <th className="px-4 py-3 font-medium">{t('Name')}</th>
-                <th className="px-4 py-3 font-medium">{t('Abbreviation')}</th>
+                <th className="px-4 py-3 font-medium">{t('Description')}</th>
                 {canManage && <th className="px-4 py-3 text-right font-medium">{t('Actions')}</th>}
               </tr>
             </thead>
@@ -262,15 +266,15 @@ export function UnitsPage() {
                 </tr>
               )}
               {!isLoading &&
-                pageItems.map((u) => (
-                  <tr key={u.id} className="border-b last:border-0 hover:bg-muted/30">
+                pageItems.map((s) => (
+                  <tr key={s.id} className="border-b last:border-0 hover:bg-muted/30">
                     <td className="px-4 py-3 font-medium">
                       <div className="flex items-center gap-2">
-                        <Ruler className="h-4 w-4 text-muted-foreground" />
-                        {u.name}
+                        <Wrench className="h-4 w-4 text-muted-foreground" />
+                        {s.name}
                       </div>
                     </td>
-                    <td className="px-4 py-3 text-muted-foreground">{u.abbreviation}</td>
+                    <td className="px-4 py-3 text-muted-foreground">{s.description || '—'}</td>
                     {canManage && (
                       <td className="px-4 py-3 text-right">
                         <div className="flex justify-end gap-1">
@@ -280,7 +284,7 @@ export function UnitsPage() {
                             className="h-8 w-8"
                             title={t('Edit')}
                             onClick={() => {
-                              setEditing(u);
+                              setEditing(s);
                               setDialogOpen(true);
                             }}
                           >
@@ -292,7 +296,7 @@ export function UnitsPage() {
                             className="h-8 w-8"
                             title={t('Delete')}
                             disabled={del.isPending}
-                            onClick={() => remove(u)}
+                            onClick={() => remove(s)}
                           >
                             <Trash2 className="h-4 w-4 text-destructive" />
                           </Button>
@@ -304,7 +308,9 @@ export function UnitsPage() {
               {!isLoading && pageItems.length === 0 && (
                 <tr>
                   <td colSpan={3} className="px-4 py-10 text-center text-muted-foreground">
-                    {isSearching ? 'No units match your search.' : 'No units yet.'}
+                    {isSearching
+                      ? 'No labour services match your search.'
+                      : 'No labour services yet.'}
                   </td>
                 </tr>
               )}
@@ -324,7 +330,7 @@ export function UnitsPage() {
       </Card>
 
       {dialogOpen && (
-        <UnitDialog
+        <LabourServiceDialog
           key={editing?.id ?? 'new'}
           open={dialogOpen}
           onOpenChange={setDialogOpen}

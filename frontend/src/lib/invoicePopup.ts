@@ -47,7 +47,7 @@ export interface SaleForInvoice {
   // walk-in sales, which don't carry a running balance.
   previousBalance?: number | string | null;
   totalRemaining?: number | string | null;
-  labour?: { name: string; phone?: string; rent?: number }[];
+  labour?: { name: string; phone?: string; serviceName?: string; rent?: number }[];
   transport?: { driverName?: string; driverPhone?: string; vehicleNumber?: string };
   returnedTotal?: number | string;
   returns?: {

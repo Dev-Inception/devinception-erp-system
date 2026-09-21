@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Plus, Loader2, Pencil, Trash2, HardHat, Search } from 'lucide-react';
 import { toast } from 'sonner';
+import { useConfirmDelete } from '@/components/confirm-provider';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -183,8 +184,9 @@ export function LabourPage() {
     onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Could not delete labour'),
   });
 
-  const remove = (l: Labour) => {
-    if (window.confirm(`Delete labour "${l.name}"? This cannot be undone.`)) del.mutate(l.id);
+  const confirmDelete = useConfirmDelete();
+  const remove = async (l: Labour) => {
+    if (await confirmDelete(`labour "${l.name}"`)) del.mutate(l.id);
   };
 
   return (

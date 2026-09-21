@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { CheckCircle2, Clock3, Eye, Search, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
+import { useConfirmDelete } from '@/components/confirm-provider';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -23,7 +24,8 @@ interface GatePassItem {
 interface GatePass {
   id: string;
   number: string;
-  sourceType: 'SALE' | 'PURCHASE' | 'RETURN';
+  sourceType: 'SALE' | 'PURCHASE' | 'RETURN' | 'SUPPLIER_RETURN' | 'VENDOR_SALE';
+  direction?: 'IN' | 'OUT';
   saleNumber: string;
   saleDate: string;
   status: 'PENDING' | 'PROCESSED' | 'CANCELLED';
@@ -78,8 +80,9 @@ export function GatePassesPage() {
     onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Could not delete gate pass'),
   });
 
-  const remove = (gatePass: GatePass) => {
-    if (window.confirm(`Delete gate pass "${gatePass.number}"? This cannot be undone.`)) {
+  const confirmDelete = useConfirmDelete();
+  const remove = async (gatePass: GatePass) => {
+    if (await confirmDelete(`gate pass "${gatePass.number}"`)) {
       deleteGatePass.mutate(gatePass.id);
     }
   };
@@ -170,7 +173,10 @@ export function GatePassesPage() {
                 <td className="px-4 py-3">
                   <div>{gatePass.saleNumber}</div>
                   <div className="text-xs text-muted-foreground">
-                    {gatePass.sourceType === 'SALE' ? 'Goods Out' : 'Goods In'}
+                    {(gatePass.direction ?? (gatePass.sourceType === 'SALE' ? 'OUT' : 'IN')) ===
+                    'OUT'
+                      ? 'Goods Out'
+                      : 'Goods In'}
                   </div>
                 </td>
                 <td className="px-4 py-3">

@@ -52,7 +52,7 @@ interface DocData {
   // undefined for walk-in sales, which carry no account balance.
   previousBalance?: number | null;
   totalRemaining?: number | null;
-  labour?: { name: string; phone?: string; rent?: number }[];
+  labour?: { name: string; phone?: string; serviceName?: string; rent?: number }[];
   transport?: { driverName?: string; driverPhone?: string; vehicleNumber?: string };
   // Returns recorded against this sale, if any — shown so a reprinted
   // invoice reflects what's actually still owed, not just the original sale.
@@ -177,11 +177,13 @@ function rows(items: LineItem[]) {
     .join('');
 }
 
-function labourRows(labour: { name: string; phone?: string; rent?: number }[]) {
+function labourRows(
+  labour: { name: string; phone?: string; serviceName?: string; rent?: number }[],
+) {
   return labour
     .map(
       (l, idx) =>
-        `<tr><td class="c">${idx + 1}</td><td>${l.name}</td><td>${l.phone || '—'}</td><td class="r">${formatCurrency(l.rent ?? 0)}</td></tr>`,
+        `<tr><td class="c">${idx + 1}</td><td>${l.name}</td><td>${l.serviceName || '—'}</td><td>${l.phone || '—'}</td><td class="r">${formatCurrency(l.rent ?? 0)}</td></tr>`,
     )
     .join('');
 }
@@ -346,7 +348,7 @@ export function renderTemplate(type: TemplateType, d: DocData): string {
         d.labour?.length
           ? `<div style="page-break-inside:avoid;">${sectionHeading('Labour')}
         <table>
-          <thead><tr>${th('#', 'c')}${th('Name')}${th('Phone')}${th('Fare', 'r')}</tr></thead>
+          <thead><tr>${th('#', 'c')}${th('Name')}${th('Service')}${th('Phone')}${th('Fare', 'r')}</tr></thead>
           <tbody>${labourRows(d.labour)}</tbody>
         </table></div>`
           : ''

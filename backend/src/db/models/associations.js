@@ -193,6 +193,7 @@ function associateModels(models) {
   VendorSale.belongsTo(BankAccount, { foreignKey: 'bankAccount', as: 'bankAccountInfo' });
   VendorSale.belongsTo(User, { foreignKey: 'createdBy', as: 'creator' });
   VendorSale.belongsTo(User, { foreignKey: 'lastEditedBy', as: 'lastEditor' });
+  VendorSale.belongsTo(GatePass, { foreignKey: 'gatePass', as: 'gatePassInfo' });
 
   VendorSale.hasMany(VendorSaleReturn, { foreignKey: 'vendorSale', as: 'returns' });
   VendorSaleReturn.belongsTo(VendorSale, { foreignKey: 'vendorSale' });
@@ -240,6 +241,7 @@ function associateModels(models) {
     foreignKey: 'damagedStockReturn',
     as: 'damagedStockReturnInfo',
   });
+  GatePass.belongsTo(VendorSale, { foreignKey: 'vendorSale', as: 'vendorSaleInfo' });
   GatePass.belongsTo(Store, { foreignKey: 'store', as: 'storeInfo' });
   GatePass.belongsTo(Warehouse, { foreignKey: 'warehouse', as: 'warehouseInfo' });
   GatePass.belongsTo(User, { foreignKey: 'processedBy', as: 'processor' });
@@ -258,6 +260,7 @@ function associateModels(models) {
 
   // Day end
   DayEnd.belongsTo(Store, { foreignKey: 'store', as: 'storeInfo' });
+  DayEnd.belongsTo(User, { foreignKey: 'openedBy', as: 'opener' });
   DayEnd.belongsTo(User, { foreignKey: 'closedBy', as: 'closer' });
   DayEnd.belongsTo(User, { foreignKey: 'reopenedBy', as: 'reopener' });
 

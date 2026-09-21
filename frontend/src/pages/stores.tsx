@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Plus, Loader2, Building2, Star, Check, Pencil, Trash2, Search } from 'lucide-react';
 import { toast } from 'sonner';
+import { useConfirmDelete } from '@/components/confirm-provider';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -233,8 +234,9 @@ export function StoresPage() {
     onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Could not delete store'),
   });
 
-  const remove = (s: StoreRow) => {
-    if (window.confirm(`Delete store “${s.name}”? This cannot be undone.`)) del.mutate(s.id);
+  const confirmDelete = useConfirmDelete();
+  const remove = async (s: StoreRow) => {
+    if (await confirmDelete(`store "${s.name}"`)) del.mutate(s.id);
   };
 
   return (

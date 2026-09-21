@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Plus, Search, Loader2, Pencil, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
+import { useConfirmDelete } from '@/components/confirm-provider';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -199,9 +200,9 @@ export function TransportersPage() {
     onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Could not delete transporter'),
   });
 
-  const remove = (tr: Transporter) => {
-    if (window.confirm(`Delete transporter “${tr.name}”? This cannot be undone.`))
-      del.mutate(tr.id);
+  const confirmDelete = useConfirmDelete();
+  const remove = async (tr: Transporter) => {
+    if (await confirmDelete(`transporter "${tr.name}"`)) del.mutate(tr.id);
   };
 
   const colSpan = showActions ? 5 : 4;

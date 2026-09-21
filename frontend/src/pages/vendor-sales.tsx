@@ -1,7 +1,15 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { HandCoins, MoreHorizontal, Printer, Search, Undo2 } from 'lucide-react';
+import {
+  ClipboardCheck,
+  HandCoins,
+  MoreHorizontal,
+  Pencil,
+  Printer,
+  Search,
+  Undo2,
+} from 'lucide-react';
 import { toast } from 'sonner';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -28,6 +36,7 @@ import { grantsPermission } from '@/lib/modules';
 import { useStorefrontFilter } from '@/store/storefront';
 import { useLanguage } from '@/components/language-provider';
 import { ReturnVendorSaleItemsDialog } from '@/components/return-vendor-sale-items-dialog';
+import { GatePassDialog } from '@/components/gate-pass-dialog';
 import { openVendorSaleInvoicePopup } from '@/lib/invoicePopup';
 
 export interface VendorSale {
@@ -58,6 +67,8 @@ export interface VendorSale {
   creditAmount: number;
   note: string;
   returnedTotal: number;
+  gatePassId?: string;
+  gatePassQrUrl?: string;
 }
 
 interface VendorSaleReturnRow {
@@ -230,6 +241,11 @@ export function VendorSalesPage() {
   const [page, setPage] = useState(1);
   const [viewing, setViewing] = useState<VendorSale | null>(null);
   const [returningSale, setReturningSale] = useState<VendorSale | null>(null);
+  const [openGatePass, setOpenGatePass] = useState<{
+    id: string;
+    qrUrl?: string;
+    title: string;
+  } | null>(null);
 
   const handlePrintInvoice = async (s: VendorSale) => {
     try {
@@ -357,6 +373,26 @@ export function VendorSalesPage() {
                             <DropdownMenuItem onSelect={() => handlePrintInvoice(s)}>
                               <Printer className="h-4 w-4" /> {t('View Invoice')}
                             </DropdownMenuItem>
+                            {canManage && s.returnedTotal === 0 && (
+                              <DropdownMenuItem
+                                onSelect={() => navigate(`/vendor-sales/${s.id}/edit`)}
+                              >
+                                <Pencil className="h-4 w-4" /> {t('Edit')}
+                              </DropdownMenuItem>
+                            )}
+                            {s.gatePassId && (
+                              <DropdownMenuItem
+                                onSelect={() =>
+                                  setOpenGatePass({
+                                    id: s.gatePassId!,
+                                    qrUrl: s.gatePassQrUrl,
+                                    title: t('Gate Pass'),
+                                  })
+                                }
+                              >
+                                <ClipboardCheck className="h-4 w-4" /> {t('Gate Pass')}
+                              </DropdownMenuItem>
+                            )}
                             {canManage && remaining > 0 && (
                               <DropdownMenuItem onSelect={() => setReturningSale(s)}>
                                 <Undo2 className="h-4 w-4" /> {t('Return Items')}
@@ -404,6 +440,14 @@ export function VendorSalesPage() {
         }
         open={returningSale !== null}
         onOpenChange={(o) => !o && setReturningSale(null)}
+      />
+
+      <GatePassDialog
+        gatePassId={openGatePass?.id}
+        gatePassQrUrl={openGatePass?.qrUrl}
+        title={openGatePass?.title}
+        open={!!openGatePass}
+        onOpenChange={(o) => !o && setOpenGatePass(null)}
       />
     </div>
   );

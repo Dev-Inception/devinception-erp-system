@@ -35,6 +35,10 @@ const itemsAndTermsValidator = [
     .withMessage('Invalid item warehouse'),
   body('labour').optional({ values: 'falsy' }).isArray().withMessage('Labour must be an array'),
   body('labour.*.labour').isMongoId().withMessage('Each labour entry must be a valid labour id'),
+  body('labour.*.service')
+    .optional({ values: 'falsy' })
+    .isMongoId()
+    .withMessage('Invalid labour service'),
   body('labour.*.rent')
     .optional({ values: 'falsy' })
     .isFloat({ min: 0 })

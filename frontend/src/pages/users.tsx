@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Plus, Trash2, UserPlus, ChevronDown, Pencil, Loader2, Eye, EyeOff } from 'lucide-react';
 import { api } from '@/lib/api';
 import { toast } from 'sonner';
+import { useConfirmDelete } from '@/components/confirm-provider';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -538,7 +539,10 @@ export function UsersPage() {
     if (patch.role !== undefined) setRole.mutate({ id, role: patch.role });
     if (patch.active !== undefined) setActive.mutate({ id, active: patch.active });
   };
-  const remove = (u: ManagedUser) => removeMut.mutate(u.id);
+  const confirmDelete = useConfirmDelete();
+  const remove = async (u: ManagedUser) => {
+    if (await confirmDelete(`user "${u.fullName}"`)) removeMut.mutate(u.id);
+  };
 
   return (
     <Card className="overflow-hidden">

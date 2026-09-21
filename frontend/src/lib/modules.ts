@@ -27,6 +27,7 @@ import {
   Factory,
   CreditCard,
   HandCoins,
+  Wrench,
 } from 'lucide-react';
 import type { Role } from '@/store/auth';
 
@@ -135,6 +136,14 @@ export const MODULES: ModuleDef[] = [
     label: 'Units',
     section: 'Catalog',
     icon: Ruler,
+    defaultRoles: ['MANAGER', 'ADMIN'],
+  },
+  {
+    key: 'labour-services',
+    to: '/labour-services',
+    label: 'Labour Services',
+    section: 'Catalog',
+    icon: Wrench,
     defaultRoles: ['MANAGER', 'ADMIN'],
   },
   {
@@ -277,6 +286,7 @@ export const MODULE_PERMISSION: Record<string, string> = {
   products: 'inventory:read',
   categories: 'inventory:manage',
   units: 'inventory:manage',
+  'labour-services': 'inventory:manage',
   warehouses: 'inventory:manage',
   stores: 'stores:manage',
   customers: 'customers:read',

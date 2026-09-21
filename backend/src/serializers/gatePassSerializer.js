@@ -31,11 +31,17 @@ function serializeGatePass(gatePass) {
     storeId: idOf(g.store),
     sourceType: g.sourceType,
     kind: g.kind || 'CUSTOMER',
-    direction: g.sourceType === 'SALE' || g.sourceType === 'SUPPLIER_RETURN' ? 'OUT' : 'IN',
+    direction:
+      g.sourceType === 'SALE' ||
+      g.sourceType === 'SUPPLIER_RETURN' ||
+      g.sourceType === 'VENDOR_SALE'
+        ? 'OUT'
+        : 'IN',
     saleId: idOf(g.sale),
     saleReturnId: idOf(g.saleReturn),
     stockReceiptId: idOf(g.stockReceipt),
     damagedStockReturnId: idOf(g.damagedStockReturn),
+    vendorSaleId: idOf(g.vendorSale),
     saleNumber: g.documentNumber,
     saleDate: g.saleDate,
     partyName: g.partyName || '',
@@ -60,7 +66,10 @@ function serializeGatePass(gatePass) {
       : {}),
     ...(Array.isArray(g.saleLabour) && g.saleLabour.length
       ? {
-          labour: g.saleLabour.map((l) =>
+          // A labourer can have several sale_labour rows (one per service,
+          // see labourService.resolveLabourLines) — dedupe by labour id so
+          // the "who's loading" list shows each person once.
+          labour: [...new Map(g.saleLabour.map((l) => [String(l.labour), l])).values()].map((l) =>
             withoutEmptyValues({ name: l.name, phoneNumber: l.phoneNumber }),
           ),
         }

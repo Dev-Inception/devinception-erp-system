@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Plus, Search, Loader2, Pencil, Trash2, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
+import { useConfirmDelete } from '@/components/confirm-provider';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -323,8 +324,9 @@ export function VendorsPage() {
     onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Could not delete vendor'),
   });
 
-  const remove = (v: Vendor) => {
-    if (window.confirm(`Delete vendor “${v.name}”? This cannot be undone.`)) del.mutate(v.id);
+  const confirmDelete = useConfirmDelete();
+  const remove = async (v: Vendor) => {
+    if (await confirmDelete(`vendor "${v.name}"`)) del.mutate(v.id);
   };
 
   const colSpan = showActions ? 6 : 5;

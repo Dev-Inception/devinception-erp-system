@@ -854,6 +854,38 @@ async function realDeleteUnit(id: string) {
   return { success: true };
 }
 
+/* ── Labour Services (billable service types, e.g. Ceiling, Panel, UV Sheet) ── */
+function mapLabourService(s: any) {
+  return {
+    id: String(s._id ?? s.id),
+    name: s.name,
+    description: s.description || '',
+  };
+}
+async function realLabourServices(params?: any) {
+  const res = await http.get('/labour-services', { params });
+  return (res.data.labourServices as any[]).map(mapLabourService);
+}
+async function realCreateLabourService(body: any) {
+  const res = await http.post('/labour-services', {
+    name: body.name,
+    description: body.description,
+    store: body.store || undefined,
+  });
+  return mapLabourService(res.data.labourService);
+}
+async function realUpdateLabourService(id: string, body: any) {
+  const res = await http.patch(`/labour-services/${id}`, {
+    name: body.name,
+    description: body.description,
+  });
+  return mapLabourService(res.data.labourService);
+}
+async function realDeleteLabourService(id: string) {
+  await http.delete(`/labour-services/${id}`);
+  return { success: true };
+}
+
 /* ── Labour (a standalone /labour master, not nested under /catalog) ── */
 function mapLabour(l: any) {
   return {
@@ -1206,6 +1238,7 @@ function mapSale(s: any) {
           id: String(l.labour?._id ?? l.labour),
           name: l.name,
           phone: l.phoneNumber || undefined,
+          serviceName: l.serviceName || undefined,
           rent: Number(l.rent) || 0,
         }))
       : undefined,
@@ -1758,6 +1791,8 @@ function mapVendorSale(v: any) {
     transferReceiptRef: v.transferReceiptRef || '',
     note: v.note || '',
     returnedTotal: v.returnedTotal ?? 0,
+    gatePassId: v.gatePassId || undefined,
+    gatePassQrUrl: v.gatePassQrUrl || undefined,
   };
 }
 async function realListVendorSales(params: any = {}) {
@@ -1802,6 +1837,20 @@ async function realCreateVendorSale(body: any) {
     onlineAmount: body.onlineAmount || undefined,
     bankAccount: body.bankAccountId || undefined,
     transferReceiptRef: body.transferReceiptRef || undefined,
+    note: body.note || undefined,
+  });
+  return mapVendorSale(res.data.vendorSale);
+}
+async function realUpdateVendorSale(id: string, body: any) {
+  const res = await http.patch(`/vendor-sales/${id}`, {
+    warehouse: body.warehouseId || undefined,
+    items: (body.items ?? []).map((it: any) => ({
+      product: it.productId,
+      quantity: it.quantity,
+      unitPrice: it.unitPrice ?? undefined,
+    })),
+    discount: body.discount || undefined,
+    taxPercent: body.taxPercent || undefined,
     note: body.note || undefined,
   });
   return mapVendorSale(res.data.vendorSale);
@@ -1965,7 +2014,16 @@ function mapSaleDraft(d: any) {
       id: String(l.id),
       name: l.name,
       phoneNumber: l.phoneNumber || '',
-      rent: l.rent ?? 0,
+      // Drafts saved before per-service labour (just a flat `rent`, no
+      // `services`) resume with an empty service list — the labourer stays
+      // assigned, but their service/amount needs re-picking.
+      services: Array.isArray(l.services)
+        ? l.services.map((sv: any) => ({
+            serviceId: sv.serviceId,
+            serviceName: sv.serviceName || '',
+            amount: sv.amount ?? 0,
+          }))
+        : [],
     })),
     driver: {
       name: d.driver?.name || '',
@@ -2003,7 +2061,11 @@ function draftPayload(body: any) {
       id: l.id,
       name: l.name,
       phoneNumber: l.phoneNumber,
-      rent: l.rent || 0,
+      services: (l.services ?? []).map((sv: any) => ({
+        serviceId: sv.serviceId,
+        serviceName: sv.serviceName,
+        amount: sv.amount || 0,
+      })),
     })),
     driver: body.driver,
     transportFare: body.transportFare,
@@ -2423,13 +2485,21 @@ async function realCashEntry(body: any) {
   return res.data;
 }
 
-/* ── Day End (per-store business-day lock) ── */
+/* ── Day End (per-store business-day session that stays open across a
+   midnight rollover until explicitly closed) ── */
 function mapDayEndStatus(s: any) {
   return {
     isOpen: !!s.isOpen,
-    closedByName: s.closedBy?.name || undefined,
+    openDate: s.openDate || undefined,
+    openedByName: s.openedByName || undefined,
+    openedAt: s.openedAt || undefined,
+    openingBalance: typeof s.openingBalance === 'number' ? s.openingBalance : undefined,
+    cashOnHand: typeof s.cashOnHand === 'number' ? s.cashOnHand : undefined,
+    closedByName: s.closedByName || undefined,
     closedAt: s.closedAt || undefined,
-    reopenedByName: s.reopenedBy?.name || undefined,
+    handoverAmount: typeof s.handoverAmount === 'number' ? s.handoverAmount : undefined,
+    remainingBalance: typeof s.remainingBalance === 'number' ? s.remainingBalance : undefined,
+    reopenedByName: s.reopenedByName || undefined,
     reopenedAt: s.reopenedAt || undefined,
   };
 }
@@ -2437,12 +2507,19 @@ async function realDayEndStatus(params: any = {}) {
   const res = await http.get('/day-end', { params: { store: params.store, date: params.date } });
   return mapDayEndStatus(res.data);
 }
+async function realOpenDay(body: any) {
+  const res = await http.post('/day-end/open', { store: body.store });
+  return res.data;
+}
 async function realCloseDay(body: any) {
-  const res = await http.post('/day-end/close', { store: body.store, date: body.date });
+  const res = await http.post('/day-end/close', {
+    store: body.store,
+    handoverAmount: body.handoverAmount,
+  });
   return res.data;
 }
 async function realReopenDay(body: any) {
-  const res = await http.post('/day-end/reopen', { store: body.store, date: body.date });
+  const res = await http.post('/day-end/reopen', { store: body.store });
   return res.data;
 }
 
@@ -2697,6 +2774,7 @@ async function tryReal(
     if (url === '/catalog') return wrap(await realCatalog());
     if (url === '/categories') return wrap(await realCategories(params));
     if (url === '/units') return wrap(await realUnits(params));
+    if (url === '/labour-services') return wrap(await realLabourServices(params));
     if (url === '/labour') return wrap(await realLabourList(params));
     if (url === '/customers') return wrap(await realCustomers(params));
     if (url === '/vendors') return wrap(await realVendors(params));
@@ -2759,6 +2837,7 @@ async function tryReal(
     if (url === '/products') return wrap(await realCreateProduct(body));
     if (url === '/categories') return wrap(await realCreateCategory(body));
     if (url === '/units') return wrap(await realCreateUnit(body));
+    if (url === '/labour-services') return wrap(await realCreateLabourService(body));
     if (url === '/labour') return wrap(await realCreateLabour(body));
     if (url === '/roles') return wrap(await realCreateRole(body));
     if (url === '/stock/adjust') return wrap(await realAdjustStock(body));
@@ -2802,6 +2881,7 @@ async function tryReal(
       return wrap(await realRejectExpense(seg[1], body?.reason));
     if (url === '/sale-drafts') return wrap(await realCreateSaleDraft(body));
     if (url === '/cash') return wrap(await realCashEntry(body));
+    if (url === '/day-end/open') return wrap(await realOpenDay(body));
     if (url === '/day-end/close') return wrap(await realCloseDay(body));
     if (url === '/day-end/reopen') return wrap(await realReopenDay(body));
     if (url === '/bank/accounts') return wrap(await realCreateBankAccount(body));
@@ -2823,6 +2903,8 @@ async function tryReal(
   }
   if (method === 'patch') {
     if (seg[0] === 'sales' && seg[1] && !seg[2]) return wrap(await realUpdateSale(seg[1], body));
+    if (seg[0] === 'vendor-sales' && seg[1] && !seg[2])
+      return wrap(await realUpdateVendorSale(seg[1], body));
     if (seg[0] === 'products' && seg[1]) return wrap(await realUpdateProduct(seg[1], body));
     if (seg[0] === 'vendors' && seg[1] && !seg[2])
       return wrap(await realUpdateVendor(seg[1], body));
@@ -2837,6 +2919,8 @@ async function tryReal(
     if (seg[0] === 'stores' && seg[1] && !seg[2]) return wrap(await realUpdateStore(seg[1], body));
     if (seg[0] === 'categories' && seg[1]) return wrap(await realUpdateCategory(seg[1], body));
     if (seg[0] === 'units' && seg[1]) return wrap(await realUpdateUnit(seg[1], body));
+    if (seg[0] === 'labour-services' && seg[1])
+      return wrap(await realUpdateLabourService(seg[1], body));
     if (seg[0] === 'labour' && seg[1]) return wrap(await realUpdateLabour(seg[1], body));
     if (seg[0] === 'users' && seg[1] && !seg[2]) return wrap(await realUpdateUser(seg[1], body));
     if (seg[0] === 'users' && seg[2] === 'role')
@@ -2879,6 +2963,7 @@ async function tryReal(
     if (seg[0] === 'stores' && seg[1] && !seg[2]) return wrap(await realDeleteStore(seg[1]));
     if (seg[0] === 'categories' && seg[1]) return wrap(await realDeleteCategory(seg[1]));
     if (seg[0] === 'units' && seg[1]) return wrap(await realDeleteUnit(seg[1]));
+    if (seg[0] === 'labour-services' && seg[1]) return wrap(await realDeleteLabourService(seg[1]));
     if (seg[0] === 'labour' && seg[1]) return wrap(await realDeleteLabour(seg[1]));
     if (seg[0] === 'sale-drafts' && seg[1]) return wrap(await realDeleteSaleDraft(seg[1]));
     if (seg[0] === 'stock-receipts' && seg[1]) return wrap(await realDeleteStockReceipt(seg[1]));
