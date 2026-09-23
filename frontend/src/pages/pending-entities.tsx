@@ -194,7 +194,7 @@ function InvoiceItemsDialog({
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-2xl">
+      <DialogContent className="max-h-[85vh] max-w-2xl overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{invoice.sourceNo}</DialogTitle>
           <DialogDescription>

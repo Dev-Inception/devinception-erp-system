@@ -8,6 +8,7 @@
     "dev": "nodemon index.js",
     "db:migrate": "node src/db/migrate.js",
     "db:migrate:status": "node src/db/migrate.js --status",
+    "seed": "node src/scripts/seedAll.js",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "test": "echo \"Error: no test specified\" && exit 1"

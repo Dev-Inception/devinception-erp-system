@@ -302,7 +302,7 @@ function ExpenseDialog({
           </div>
 
           <div className="space-y-1.5">
-            <Label>{t('Paid via')}</Label>
+            <Label>{t('Method')}</Label>
             <div className="grid grid-cols-4 gap-1.5">
               {(Object.keys(METHOD_LABEL) as ExpenseMethod[]).map((m) => (
                 <Button
@@ -597,7 +597,7 @@ export function ExpensesPage() {
                 <th className="px-4 py-3 font-medium">{t('Date')}</th>
                 <th className="px-4 py-3 font-medium">{t('Category')}</th>
                 <th className="px-4 py-3 font-medium">{t('Note')}</th>
-                <th className="px-4 py-3 font-medium">{t('Paid via')}</th>
+                <th className="px-4 py-3 font-medium">{t('Method')}</th>
                 <th className="px-4 py-3 font-medium">{t('Status')}</th>
                 <th className="px-4 py-3 text-right font-medium">{t('Amount')}</th>
                 <th className="px-4 py-3 text-right font-medium">{t('Actions')}</th>
