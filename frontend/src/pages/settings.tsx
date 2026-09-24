@@ -36,7 +36,25 @@ interface Settings {
   twilioAuthToken?: string;
   twilioAuthTokenSet?: boolean;
   twilioWhatsAppFrom?: string;
+  labourPricingMode?: LabourPricingMode;
 }
+
+type LabourPricingMode = 'DIRECT' | 'PENDING';
+
+const LABOUR_PRICING_OPTIONS: { value: LabourPricingMode; title: string; description: string }[] = [
+  {
+    value: 'DIRECT',
+    title: 'Direct from sale',
+    description:
+      'The labour amount charged on the sale invoice is owed to the labourer in full, straight away.',
+  },
+  {
+    value: 'PENDING',
+    title: 'Decide later in Pending Entities',
+    description:
+      'The customer is still charged the labour amount on the invoice, but each labour line goes to Pending Entities. Whoever can price pending entities enters what was agreed with the labourer; only that amount goes to the labour ledger, and the rest stays with the store.',
+  },
+];
 
 export function SettingsPage() {
   const qc = useQueryClient();
@@ -54,7 +72,16 @@ export function SettingsPage() {
   }, [data]);
 
   const save = useMutation({
-    mutationFn: async () => (await api.put('/settings', form, { params: storefront })).data,
+    // Labour pricing is saved on its own by LabourPricingCard — never
+    // resend it from here, or a stale copy could undo that change.
+    mutationFn: async () =>
+      (
+        await api.put(
+          '/settings',
+          { ...form, labourPricingMode: undefined },
+          { params: storefront },
+        )
+      ).data,
     onSuccess: () => {
       toast.success('Settings saved');
       qc.invalidateQueries({ queryKey: ['settings'] });
@@ -245,6 +272,8 @@ export function SettingsPage() {
         </CardContent>
       </Card>
 
+      <LabourPricingCard isSuperAdmin={isSuperAdmin} storefrontStore={storefront.store} />
+
       <Card>
         <CardHeader>
           <CardTitle>{t('Notifications')}</CardTitle>
@@ -370,5 +399,129 @@ export function SettingsPage() {
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+interface StoreOption {
+  id: string;
+  name: string;
+}
+
+/** Per-store labour pricing mode. A store admin edits their own store's; a
+ * super admin edits whichever store the header switcher is on, or — under
+ * "All Stores" — picks one right here, since this setting has no platform
+ * default. Saves only this field, independent of the other settings forms. */
+function LabourPricingCard({
+  isSuperAdmin,
+  storefrontStore,
+}: {
+  isSuperAdmin: boolean;
+  storefrontStore?: string;
+}) {
+  const qc = useQueryClient();
+  const { t } = useLanguage();
+  const needsPicker = isSuperAdmin && !storefrontStore;
+
+  const { data: stores = [] } = useQuery<StoreOption[]>({
+    queryKey: ['stores'],
+    queryFn: async () => (await api.get('/stores')).data,
+    enabled: needsPicker,
+  });
+  const [pickedStore, setPickedStore] = useState('');
+  useEffect(() => {
+    if (needsPicker && !pickedStore && stores.length > 0) setPickedStore(stores[0].id);
+  }, [needsPicker, pickedStore, stores]);
+
+  const targetStore = needsPicker ? pickedStore || undefined : storefrontStore;
+  const params = targetStore ? { store: targetStore } : {};
+
+  const { data } = useQuery<Settings>({
+    queryKey: ['settings', targetStore],
+    queryFn: async () => (await api.get('/settings', { params })).data,
+    enabled: !needsPicker || !!targetStore,
+  });
+
+  const [mode, setMode] = useState<LabourPricingMode>('DIRECT');
+  useEffect(() => {
+    if (data) setMode(data.labourPricingMode ?? 'DIRECT');
+  }, [data]);
+
+  const save = useMutation({
+    mutationFn: async () =>
+      (await api.put('/settings', { labourPricingMode: mode }, { params })).data,
+    onSuccess: () => {
+      toast.success(t('Labour pricing saved'));
+      qc.invalidateQueries({ queryKey: ['settings'] });
+    },
+    onError: (e: any) =>
+      toast.error(e?.response?.data?.message ?? t('Could not save labour pricing')),
+  });
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>{t('Labour pricing')}</CardTitle>
+        <CardDescription>
+          {t(
+            'How labour charged on a POS sale is paid out to the labourer. Applies to new sales only — existing sales keep the mode they were made under.',
+          )}
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {needsPicker && (
+          <div className="space-y-1.5">
+            <Label>{t('Store')}</Label>
+            <select
+              value={pickedStore}
+              onChange={(e) => setPickedStore(e.target.value)}
+              className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm sm:w-64"
+            >
+              {stores.map((st) => (
+                <option key={st.id} value={st.id}>
+                  {st.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+        <div role="radiogroup" className="grid gap-3 sm:grid-cols-2">
+          {LABOUR_PRICING_OPTIONS.map((opt) => {
+            const selected = mode === opt.value;
+            return (
+              <button
+                key={opt.value}
+                type="button"
+                role="radio"
+                aria-checked={selected}
+                onClick={() => setMode(opt.value)}
+                className={cn(
+                  'rounded-lg border p-3 text-left transition',
+                  selected
+                    ? 'border-primary bg-primary/5 ring-1 ring-primary'
+                    : 'hover:bg-muted/40',
+                )}
+              >
+                <p className="text-sm font-medium">{t(opt.title)}</p>
+                <p className="mt-1 text-xs text-muted-foreground">{t(opt.description)}</p>
+              </button>
+            );
+          })}
+        </div>
+        <div className="flex justify-end">
+          <Button
+            type="button"
+            disabled={save.isPending || (needsPicker && !targetStore)}
+            onClick={() => save.mutate()}
+          >
+            {save.isPending ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Save className="h-4 w-4" />
+            )}
+            {t('Save changes')}
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
   );
 }

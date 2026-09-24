@@ -18,6 +18,7 @@ const {
   expenseValidator,
   statementParamValidator,
   idParamValidator,
+  labourCashFlowValidator,
 } = require('../validators/financeValidator');
 
 const router = express.Router();
@@ -124,6 +125,15 @@ router.get(
   statementParamValidator,
   validate,
   financeController.partyStatement,
+);
+
+/* Labour cash flow — charged to customers vs paid out to labourers */
+router.get(
+  '/labour-cash-flow',
+  READ,
+  labourCashFlowValidator,
+  validate,
+  financeController.labourCashFlow,
 );
 
 module.exports = router;

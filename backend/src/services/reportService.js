@@ -6,7 +6,12 @@ const journalService = require('./journalService');
 const stockService = require('./stockService');
 const { parseReportDate, formatReportDate } = require('../utils/reportDate');
 const { normalizeQuantity } = require('../utils/quantity');
-const { resolveWarehouseScope, warehouseWhere, resolveStoreScope } = require('../utils/storeScope');
+const {
+  resolveWarehouseScope,
+  warehouseWhere,
+  resolveStoreScope,
+  assertStoreAccess,
+} = require('../utils/storeScope');
 
 /**
  * Reporting: date-range aggregations over transactional data and the ledger.
@@ -490,6 +495,137 @@ async function dayBookReport({ from, to, warehouseIds, store }) {
   };
 }
 
+// Plain-language names for journal accounts, for the entry-detail view.
+const ACCOUNT_LABELS = {
+  [ACCOUNT.CASH]: 'Cash',
+  [ACCOUNT.BANK]: 'Bank',
+  [ACCOUNT.INVENTORY]: 'Inventory',
+  [ACCOUNT.AR]: 'Customer receivable',
+  [ACCOUNT.AR_VENDOR]: 'Vendor receivable',
+  [ACCOUNT.AP]: 'Vendor payable',
+  [ACCOUNT.AP_SUPPLIER]: 'Supplier payable',
+  [ACCOUNT.AP_LABOUR]: 'Labour payable',
+  [ACCOUNT.AP_TRANSPORT]: 'Transport payable',
+  [ACCOUNT.SALES]: 'Sales',
+  [ACCOUNT.COGS]: 'Cost of goods sold',
+  [ACCOUNT.OPERATING_EXPENSE]: 'Operating expense',
+  [ACCOUNT.TAX]: 'Sales tax',
+  [ACCOUNT.EQUITY]: 'Equity',
+};
+
+// Which model a line's `ref` points at, per account.
+const PARTY_MODEL = {
+  [ACCOUNT.AR]: 'Customer',
+  [ACCOUNT.AR_VENDOR]: 'Vendor',
+  [ACCOUNT.AP]: 'Vendor',
+  [ACCOUNT.AP_SUPPLIER]: 'Supplier',
+  [ACCOUNT.AP_LABOUR]: 'Labour',
+  [ACCOUNT.AP_TRANSPORT]: 'Transporter',
+  [ACCOUNT.BANK]: 'BankAccount',
+};
+
+/**
+ * One Day Book entry in full, for the click-through detail modal: when it
+ * was posted and by whom, every debit/credit line with its party resolved
+ * to a name, and — for a sale or an expense — the source document itself.
+ * Returns paisa; the controller converts to rupees.
+ */
+async function getDayBookEntry(actor, id) {
+  const models = initializeModels();
+  const { JournalEntry, JournalLine, Warehouse, Store, User, Sale, SaleItem, Expense } = models;
+  const entry = await JournalEntry.findByPk(id, {
+    include: [
+      { model: JournalLine, as: 'lines', separate: true, order: [['position', 'ASC']] },
+      { model: Warehouse, as: 'warehouseInfo', attributes: ['id', 'name'] },
+      { model: Store, as: 'storeInfo', attributes: ['id', 'name'] },
+      { model: User, as: 'creator', attributes: ['id', 'name'] },
+    ],
+  });
+  if (!entry) throw ApiError.notFound('Entry not found');
+  if (entry.store) assertStoreAccess(actor, entry.store);
+
+  const refsByModel = new Map();
+  for (const l of entry.lines) {
+    const model = PARTY_MODEL[l.account];
+    if (!model || !l.ref) continue;
+    if (!refsByModel.has(model)) refsByModel.set(model, new Set());
+    refsByModel.get(model).add(String(l.ref));
+  }
+  const partyName = new Map();
+  for (const [model, ids] of refsByModel) {
+    const docs = await models[model].findAll({ where: { id: Array.from(ids) } });
+    for (const d of docs) {
+      const name = model === 'BankAccount' ? d.bankName || d.name : d.name;
+      partyName.set(`${model}:${d.id}`, name);
+    }
+  }
+
+  let document = null;
+  if ((entry.refType === REF.SALE || entry.refType === REF.SALE_RETURN) && entry.refNo) {
+    const sale = await Sale.findOne({
+      where:
+        entry.refType === REF.SALE && entry.refId ? { id: entry.refId } : { number: entry.refNo },
+      include: [{ model: SaleItem, as: 'items', separate: true, order: [['position', 'ASC']] }],
+    });
+    if (sale) {
+      document = {
+        kind: 'SALE',
+        number: sale.number,
+        customerName: sale.customerName,
+        paymentMethod: sale.paymentMethod,
+        subtotal: sale.subtotal,
+        discount: sale.discount,
+        tax: sale.tax,
+        transportFare: sale.transportFare,
+        labourRent: sale.labourRent,
+        total: sale.total,
+        items: sale.items.map((it) => ({
+          name: it.name,
+          quantity: it.quantity,
+          unitPrice: it.unitPrice,
+          lineTotal: it.lineTotal,
+        })),
+      };
+    }
+  } else if (entry.refType === REF.EXPENSE) {
+    const expense = await Expense.findOne({ where: { journalEntry: entry.id } });
+    if (expense) {
+      document = {
+        kind: 'EXPENSE',
+        number: expense.number,
+        categoryName: expense.categoryName,
+        method: expense.method,
+        amount: expense.amount,
+        note: expense.note,
+      };
+    }
+  }
+
+  return {
+    id: String(entry.id),
+    date: entry.date,
+    createdAt: entry.createdAt,
+    voucherType: entry.refType,
+    voucherLabel: VOUCHER_LABELS[entry.refType] || entry.refType,
+    voucherNo: entry.refNo || '',
+    description: entry.description || '',
+    storeName: entry.storeInfo ? entry.storeInfo.name : '',
+    warehouseName: entry.warehouseInfo ? entry.warehouseInfo.name : '',
+    createdByName: entry.creator ? entry.creator.name : '',
+    lines: entry.lines.map((l) => {
+      const model = PARTY_MODEL[l.account];
+      return {
+        account: l.account,
+        accountLabel: ACCOUNT_LABELS[l.account] || l.account,
+        partyName: model && l.ref ? partyName.get(`${model}:${l.ref}`) || '' : '',
+        debit: l.debit || 0,
+        credit: l.credit || 0,
+      };
+    }),
+    document,
+  };
+}
+
 const REPORTS = {
   sales: salesReport,
   'stock-valuation': stockValuationReport,
@@ -543,5 +679,6 @@ module.exports = {
   stockValuationReport,
   profitAndLossReport,
   dayBookReport,
+  getDayBookEntry,
   runReport,
 };

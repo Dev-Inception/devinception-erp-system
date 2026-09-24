@@ -11,7 +11,7 @@ module.exports = function definePendingEntity(db) {
         type: DataTypes.STRING(20),
         allowNull: false,
         field: 'source_type',
-        validate: { isIn: [['SALE_ITEM', 'STOCK_RECEIPT_ITEM']] },
+        validate: { isIn: [['SALE_ITEM', 'STOCK_RECEIPT_ITEM', 'SALE_LABOUR']] },
       },
       sale: { type: DataTypes.STRING(24), field: 'sale_id' },
       stockReceipt: { type: DataTypes.STRING(24), field: 'stock_receipt_id' },
@@ -20,8 +20,16 @@ module.exports = function definePendingEntity(db) {
       vendorName: { type: DataTypes.STRING(120), allowNull: false, defaultValue: '' },
       supplier: { type: DataTypes.STRING(24), field: 'supplier_id' },
       supplierName: { type: DataTypes.STRING(120), allowNull: false, defaultValue: '' },
-      product: { type: DataTypes.STRING(24), allowNull: false, field: 'product_id' },
+      // Null for SALE_LABOUR rows (a labour line has no product).
+      product: { type: DataTypes.STRING(24), field: 'product_id' },
       productName: { type: DataTypes.STRING(160), allowNull: false, defaultValue: '' },
+      // SALE_LABOUR only: which labourer/service the line is for, and what
+      // the customer was charged for it (paisa). `purchasePrice`/`lineTotal`
+      // hold the payout the labourer is actually owed once priced.
+      labour: { type: DataTypes.STRING(24), field: 'labour_id' },
+      labourName: { type: DataTypes.STRING(100), allowNull: false, defaultValue: '' },
+      serviceName: { type: DataTypes.STRING(80), allowNull: false, defaultValue: '' },
+      chargedAmount: { type: DataTypes.BIGINT, validate: { min: 0 } },
       quantity: quantity({ validate: { min: 0 } }),
       store: { type: DataTypes.STRING(24), field: 'store_id' },
       warehouse: { type: DataTypes.STRING(24), field: 'warehouse_id' },

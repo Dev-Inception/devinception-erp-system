@@ -27,10 +27,11 @@ const out = (e) =>
           'vendor',
           'supplier',
           'product',
+          'labour',
           'store',
           'warehouse',
         ]),
-        ['purchasePrice', 'lineTotal'],
+        ['purchasePrice', 'lineTotal', 'chargedAmount'],
       )
     : e;
 
@@ -69,7 +70,7 @@ const listInvoices = asyncHandler(async (req, res) => {
     actor: req.user,
   });
   return sendSuccess(res, 200, 'Pending invoices fetched', {
-    invoices: result.invoices.map((inv) => view(inv, ['total'])),
+    invoices: result.invoices.map((inv) => view(inv, ['total', 'chargedTotal'])),
     total: result.total,
     page: result.page,
     limit: result.limit,

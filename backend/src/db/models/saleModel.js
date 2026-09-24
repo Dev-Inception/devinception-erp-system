@@ -36,6 +36,15 @@ module.exports = function defineSale(db) {
       tax: money(),
       transportFare: money(),
       labourRent: money(),
+      // Snapshot of the store's labour pricing mode at checkout (see
+      // db/migrations/024-labour-pricing-mode.js) — decides how this sale's
+      // labour is booked, and re-booked on edit.
+      labourPricingMode: {
+        type: DataTypes.STRING(10),
+        allowNull: false,
+        defaultValue: 'DIRECT',
+        validate: { isIn: [['DIRECT', 'PENDING']] },
+      },
       total: money(),
       cost: money(),
 

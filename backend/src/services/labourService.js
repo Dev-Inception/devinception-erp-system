@@ -1,9 +1,12 @@
-const { Op } = require('sequelize');
+const { Op, QueryTypes } = require('sequelize');
+const { getPostgres } = require('../db/postgres');
 const { initializeModels } = require('../db/models');
 const ApiError = require('../utils/ApiError');
 const journalService = require('./journalService');
-const { ACCOUNT } = require('../utils/finance');
+const { ACCOUNT, REF } = require('../utils/finance');
 const { toPaisa } = require('../utils/money');
+const { parsePagination } = require('../utils/query');
+const { parseReportDate } = require('../utils/reportDate');
 const {
   requireWriteStore,
   resolveStoreScope,
@@ -49,6 +52,7 @@ async function createLabour(actor, { name, phoneNumber, store }) {
 }
 
 async function updateLabour(actor, id, { name, phoneNumber }) {
+  const { Labour } = initializeModels();
   const labour = await getLabourById(actor, id);
 
   // Check if phone number is being changed and already exists in this store
@@ -189,7 +193,171 @@ async function reverseLabourPayable(
   });
 }
 
+/**
+ * Labour cash flow: for every labour line charged on a sale, what the
+ * customer paid for it vs what the labourer is owed, and the difference the
+ * store keeps.
+ *  - DIRECT-mode sales: the labourer is owed exactly what was charged
+ *    (margin 0) — status DIRECT.
+ *  - PENDING-mode sales: one SALE_LABOUR pending entity per line — PENDING
+ *    until its payout is entered, then PRICED with payout = lineTotal.
+ * Stock-receipt labour isn't included: nothing is charged to a customer for
+ * it, so it has no inflow side.
+ *
+ * The summary also carries actual payments made to labourers in the range
+ * and the current outstanding AP_LABOUR balance (both across every labour
+ * source, since that's what the labour ledger itself shows). Filtering/
+ * pagination happen in JS since this only ever runs over one actor's
+ * store-scoped rows, same as pendingEntityService.listPendingEntityInvoices.
+ * Returns paisa; the controller converts to rupees.
+ */
+async function labourCashFlow({ actor, store, labour, from, to, status, ...query } = {}) {
+  const { page, limit } = parsePagination(query);
+  const { storeIds } = await resolveStoreScope({ store, actor });
+
+  const conditions = [];
+  const replacements = {};
+  if (storeIds) {
+    if (storeIds.length === 0) {
+      return { rows: [], total: 0, page, limit, summary: emptySummary() };
+    }
+    conditions.push('s.store_id IN (:storeIds)');
+    replacements.storeIds = storeIds;
+  }
+  if (from) {
+    conditions.push('s.date >= :from');
+    replacements.from = parseReportDate(from, 'from');
+  }
+  if (to) {
+    conditions.push('s.date <= :to');
+    replacements.to = parseReportDate(to, 'to', { endOfDay: true });
+  }
+  if (labour) {
+    conditions.push('lab.labour_id = :labour');
+    replacements.labour = labour;
+  }
+  const where = conditions.length ? `AND ${conditions.join(' AND ')}` : '';
+
+  const all = await getPostgres().query(
+    `SELECT * FROM (
+       SELECT 'DIRECT' AS status, sl.sale_id AS "saleId", s.number AS "saleNo", s.date,
+              s.customer_name AS "customerName", sl.labour_id AS labour_id,
+              sl.name AS "labourName", sl.service_name AS "serviceName",
+              sl.rent AS charged, sl.rent AS payout, NULL AS "pendingEntityId"
+       FROM sale_labour sl
+       JOIN sales s ON s.id = sl.sale_id
+       WHERE s.labour_pricing_mode = 'DIRECT'
+       UNION ALL
+       SELECT pe.status, pe.sale_id, pe.source_no, pe.date, s.customer_name, pe.labour_id,
+              pe.labour_name, pe.service_name, COALESCE(pe.charged_amount, 0),
+              CASE WHEN pe.status = 'PRICED' THEN pe.line_total END, pe.id
+       FROM pending_entities pe
+       JOIN sales s ON s.id = pe.sale_id
+       WHERE pe.source_type = 'SALE_LABOUR'
+     ) lab
+     JOIN sales s ON s.id = lab."saleId"
+     WHERE TRUE ${where}
+     ORDER BY lab.date DESC, lab."saleNo" DESC`,
+    { replacements, type: QueryTypes.SELECT },
+  );
+
+  const rows = all.map((r) => {
+    const charged = Number(r.charged) || 0;
+    const payout = r.payout === null || r.payout === undefined ? null : Number(r.payout);
+    return {
+      saleId: r.saleId,
+      saleNo: r.saleNo,
+      date: r.date,
+      customerName: r.customerName,
+      labour: r.labour_id,
+      labourName: r.labourName,
+      serviceName: r.serviceName,
+      status: r.status,
+      pendingEntityId: r.pendingEntityId,
+      charged,
+      payout,
+      margin: payout === null ? null : charged - payout,
+    };
+  });
+
+  const summary = emptySummary();
+  for (const r of rows) {
+    summary.charged += r.charged;
+    if (r.payout === null) {
+      summary.awaitingCharged += r.charged;
+      summary.awaitingCount += 1;
+    } else {
+      summary.payout += r.payout;
+      summary.margin += r.margin;
+    }
+  }
+  const [paid, outstanding] = await Promise.all([
+    labourPaymentsTotal({ storeIds, labour, from: replacements.from, to: replacements.to }),
+    labour
+      ? journalService.accountBalance(ACCOUNT.AP_LABOUR, labour, { store: storeIds || undefined })
+      : journalService
+          .balancesByRef(ACCOUNT.AP_LABOUR, { store: storeIds || undefined })
+          .then((m) => Array.from(m.values()).reduce((a, b) => a + b, 0)),
+  ]);
+  summary.paidToLabour = paid;
+  summary.outstanding = outstanding;
+
+  const filtered = status ? rows.filter((r) => r.status === status) : rows;
+  const start = (page - 1) * limit;
+  return {
+    rows: filtered.slice(start, start + limit),
+    total: filtered.length,
+    page,
+    limit,
+    summary,
+  };
+}
+
+function emptySummary() {
+  return {
+    charged: 0,
+    payout: 0,
+    margin: 0,
+    awaitingCharged: 0,
+    awaitingCount: 0,
+    paidToLabour: 0,
+    outstanding: 0,
+  };
+}
+
+// Money actually handed to labourers (Dr AP_LABOUR on a PAYMENT entry) in
+// the range — the cash-out side of the labour cash flow.
+async function labourPaymentsTotal({ storeIds, labour, from, to }) {
+  const conditions = ['jl.account = :account', 'je.ref_type = :refType'];
+  const replacements = { account: ACCOUNT.AP_LABOUR, refType: REF.PAYMENT };
+  if (storeIds) {
+    conditions.push('je.store_id IN (:storeIds)');
+    replacements.storeIds = storeIds;
+  }
+  if (labour) {
+    conditions.push('jl.ref_id = :labour');
+    replacements.labour = labour;
+  }
+  if (from) {
+    conditions.push('je.date >= :from');
+    replacements.from = from;
+  }
+  if (to) {
+    conditions.push('je.date <= :to');
+    replacements.to = to;
+  }
+  const [row] = await getPostgres().query(
+    `SELECT COALESCE(SUM(jl.debit), 0) AS paid
+     FROM journal_lines jl
+     JOIN journal_entries je ON je.id = jl.journal_entry_id
+     WHERE ${conditions.join(' AND ')}`,
+    { replacements, type: QueryTypes.SELECT },
+  );
+  return Number(row.paid) || 0;
+}
+
 module.exports = {
+  labourCashFlow,
   listLabour,
   getLabourById,
   createLabour,

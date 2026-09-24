@@ -140,7 +140,17 @@ const recordPaymentValidator = [
 
 const idParamValidator = [idParam];
 
+// POS pre-checkout availability check — warehouse-sourced lines only.
+const checkStockValidator = [
+  body('store').optional({ values: 'falsy' }).isMongoId().withMessage('Invalid store'),
+  body('items').isArray().withMessage('Items must be an array'),
+  body('items.*.product').isMongoId().withMessage('Each item needs a valid product'),
+  body('items.*.warehouse').isMongoId().withMessage('Each item needs a valid warehouse'),
+  body('items.*.quantity').isFloat({ gt: 0 }).withMessage('Each item quantity must be positive'),
+];
+
 module.exports = {
+  checkStockValidator,
   createSaleValidator,
   updateSaleValidator,
   recordPaymentValidator,

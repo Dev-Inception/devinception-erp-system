@@ -34,6 +34,7 @@ function serialize(settings) {
     twilioAccountSid: s.twilioAccountSid || '',
     twilioAuthTokenSet: !!s.twilioAuthToken,
     twilioWhatsAppFrom: s.twilioWhatsAppFrom || '',
+    labourPricingMode: s.labourPricingMode === 'PENDING' ? 'PENDING' : 'DIRECT',
   };
 }
 

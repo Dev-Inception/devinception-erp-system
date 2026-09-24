@@ -11,6 +11,7 @@ const counterService = require('./counterService');
 const gatePassService = require('./gatePassService');
 const { parsePagination, escapeLike } = require('../utils/query');
 const { resolveStoreScope, storeWhere, assertStoreAccess } = require('../utils/storeScope');
+const dayEndService = require('./dayEndService');
 
 /**
  * The mirror of the POS sale flow: a vendor buying stock from us instead of
@@ -109,7 +110,11 @@ async function createVendorSale(
       bankRef = bank.id;
     }
 
-    const when = date ? new Date(date) : new Date();
+    const when = await dayEndService.businessTimestamp(
+      storeDoc.id,
+      date ? new Date(date) : new Date(),
+      transaction,
+    );
     const number = await counterService.nextDocNumber('VSL', when.getFullYear(), 6, transaction);
 
     // Issue stock and capture COGS per line — this is stock physically

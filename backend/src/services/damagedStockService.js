@@ -7,6 +7,7 @@ const gatePassService = require('./gatePassService');
 const { requirePositiveQuantity, normalizeQuantity } = require('../utils/quantity');
 const { parsePagination, escapeLike } = require('../utils/query');
 const { resolveStoreScope, storeWhere, assertStoreAccess } = require('../utils/storeScope');
+const dayEndService = require('./dayEndService');
 
 /**
  * Damaged goods are recorded on a stock receipt line (damagedQuantity) and
@@ -179,7 +180,11 @@ async function createReturn(actor, { supplier, store, warehouse, date, truck, it
       });
     }
 
-    const when = date ? new Date(date) : new Date();
+    const when = await dayEndService.businessTimestamp(
+      storeDoc.id,
+      date ? new Date(date) : new Date(),
+      transaction,
+    );
     const number = await counterService.nextDocNumber('DSR', when.getFullYear(), 6, transaction);
 
     const damagedReturn = await DamagedStockReturn.create(

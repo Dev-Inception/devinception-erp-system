@@ -37,6 +37,14 @@ module.exports = function defineSettings(db) {
         defaultValue: '',
         field: 'twilio_whatsapp_from',
       },
+      // How labour charged on a POS sale is paid out — see
+      // db/migrations/024-labour-pricing-mode.js.
+      labourPricingMode: {
+        type: DataTypes.STRING(10),
+        allowNull: false,
+        defaultValue: 'DIRECT',
+        validate: { isIn: [['DIRECT', 'PENDING']] },
+      },
     },
     { tableName: 'settings' },
   );

@@ -1,4 +1,4 @@
-const { body, param } = require('express-validator');
+const { body, param, query } = require('express-validator');
 const { PAYMENT_METHODS } = require('../utils/finance');
 
 const idParam = param('id').isMongoId().withMessage('Invalid id');
@@ -154,6 +154,16 @@ const statementParamValidator = [
 
 const idParamValidator = [idParam];
 
+// from/to are YYYY-MM-DD and parsed by labourService (parseReportDate).
+const labourCashFlowValidator = [
+  query('labour').optional({ values: 'falsy' }).isMongoId().withMessage('Invalid labourer'),
+  query('store').optional({ values: 'falsy' }).isMongoId().withMessage('Invalid store'),
+  query('status')
+    .optional({ values: 'falsy' })
+    .isIn(['DIRECT', 'PENDING', 'PRICED'])
+    .withMessage('Invalid status'),
+];
+
 module.exports = {
   createBankAccountValidator,
   updateBankAccountValidator,
@@ -168,4 +178,5 @@ module.exports = {
   expenseValidator,
   statementParamValidator,
   idParamValidator,
+  labourCashFlowValidator,
 };

@@ -6,6 +6,7 @@ import { useAuthStore } from '@/store/auth';
 import { useWarehouses } from './warehouse-switcher';
 import { StorePickerModal } from './store-picker-modal';
 import { PrintPreviewDialog } from '@/components/print-preview-dialog';
+import { StaleDayGuard } from './stale-day-guard';
 
 export function AppLayout() {
   const user = useAuthStore((s) => s.user);
@@ -46,6 +47,7 @@ function AuthenticatedShell() {
       </div>
       <StorePickerModal />
       <PrintPreviewDialog />
+      <StaleDayGuard />
     </div>
   );
 }

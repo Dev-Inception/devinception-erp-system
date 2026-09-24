@@ -38,6 +38,68 @@ async function recordSaleVendorItems(sale, vendorLineItems, actor, transaction) 
   return PendingEntity.bulkCreate(docs, { transaction });
 }
 
+// One row per labour line on a sale made while the store's labour pricing
+// mode is PENDING (see db/migrations/024-labour-pricing-mode.js). The rent
+// charged to the customer is snapshotted as `chargedAmount`; the labourer's
+// actual payout is entered later via setPurchasePrice. Called from
+// saleService (create, and edit when the sale's labour is replaced). Must run
+// inside the caller's transaction.
+async function recordSaleLabourItems(sale, labourLines, actor, transaction) {
+  if (!Array.isArray(labourLines) || labourLines.length === 0) return [];
+  const { PendingEntity } = initializeModels();
+  const docs = labourLines.map((l) => ({
+    sourceType: 'SALE_LABOUR',
+    sale: sale.id,
+    sourceNo: sale.number,
+    labour: l.labour,
+    labourName: l.name,
+    serviceName: l.serviceName || '',
+    chargedAmount: l.rent || 0,
+    quantity: 1,
+    store: sale.store,
+    warehouse: null,
+    date: sale.date,
+    createdBy: actor ? actor.id : null,
+  }));
+  return PendingEntity.bulkCreate(docs, { transaction });
+}
+
+// Undoes recordSaleLabourItems for a sale whose labour is being replaced:
+// reverses the AP_LABOUR payable of every line that was already priced
+// (journal entries are append-only), then deletes the sale's SALE_LABOUR
+// rows so the edit can record fresh ones. Must run inside the caller's
+// transaction.
+async function removeSaleLabourItems(sale, actor, transaction) {
+  const { PendingEntity } = initializeModels();
+  const rows = await PendingEntity.findAll({
+    where: { sale: sale.id, sourceType: 'SALE_LABOUR' },
+    transaction,
+    lock: transaction.LOCK.UPDATE,
+  });
+  for (const row of rows) {
+    if (row.status === 'PRICED' && row.lineTotal > 0) {
+      await journalService.post({
+        date: new Date(),
+        description: `Reversal of labour payout for edited sale ${row.sourceNo}`,
+        refType: REF.PENDING_ENTITY,
+        refId: row.id,
+        refNo: row.sourceNo,
+        store: row.store,
+        createdBy: actor ? actor.id : null,
+        transaction,
+        lines: [
+          journalService.line(ACCOUNT.AP_LABOUR, { debit: row.lineTotal, ref: row.labour }),
+          journalService.line(ACCOUNT.OPERATING_EXPENSE, { credit: row.lineTotal }),
+        ],
+      });
+    }
+  }
+  await PendingEntity.destroy({
+    where: { sale: sale.id, sourceType: 'SALE_LABOUR' },
+    transaction,
+  });
+}
+
 // One row per received stock-receipt line. Called only from
 // stockReceiptService.createReceipt. Must run inside the caller's transaction.
 async function recordStockReceiptItems(receipt, receivedLines, actor, transaction) {
@@ -85,6 +147,8 @@ async function listPendingEntities({
       { vendorName: { [Op.iLike]: term } },
       { supplierName: { [Op.iLike]: term } },
       { productName: { [Op.iLike]: term } },
+      { labourName: { [Op.iLike]: term } },
+      { serviceName: { [Op.iLike]: term } },
     ];
   }
 
@@ -139,6 +203,8 @@ async function listPendingEntityInvoices({
       { vendorName: { [Op.iLike]: term } },
       { supplierName: { [Op.iLike]: term } },
       { productName: { [Op.iLike]: term } },
+      { labourName: { [Op.iLike]: term } },
+      { serviceName: { [Op.iLike]: term } },
     ];
   }
 
@@ -163,15 +229,19 @@ async function listPendingEntityInvoices({
         sourceType: row.sourceType,
         sourceNo: row.sourceNo,
         vendorName: row.vendorName || row.supplierName,
+        labourNames: new Set(),
         storeName: row.storeInfo ? row.storeInfo.name : undefined,
         warehouseName: row.warehouseInfo ? row.warehouseInfo.name : undefined,
         date: row.date,
         itemCount: 0,
         pricedCount: 0,
         total: 0,
+        chargedTotal: 0,
       };
       groups.set(key, group);
     }
+    if (row.labourName) group.labourNames.add(row.labourName);
+    group.chargedTotal += row.chargedAmount || 0;
     group.itemCount += 1;
     if (row.status === 'PRICED') {
       group.pricedCount += 1;
@@ -183,7 +253,9 @@ async function listPendingEntityInvoices({
     id: `${g.sourceType}:${g.sourceNo}`,
     sourceType: g.sourceType,
     sourceNo: g.sourceNo,
-    vendorName: g.vendorName,
+    // A labour invoice has no vendor — show who it pays instead.
+    vendorName:
+      g.sourceType === 'SALE_LABOUR' ? Array.from(g.labourNames).join(', ') : g.vendorName,
     storeName: g.storeName,
     warehouseName: g.warehouseName,
     date: g.date,
@@ -191,6 +263,7 @@ async function listPendingEntityInvoices({
     pricedCount: g.pricedCount,
     status: g.pricedCount === g.itemCount ? 'PRICED' : 'PENDING',
     total: g.pricedCount > 0 ? g.total : undefined,
+    chargedTotal: g.sourceType === 'SALE_LABOUR' ? g.chargedTotal : undefined,
   }));
 
   if (status) invoices = invoices.filter((inv) => inv.status === status);
@@ -205,7 +278,7 @@ async function listPendingEntityInvoices({
 // detail view backing the price-entry modal. Not paginated: an invoice's own
 // line count is always small.
 async function listInvoiceItems(actor, sourceType, sourceNo) {
-  const { PendingEntity, Vendor, Supplier, Product, Store, Warehouse } = initializeModels();
+  const { PendingEntity, Vendor, Supplier, Product, Labour, Store, Warehouse } = initializeModels();
   const { storeIds } = await resolveStoreScope({ actor });
   const where = { ...storeWhere(storeIds), sourceType, sourceNo };
 
@@ -215,6 +288,7 @@ async function listInvoiceItems(actor, sourceType, sourceNo) {
       { model: Vendor, as: 'vendorInfo', attributes: ['id', 'name'] },
       { model: Supplier, as: 'supplierInfo', attributes: ['id', 'name'] },
       { model: Product, as: 'productInfo', attributes: ['id', 'name'] },
+      { model: Labour, as: 'labourInfo', attributes: ['id', 'name', 'phoneNumber'] },
       { model: Store, as: 'storeInfo', attributes: ['id', 'name', 'code'] },
       { model: Warehouse, as: 'warehouseInfo', attributes: ['id', 'name'] },
     ],
@@ -282,12 +356,46 @@ async function getPendingEntityById(actor, id) {
  *  - STOCK_RECEIPT_ITEM: Dr EQUITY / Cr AP_SUPPLIER(supplier) — reattributes
  *    the receipt's existing inventory funding from equity to supplier debt.
  *    Inventory value itself is untouched.
+ *  - SALE_LABOUR: Dr Operating Expense / Cr AP_LABOUR(labourer) — the payout
+ *    agreed with the labourer. The customer's labour charge was already
+ *    booked as SALES revenue at checkout, so whatever isn't paid out
+ *    (chargedAmount − payout) simply stays with the store as margin. A
+ *    payout of 0 is allowed (nothing owed), and posts no entry.
  *
  * Re-pricing an already-PRICED entity first reverses its original posting
  * (journal entries are append-only, so "correct" always means posting the
  * opposite entry, never touching the original) before posting the revised
  * one — same pattern as expenseService's edit flow.
  */
+function pricingAccounts(entity) {
+  switch (entity.sourceType) {
+    case 'SALE_ITEM':
+      return {
+        debitAccount: ACCOUNT.COGS,
+        payableAccount: ACCOUNT.AP,
+        payableRef: entity.vendor,
+        description: `Cost for vendor item on sale ${entity.sourceNo}`,
+        reversal: `Reversal of price for vendor item on sale ${entity.sourceNo}`,
+      };
+    case 'SALE_LABOUR':
+      return {
+        debitAccount: ACCOUNT.OPERATING_EXPENSE,
+        payableAccount: ACCOUNT.AP_LABOUR,
+        payableRef: entity.labour,
+        description: `Labour payout to ${entity.labourName}${entity.serviceName ? ` (${entity.serviceName})` : ''} for sale ${entity.sourceNo}`,
+        reversal: `Reversal of labour payout for sale ${entity.sourceNo}`,
+      };
+    default:
+      return {
+        debitAccount: ACCOUNT.EQUITY,
+        payableAccount: ACCOUNT.AP_SUPPLIER,
+        payableRef: entity.supplier,
+        description: `Supplier cost for stock receipt ${entity.sourceNo}`,
+        reversal: `Reversal of price for stock receipt ${entity.sourceNo}`,
+      };
+  }
+}
+
 async function setPurchasePrice(actor, id, purchasePrice) {
   const { PendingEntity } = initializeModels();
   return getPostgres().transaction(async (transaction) => {
@@ -295,20 +403,21 @@ async function setPurchasePrice(actor, id, purchasePrice) {
     if (!entity) throw ApiError.notFound('Pending entity not found');
     if (entity.store) assertStoreAccess(actor, entity.store);
 
+    const isLabour = entity.sourceType === 'SALE_LABOUR';
     const price = toPaisa(purchasePrice);
-    if (price <= 0) throw ApiError.badRequest('Purchase price must be positive');
+    if (price < 0 || (!isLabour && price === 0)) {
+      throw ApiError.badRequest('Purchase price must be positive');
+    }
     const lineTotal = Math.round(price * entity.quantity);
 
-    const isSaleItem = entity.sourceType === 'SALE_ITEM';
-    const debitAccount = isSaleItem ? ACCOUNT.COGS : ACCOUNT.EQUITY;
-    const payableAccount = isSaleItem ? ACCOUNT.AP : ACCOUNT.AP_SUPPLIER;
-    const payableRef = isSaleItem ? entity.vendor : entity.supplier;
+    const { debitAccount, payableAccount, payableRef, description, reversal } =
+      pricingAccounts(entity);
     const wasPriced = entity.status === 'PRICED';
 
-    if (wasPriced) {
+    if (wasPriced && entity.lineTotal > 0) {
       await journalService.post({
         date: new Date(),
-        description: `Reversal of price for ${entity.sourceType === 'SALE_ITEM' ? 'vendor item on sale' : 'stock receipt'} ${entity.sourceNo}`,
+        description: reversal,
         refType: REF.PENDING_ENTITY,
         refId: entity.id,
         refNo: entity.sourceNo,
@@ -323,25 +432,23 @@ async function setPurchasePrice(actor, id, purchasePrice) {
       });
     }
 
-    const description = isSaleItem
-      ? `Cost for vendor item on sale ${entity.sourceNo}`
-      : `Supplier cost for stock receipt ${entity.sourceNo}`;
-
-    await journalService.post({
-      date: new Date(),
-      description: wasPriced ? `${description} (revised)` : description,
-      refType: REF.PENDING_ENTITY,
-      refId: entity.id,
-      refNo: entity.sourceNo,
-      warehouse: entity.warehouse,
-      store: entity.store,
-      createdBy: actor ? actor.id : null,
-      transaction,
-      lines: [
-        journalService.line(debitAccount, { debit: lineTotal }),
-        journalService.line(payableAccount, { credit: lineTotal, ref: payableRef }),
-      ],
-    });
+    if (lineTotal > 0) {
+      await journalService.post({
+        date: new Date(),
+        description: wasPriced ? `${description} (revised)` : description,
+        refType: REF.PENDING_ENTITY,
+        refId: entity.id,
+        refNo: entity.sourceNo,
+        warehouse: entity.warehouse,
+        store: entity.store,
+        createdBy: actor ? actor.id : null,
+        transaction,
+        lines: [
+          journalService.line(debitAccount, { debit: lineTotal }),
+          journalService.line(payableAccount, { credit: lineTotal, ref: payableRef }),
+        ],
+      });
+    }
 
     entity.status = 'PRICED';
     entity.purchasePrice = price;
@@ -356,6 +463,8 @@ async function setPurchasePrice(actor, id, purchasePrice) {
 
 module.exports = {
   recordSaleVendorItems,
+  recordSaleLabourItems,
+  removeSaleLabourItems,
   recordStockReceiptItems,
   listPendingEntities,
   listPendingEntityInvoices,

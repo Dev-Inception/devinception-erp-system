@@ -10,6 +10,7 @@ const gatePassService = require('./gatePassService');
 const { requirePositiveQuantity, normalizeQuantity } = require('../utils/quantity');
 const { parsePagination, escapeLike } = require('../utils/query');
 const { resolveStoreScope, storeWhere, assertStoreAccess } = require('../utils/storeScope');
+const dayEndService = require('./dayEndService');
 
 /**
  * Product returns against a completed sale. Each return is its own numbered
@@ -123,7 +124,7 @@ async function createReturn(actor, saleId, { items, note }) {
       throw ApiError.badRequest("Return amount exceeds the sale's remaining value");
     }
 
-    const when = new Date();
+    const when = await dayEndService.businessTimestamp(sale.store, new Date(), transaction);
     const number = await counterService.nextDocNumber('RETURN', when.getFullYear(), 6, transaction);
 
     // Restock WAREHOUSE-sourced lines at the exact original cost, so the

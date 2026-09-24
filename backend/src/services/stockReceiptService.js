@@ -13,6 +13,7 @@ const labourService = require('./labourService');
 const { toPaisa } = require('../utils/money');
 const { normalizeQuantity } = require('../utils/quantity');
 const { parsePagination, escapeLike } = require('../utils/query');
+const dayEndService = require('./dayEndService');
 const {
   resolveWarehouseScope,
   warehouseWhere,
@@ -327,7 +328,11 @@ async function createReceipt(
       lines.push({ product, receivedQuantity, damagedQuantity, unitCost });
     }
 
-    const when = dateWithCurrentTime(date);
+    const when = await dayEndService.businessTimestamp(
+      storeDoc.id,
+      dateWithCurrentTime(date),
+      transaction,
+    );
     // Opening-stock entries get their own OPN- numbering series so they read
     // as distinct from a real truck delivery (GRN-) in reports/search.
     const number = await counterService.nextDocNumber(

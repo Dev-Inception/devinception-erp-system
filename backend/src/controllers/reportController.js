@@ -113,6 +113,28 @@ const getReport = asyncHandler(async (req, res) => {
   });
 });
 
+const getDayBookEntry = asyncHandler(async (req, res) => {
+  const entry = await reportService.getDayBookEntry(req.user, req.params.id);
+  return sendSuccess(res, 200, 'Entry fetched', {
+    ...entry,
+    lines: entry.lines.map((l) => view(l, ['debit', 'credit'])),
+    document: entry.document
+      ? {
+          ...view(entry.document, [
+            'subtotal',
+            'discount',
+            'tax',
+            'transportFare',
+            'labourRent',
+            'total',
+            'amount',
+          ]),
+          items: (entry.document.items || []).map((it) => view(it, ['unitPrice', 'lineTotal'])),
+        }
+      : null,
+  });
+});
+
 const downloadReportCsv = asyncHandler(async (req, res) => {
   const { type } = req.params;
   const { from, to, warehouse, store } = req.query;
@@ -126,4 +148,4 @@ const downloadReportCsv = asyncHandler(async (req, res) => {
   return res.status(200).send(csv);
 });
 
-module.exports = { getReport, downloadReportCsv };
+module.exports = { getReport, downloadReportCsv, getDayBookEntry };

@@ -225,6 +225,7 @@ function associateModels(models) {
   PendingEntity.belongsTo(Vendor, { foreignKey: 'vendor', as: 'vendorInfo' });
   PendingEntity.belongsTo(Supplier, { foreignKey: 'supplier', as: 'supplierInfo' });
   PendingEntity.belongsTo(Product, { foreignKey: 'product', as: 'productInfo' });
+  PendingEntity.belongsTo(Labour, { foreignKey: 'labour', as: 'labourInfo' });
   PendingEntity.belongsTo(Store, { foreignKey: 'store', as: 'storeInfo' });
   PendingEntity.belongsTo(Warehouse, { foreignKey: 'warehouse', as: 'warehouseInfo' });
   PendingEntity.belongsTo(User, { foreignKey: 'pricedBy', as: 'pricer' });

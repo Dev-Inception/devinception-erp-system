@@ -53,6 +53,10 @@ const updateSettingsValidator = [
   body('twilioAccountSid').optional({ values: 'falsy' }).trim().isLength({ max: 120 }),
   body('twilioAuthToken').optional({ values: 'falsy' }).trim().isLength({ max: 120 }),
   body('twilioWhatsAppFrom').optional({ values: 'falsy' }).trim().isLength({ max: 40 }),
+  body('labourPricingMode')
+    .optional({ values: 'falsy' })
+    .isIn(['DIRECT', 'PENDING'])
+    .withMessage('Labour pricing mode must be DIRECT or PENDING'),
 ];
 
 module.exports = { updateSettingsValidator };

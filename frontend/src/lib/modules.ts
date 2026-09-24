@@ -28,6 +28,7 @@ import {
   CreditCard,
   HandCoins,
   Wrench,
+  ArrowRightLeft,
 } from 'lucide-react';
 import type { Role } from '@/store/auth';
 
@@ -189,6 +190,14 @@ export const MODULES: ModuleDef[] = [
     icon: BookOpenCheck,
     defaultRoles: ['ACCOUNTANT', 'MANAGER', 'ADMIN'],
   },
+  {
+    key: 'labour-cash-flow',
+    to: '/labour-cash-flow',
+    label: 'Labour Cash Flow',
+    section: 'Finance',
+    icon: ArrowRightLeft,
+    defaultRoles: ['ACCOUNTANT', 'MANAGER', 'ADMIN'],
+  },
   { key: 'reports', to: '/reports', label: 'Reports', section: 'Finance', icon: BarChart3 },
   {
     key: 'expenses',
@@ -306,6 +315,9 @@ export const MODULE_PERMISSION: Record<string, string> = {
   // of ever actually unlocking Labour access.
   labour: 'labour:read',
   ledgers: 'finance:read',
+  // Shows the store's margin on labour (charged vs paid out), so it sits
+  // behind the same permission as the rest of the finance views.
+  'labour-cash-flow': 'finance:read',
   'pending-entities': 'finance:read',
   reports: 'reports:read',
   expenses: 'expenses:manage',

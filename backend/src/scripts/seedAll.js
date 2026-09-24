@@ -1,10 +1,12 @@
 /**
  * Run every seeder in one go, in the right order: super admin first (other
  * seeders don't need it, but it's the one true prerequisite for using the
- * app at all), then the store-agnostic ones (catalog, labour services,
- * expense categories — each already loops over every store itself), then
- * the PVC panel inventory batch last, since it needs an actual store +
- * warehouse to target.
+ * app at all), then the starter store owner and the stores sold to them
+ * (every store-scoped seeder below needs those stores to exist), then the
+ * store-agnostic ones (catalog, labour services, vendors, labour, expense
+ * categories — each already loops over every store itself), then the PVC
+ * panel inventory batch last, since it needs an actual store + warehouse to
+ * target.
  *
  * The PVC batch has no sensible "every store" meaning (SKUs are globally
  * unique — see seedPvcPanelInventory.js), so this picks whichever
@@ -39,8 +41,11 @@ async function findPvcTarget() {
 
 async function main() {
   run('seedSuperAdmin.js');
+  run('seedStoreOwner.js');
   run('seedCatalog.js');
   run('seedLabourServices.js');
+  run('seedVendors.js');
+  run('seedLabour.js');
   run('seedExpenseCategories.js');
 
   const target = await findPvcTarget();

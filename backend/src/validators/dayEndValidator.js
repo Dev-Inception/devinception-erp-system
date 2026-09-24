@@ -4,7 +4,11 @@ const CALENDAR_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 const statusQueryValidator = [
   query('store').isMongoId().withMessage('A valid store is required'),
-  query('date').matches(CALENDAR_DATE).withMessage('date must be in YYYY-MM-DD format'),
+  // Omit `date` for the store's live state (see dayEndService.getStatus).
+  query('date')
+    .optional({ values: 'falsy' })
+    .matches(CALENDAR_DATE)
+    .withMessage('date must be in YYYY-MM-DD format'),
 ];
 
 const openDayValidator = [body('store').isMongoId().withMessage('A valid store is required')];

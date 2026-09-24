@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { useConfirm } from '@/components/confirm-provider';
@@ -7,19 +7,14 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-} from '@/components/ui/dialog';
 import { api } from '@/lib/api';
 import { cn, formatCurrency } from '@/lib/utils';
 import { MODULES, canSeeModule } from '@/lib/modules';
 import { useStorefrontFilter, useStorefrontStore } from '@/store/storefront';
 import { useAuthStore } from '@/store/auth';
 import { useLanguage } from '@/components/language-provider';
+import { DayEndCloseDialog } from '@/components/day-end-close-dialog';
+import { DayBookEntryDialog } from '@/components/day-book-entry-dialog';
 
 interface DayEndStatus {
   isOpen: boolean;
@@ -37,6 +32,10 @@ interface DayEndStatus {
   remainingBalance?: number;
   reopenedByName?: string;
   reopenedAt?: string;
+  // Live state only (status fetched without a date) — see
+  // dayEndService.sessionState / getStatus.
+  state?: 'CURRENT' | 'LATE_NIGHT' | 'STALE' | 'CLOSED' | 'NONE';
+  businessDate?: string;
 }
 
 const DAY_BOOK_MODULE = MODULES.find((m) => m.key === 'day-book');
@@ -134,7 +133,7 @@ export function DayBookPage() {
   const [date, setDate] = useState(todayStr);
   const [tab, setTab] = useState<'cash-flow' | 'bank-reconciliation'>('cash-flow');
   const [closeDialogOpen, setCloseDialogOpen] = useState(false);
-  const [handoverAmount, setHandoverAmount] = useState(0);
+  const [viewingEntryId, setViewingEntryId] = useState<string | null>(null);
   const today = todayStr();
   const storefront = useStorefrontFilter();
   const currentStoreId = useStorefrontStore((s) => s.currentStoreId);
@@ -146,8 +145,32 @@ export function DayBookPage() {
   // sensitive, so it's reserved for a super admin or this store's own admin.
   const canOpenClose = !!DAY_BOOK_MODULE && canSeeModule(role, permissions, DAY_BOOK_MODULE);
   const canReopen = role === 'ADMIN' || role === 'SUPER_ADMIN';
-  const isToday = date === today;
 
+  // The store's live day state (no date): which business day is open right
+  // now, even past midnight. Shared cache key with StaleDayGuard.
+  const { data: live } = useQuery<DayEndStatus>({
+    queryKey: ['day-end-live', currentStoreId],
+    queryFn: async () => (await api.get('/day-end', { params: { store: currentStoreId } })).data,
+    enabled: hasSpecificStore,
+  });
+
+  // The Date field is only a filter. It starts on the open business day —
+  // so after midnight, a day opened yesterday still shows yesterday — and
+  // after that it only changes when the user changes it.
+  const dateInitialized = useRef(false);
+  useEffect(() => {
+    if (dateInitialized.current || !live?.businessDate) return;
+    dateInitialized.current = true;
+    setDate(live.businessDate);
+  }, [live?.businessDate]);
+
+  // The day currently being traded (open or not) — actions only show while
+  // it's the one on screen.
+  const businessDate = live?.businessDate ?? today;
+  const isBusinessDay = date === businessDate;
+  const liveOpen = !!live?.isOpen && live.state !== 'NONE';
+
+  // Status of the session covering the date on screen (history badge).
   const { data: dayEnd } = useQuery<DayEndStatus>({
     queryKey: ['day-end', currentStoreId, date],
     queryFn: async () =>
@@ -155,45 +178,32 @@ export function DayBookPage() {
     enabled: hasSpecificStore,
   });
 
-  // A day that's still open keeps accumulating from the date it was opened
-  // on, no matter how many calendar dates have rolled by since — so while
-  // looking at "today" with an open day that started earlier, pull the
-  // whole open span into view instead of just today's slice.
-  const rangeFrom =
-    isToday && dayEnd?.isOpen && dayEnd.openDate && dayEnd.openDate < date ? dayEnd.openDate : date;
-  const isMultiDay = rangeFrom !== date;
-
+  // One calendar day at a time. Late-night entries are already dated onto
+  // the day that was open (11:59 PM), so no multi-day span is needed.
   const { data, isLoading } = useQuery<DayBookResult>({
-    queryKey: ['day-book', rangeFrom, date, storefront.store],
+    queryKey: ['day-book', date, storefront.store],
     queryFn: async () =>
       (
         await api.get('/reports/day-book', {
-          params: { from: rangeFrom, to: date, ...storefront },
+          params: { from: date, to: date, ...storefront },
         })
       ).data,
   });
 
-  const invalidateDayEnd = () =>
-    qc.invalidateQueries({ queryKey: ['day-end', currentStoreId, date] });
+  const invalidateDayEnd = () => {
+    qc.invalidateQueries({ queryKey: ['day-end'] });
+    qc.invalidateQueries({ queryKey: ['day-end-live'] });
+  };
 
   const openDay = useMutation({
     mutationFn: async () => (await api.post('/day-end/open', { store: currentStoreId })).data,
     onSuccess: () => {
       toast.success('Day opened');
+      // A day always opens on today's date — show it.
+      setDate(todayStr());
       invalidateDayEnd();
     },
     onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Could not open the day'),
-  });
-
-  const closeDay = useMutation({
-    mutationFn: async () =>
-      (await api.post('/day-end/close', { store: currentStoreId, handoverAmount })).data,
-    onSuccess: () => {
-      toast.success('Day closed');
-      invalidateDayEnd();
-      setCloseDialogOpen(false);
-    },
-    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Could not close the day'),
   });
 
   const reopenDay = useMutation({
@@ -207,7 +217,7 @@ export function DayBookPage() {
 
   const confirm = useConfirm();
   const handleOpenDay = async () => {
-    const carry = dayEnd?.remainingBalance;
+    const carry = live?.remainingBalance;
     const ok = await confirm({
       title: 'Open a new day for this store?',
       description:
@@ -218,10 +228,7 @@ export function DayBookPage() {
     });
     if (ok) openDay.mutate();
   };
-  const openCloseDialog = () => {
-    setHandoverAmount(dayEnd?.cashOnHand ?? 0);
-    setCloseDialogOpen(true);
-  };
+  const openCloseDialog = () => setCloseDialogOpen(true);
   const handleReopenDay = async () => {
     const ok = await confirm({
       title: 'Reopen the day for this store?',
@@ -234,18 +241,9 @@ export function DayBookPage() {
   const summary = data?.summary;
   const cashFlowRows = data?.cashFlowRows ?? [];
   const bankReconciliationRows = data?.bankReconciliationRows ?? [];
-  const remainingAfterHandover = (dayEnd?.cashOnHand ?? 0) - handoverAmount;
 
   const formatRowStamp = (value: string) =>
-    isMultiDay
-      ? new Date(value).toLocaleString([], {
-          day: '2-digit',
-          month: 'short',
-          year: 'numeric',
-          hour: '2-digit',
-          minute: '2-digit',
-        })
-      : new Date(value).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    new Date(value).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
   const downloadCsv = () => {
     if (!data) return;
@@ -321,8 +319,8 @@ export function DayBookPage() {
   // range's net movement only when there's no live open-session figure to
   // show (day closed, or viewing history).
   const cashOnHandValue =
-    isToday && dayEnd?.isOpen && typeof dayEnd.cashOnHand === 'number'
-      ? dayEnd.cashOnHand
+    isBusinessDay && liveOpen && typeof live?.cashOnHand === 'number'
+      ? live.cashOnHand
       : (summary?.netCash ?? 0);
 
   const cashCards = summary
@@ -383,9 +381,9 @@ export function DayBookPage() {
               </Button>
             </div>
           </div>
-          {date !== today && (
-            <Button type="button" variant="outline" onClick={() => setDate(today)}>
-              {t('Today')}
+          {date !== businessDate && (
+            <Button type="button" variant="outline" onClick={() => setDate(businessDate)}>
+              {businessDate === today ? t('Today') : t('Open day')}
             </Button>
           )}
           {hasSpecificStore && dayEnd && (
@@ -400,11 +398,23 @@ export function DayBookPage() {
               >
                 {dayEnd.isOpen ? <Unlock className="h-4 w-4" /> : <Lock className="h-4 w-4" />}
                 {dayEnd.isOpen
-                  ? dayEnd.openDate && dayEnd.openDate < today
-                    ? `${t('Day is open')} — ${t('since')} ${formatDisplayDate(dayEnd.openDate)}`
+                  ? isBusinessDay && live?.state === 'LATE_NIGHT'
+                    ? `${t('Day is open')} — ${t('late night, entries go to')} ${formatDisplayDate(businessDate)}`
                     : t('Day is open')
                   : `${t('Closed by')} ${dayEnd.closedByName ?? ''}`.trim()}
               </span>
+              {dayEnd.openedAt && (
+                <span className="text-xs text-muted-foreground">
+                  {t('Opened')}{' '}
+                  {new Date(dayEnd.openedAt).toLocaleString([], {
+                    day: '2-digit',
+                    month: 'short',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                  })}
+                  {dayEnd.openedByName ? ` ${t('by')} ${dayEnd.openedByName}` : ''}
+                </span>
+              )}
               {!dayEnd.isOpen && typeof dayEnd.remainingBalance === 'number' && (
                 <span className="text-xs text-muted-foreground">
                   {t('Submitted')} {formatCurrency(dayEnd.handoverAmount ?? 0)} ·{' '}
@@ -416,31 +426,36 @@ export function DayBookPage() {
                   {t('Opening balance')} {formatCurrency(dayEnd.openingBalance)}
                 </span>
               )}
-              {isToday && dayEnd.isOpen && canOpenClose && (
+              {isBusinessDay && liveOpen && canOpenClose && (
                 <Button type="button" variant="outline" onClick={openCloseDialog}>
                   <Lock className="h-4 w-4" /> {t('Day End')}
                 </Button>
               )}
-              {isToday && !dayEnd.isOpen && canOpenClose && (
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={handleOpenDay}
-                  disabled={openDay.isPending}
-                >
-                  <Unlock className="h-4 w-4" /> {t('Day Open')}
-                </Button>
-              )}
-              {isToday && !dayEnd.isOpen && canReopen && (
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={handleReopenDay}
-                  disabled={reopenDay.isPending}
-                >
-                  <Unlock className="h-4 w-4" /> {t('Reopen Day')}
-                </Button>
-              )}
+              {date === today &&
+                (live?.state === 'CLOSED' || live?.state === 'NONE') &&
+                canOpenClose && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={handleOpenDay}
+                    disabled={openDay.isPending}
+                  >
+                    <Unlock className="h-4 w-4" /> {t('Day Open')}
+                  </Button>
+                )}
+              {isBusinessDay &&
+                live?.state === 'CLOSED' &&
+                live.openDate === today &&
+                canReopen && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={handleReopenDay}
+                    disabled={reopenDay.isPending}
+                  >
+                    <Unlock className="h-4 w-4" /> {t('Reopen Day')}
+                  </Button>
+                )}
             </div>
           )}
           <div className="ml-auto flex gap-2">
@@ -532,9 +547,7 @@ export function DayBookPage() {
               <BookText className="h-4 w-4" /> {t('Cash Flow')}
             </CardTitle>
             <p className="text-sm text-muted-foreground">
-              {isMultiDay
-                ? `Every cash movement since the day opened on ${formatDisplayDate(rangeFrom)}`
-                : `Every cash movement posted on ${date}`}
+              {`${t('Every cash movement posted on')} ${formatDisplayDate(date)} — ${t('click an entry for details')}`}
             </p>
           </CardHeader>
           <CardContent className="p-0">
@@ -560,7 +573,11 @@ export function DayBookPage() {
                   )}
                   {!isLoading &&
                     cashFlowRows.map((r) => (
-                      <tr key={r.id} className="border-b last:border-0 hover:bg-muted/30">
+                      <tr
+                        key={r.id}
+                        className="cursor-pointer border-b last:border-0 hover:bg-muted/30"
+                        onClick={() => setViewingEntryId(r.id)}
+                      >
                         <td className="px-4 py-2 text-muted-foreground">
                           {formatRowStamp(r.date)}
                         </td>
@@ -598,9 +615,7 @@ export function DayBookPage() {
               <BookText className="h-4 w-4" /> {t('Bank Reconciliation')}
             </CardTitle>
             <p className="text-sm text-muted-foreground">
-              {isMultiDay
-                ? `Every bank transaction since the day opened on ${formatDisplayDate(rangeFrom)}`
-                : `Every bank transaction posted on ${date}`}
+              {`${t('Every bank transaction posted on')} ${formatDisplayDate(date)} — ${t('click an entry for details')}`}
             </p>
           </CardHeader>
           <CardContent className="p-0">
@@ -626,7 +641,11 @@ export function DayBookPage() {
                   )}
                   {!isLoading &&
                     bankReconciliationRows.map((r) => (
-                      <tr key={r.id} className="border-b last:border-0 hover:bg-muted/30">
+                      <tr
+                        key={r.id}
+                        className="cursor-pointer border-b last:border-0 hover:bg-muted/30"
+                        onClick={() => setViewingEntryId(r.id)}
+                      >
                         <td className="px-4 py-2 text-muted-foreground">
                           {formatRowStamp(r.date)}
                         </td>
@@ -660,61 +679,16 @@ export function DayBookPage() {
         </Card>
       )}
 
-      <Dialog open={closeDialogOpen} onOpenChange={setCloseDialogOpen}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle>{t('Day End')}</DialogTitle>
-            <DialogDescription>
-              {t(
-                'Enter how much cash you are submitting to the admin. Anything left over carries forward as tomorrow’s opening balance.',
-              )}
-            </DialogDescription>
-          </DialogHeader>
-          <form
-            className="space-y-4"
-            onSubmit={(e) => {
-              e.preventDefault();
-              if (!closeDay.isPending && handoverAmount >= 0) closeDay.mutate();
-            }}
-          >
-            <div className="rounded-lg border bg-muted/20 p-3 text-sm">
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">{t('Cash on hand')}</span>
-                <span className="font-medium">{formatCurrency(dayEnd?.cashOnHand ?? 0)}</span>
-              </div>
-            </div>
-            <div className="space-y-1.5">
-              <Label>{t('Amount submitted to admin')} *</Label>
-              <Input
-                type="number"
-                min={0}
-                step="0.01"
-                value={handoverAmount || ''}
-                onChange={(e) => setHandoverAmount(Number(e.target.value))}
-                required
-                autoFocus
-              />
-            </div>
-            <div className="rounded-lg border bg-muted/20 p-3 text-sm">
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">{t('Carried forward to next day')}</span>
-                <span
-                  className={cn('font-medium', remainingAfterHandover < 0 && 'text-destructive')}
-                >
-                  {formatCurrency(remainingAfterHandover)}
-                </span>
-              </div>
-            </div>
-            <Button
-              type="submit"
-              className="w-full"
-              disabled={closeDay.isPending || handoverAmount < 0}
-            >
-              {closeDay.isPending ? t('Closing…') : t('Close Day')}
-            </Button>
-          </form>
-        </DialogContent>
-      </Dialog>
+      {hasSpecificStore && (
+        <DayEndCloseDialog
+          open={closeDialogOpen}
+          onOpenChange={setCloseDialogOpen}
+          storeId={currentStoreId as string}
+          cashOnHand={live?.cashOnHand ?? 0}
+        />
+      )}
+
+      <DayBookEntryDialog entryId={viewingEntryId} onClose={() => setViewingEntryId(null)} />
     </div>
   );
 }

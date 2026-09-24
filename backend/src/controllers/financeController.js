@@ -1,6 +1,7 @@
 const bankAccountService = require('../services/bankAccountService');
 const paymentService = require('../services/paymentService');
 const ledgerService = require('../services/ledgerService');
+const labourService = require('../services/labourService');
 const asyncHandler = require('../utils/asyncHandler');
 const { sendSuccess } = require('../utils/ApiResponse');
 const { view } = require('../utils/money');
@@ -150,6 +151,36 @@ const partyStatement = asyncHandler(async (req, res) => {
   });
 });
 
+/* --------------------------- Labour cash flow ---------------------------- */
+
+const labourCashFlow = asyncHandler(async (req, res) => {
+  const { store, labour, from, to, status, page, limit } = req.query;
+  const result = await labourService.labourCashFlow({
+    actor: req.user,
+    store,
+    labour,
+    from,
+    to,
+    status,
+    page,
+    limit,
+  });
+  return sendSuccess(res, 200, 'Labour cash flow fetched', {
+    rows: result.rows.map((r) => view(r, ['charged', 'payout', 'margin'])),
+    total: result.total,
+    page: result.page,
+    limit: result.limit,
+    summary: view(result.summary, [
+      'charged',
+      'payout',
+      'margin',
+      'awaitingCharged',
+      'paidToLabour',
+      'outstanding',
+    ]),
+  });
+});
+
 /* ------------------------------ Cash & Bank ------------------------------ */
 
 const cashLedger = asyncHandler(async (req, res) => {
@@ -190,4 +221,5 @@ module.exports = {
   partyStatement,
   cashLedger,
   bankLedger,
+  labourCashFlow,
 };

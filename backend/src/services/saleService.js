@@ -23,6 +23,7 @@ const pendingEntityService = require('./pendingEntityService');
 const paymentService = require('./paymentService');
 const labourService = require('./labourService');
 const dayEndService = require('./dayEndService');
+const settingsService = require('./settingsService');
 
 /**
  * POS sale flow. Resolves how the sale is settled (cash / bank / on account),
@@ -378,6 +379,9 @@ async function createSale(actor, input) {
 
     const saleLabour = await labourService.resolveLabourLines(labour, storeDoc.id, transaction);
     const labourRentPaisa = saleLabour.reduce((s, l) => s + l.rent, 0);
+    // Snapshotted onto the sale so an edit books its labour the same way,
+    // even if the store switches modes in between.
+    const labourPricingMode = await settingsService.getLabourPricingMode(storeDoc.id, transaction);
 
     // Build line items (paisa) and pre-check stock so we never half-sell. A
     // sale can mix lines from several warehouses — each WAREHOUSE-sourced
@@ -454,7 +458,13 @@ async function createSale(actor, input) {
       bankRef = bank.id;
     }
 
-    const when = date ? new Date(date) : new Date();
+    // Late-night sales land on the still-open business day (see
+    // dayEndService.businessTimestamp).
+    const when = await dayEndService.businessTimestamp(
+      storeDoc.id,
+      date ? new Date(date) : new Date(),
+      transaction,
+    );
     await dayEndService.assertDayOpen(actor, storeDoc.id, when, transaction);
     const number = await counterService.nextDocNumber('SALE', when.getFullYear(), 6, transaction);
 
@@ -502,6 +512,7 @@ async function createSale(actor, input) {
         tax,
         transportFare: transportFarePaisa,
         labourRent: labourRentPaisa,
+        labourPricingMode,
         total,
         cost,
         paymentMethod: method,
@@ -576,18 +587,24 @@ async function createSale(actor, input) {
     }
 
     // Labour payable: the rent charged to the customer was already booked as
-    // SALES revenue above — this books the matching expense/liability to the
-    // labourer. Dr Operating Expense / Cr AP_LABOUR per labourer with rent,
-    // in one balanced entry.
-    await labourService.postLabourPayable(saleLabour, {
-      when,
-      refType: REF.SALE,
-      refNo: number,
-      store: storeDoc.id,
-      actor,
-      label: 'sale',
-      transaction,
-    });
+    // SALES revenue above. In DIRECT mode this books the matching
+    // expense/liability to the labourer right away — Dr Operating Expense /
+    // Cr AP_LABOUR per labourer with rent, in one balanced entry. In PENDING
+    // mode nothing is owed yet: each labour line goes to Pending Entities,
+    // and only becomes payable once the agreed payout is entered there.
+    if (labourPricingMode === 'PENDING') {
+      await pendingEntityService.recordSaleLabourItems(sale, saleLabour, actor, transaction);
+    } else {
+      await labourService.postLabourPayable(saleLabour, {
+        when,
+        refType: REF.SALE,
+        refNo: number,
+        store: storeDoc.id,
+        actor,
+        label: 'sale',
+        transaction,
+      });
+    }
 
     // Transporter payable: same idea as labour above, but only when a
     // registered transporter is attached.
@@ -770,15 +787,20 @@ async function updateSale(actor, saleId, input) {
     // Reverse the original revenue + COGS entries (using the sale's own
     // pre-edit stored totals), then post fresh ones below for the revised sale.
     await reverseSaleJournalEntries(sale, actor, when, transaction);
-    await labourService.reverseLabourPayable(originalLabour, {
-      when,
-      refType: REF.SALE,
-      refNo: sale.number,
-      store: sale.store,
-      actor,
-      label: 'sale',
-      transaction,
-    });
+    // A PENDING-mode sale never posted a labour payable at checkout (its
+    // payouts live on its SALE_LABOUR pending entities, handled below).
+    const pendingLabour = sale.labourPricingMode === 'PENDING';
+    if (!pendingLabour) {
+      await labourService.reverseLabourPayable(originalLabour, {
+        when,
+        refType: REF.SALE,
+        refNo: sale.number,
+        store: sale.store,
+        actor,
+        label: 'sale',
+        transaction,
+      });
+    }
     // Uses the sale's still-original `transporter`/fare fields — they aren't
     // overwritten until the field-assignment block below.
     await reverseTransportFareExpense(sale, actor, transaction);
@@ -822,15 +844,23 @@ async function updateSale(actor, saleId, input) {
     sale.lastEditedBy = actor ? actor.id : null;
     await sale.save({ transaction });
 
-    await labourService.postLabourPayable(saleLabour, {
-      when,
-      refType: REF.SALE,
-      refNo: sale.number,
-      store: sale.store,
-      actor,
-      label: 'sale',
-      transaction,
-    });
+    if (!pendingLabour) {
+      await labourService.postLabourPayable(saleLabour, {
+        when,
+        refType: REF.SALE,
+        refNo: sale.number,
+        store: sale.store,
+        actor,
+        label: 'sale',
+        transaction,
+      });
+    } else if (labour !== undefined) {
+      // Labour was replaced — the old lines' payouts (if already entered)
+      // no longer apply, so they're reversed and re-queued for pricing.
+      // Leaving `labour` out keeps the existing pending entities untouched.
+      await pendingEntityService.removeSaleLabourItems(sale, actor, transaction);
+      await pendingEntityService.recordSaleLabourItems(sale, saleLabour, actor, transaction);
+    }
     await postTransportFareExpense(sale, transportFareResolved, actor, transaction);
 
     const revenueLines = [];
@@ -1081,7 +1111,62 @@ async function getSaleBalances(sale) {
   return { previousBalance: toRupees(previous), totalRemaining: toRupees(remaining) };
 }
 
+/**
+ * Read-only availability check for the POS "Products → Next" step: for each
+ * warehouse-sourced cart line, how much of that product the chosen
+ * warehouse holds right now vs how much the cart asks for. Same rule as
+ * resolveSaleLineItems' guard at checkout (quantities of the same product +
+ * warehouse are summed across lines), so a cart that passes here won't then
+ * fail checkout on stock — unless stock moves in between, which checkout
+ * still catches. Vendor-sourced lines aren't sent: they don't draw on stock.
+ *
+ * Returns one row per (product, warehouse) with `ok` false when short.
+ */
+async function checkStock(actor, { store, items = [] }) {
+  const { Product, Warehouse, StockLevel } = initializeModels();
+  if (store) assertStoreAccess(actor, store);
+
+  const requested = new Map();
+  for (const it of items) {
+    const key = `${it.product}:${it.warehouse}`;
+    const entry = requested.get(key) || { product: it.product, warehouse: it.warehouse, qty: 0 };
+    entry.qty = normalizeQuantity(entry.qty + requirePositiveQuantity(it.quantity));
+    requested.set(key, entry);
+  }
+  const entries = Array.from(requested.values());
+  if (entries.length === 0) return [];
+
+  const productIds = Array.from(new Set(entries.map((e) => String(e.product))));
+  const warehouseIds = Array.from(new Set(entries.map((e) => String(e.warehouse))));
+  const [products, warehouses, levels] = await Promise.all([
+    Product.findAll({ where: { id: { [Op.in]: productIds } }, attributes: ['id', 'name'] }),
+    Warehouse.findAll({ where: { id: { [Op.in]: warehouseIds } }, attributes: ['id', 'name'] }),
+    StockLevel.findAll({
+      where: { product: { [Op.in]: productIds }, warehouse: { [Op.in]: warehouseIds } },
+    }),
+  ]);
+  const productName = new Map(products.map((p) => [String(p.id), p.name]));
+  const warehouseName = new Map(warehouses.map((w) => [String(w.id), w.name]));
+  const levelByKey = new Map(
+    levels.map((l) => [`${l.product}:${l.warehouse}`, normalizeQuantity(l.quantity)]),
+  );
+
+  return entries.map((e) => {
+    const available = levelByKey.get(`${e.product}:${e.warehouse}`) || 0;
+    return {
+      product: String(e.product),
+      warehouse: String(e.warehouse),
+      productName: productName.get(String(e.product)) || '',
+      warehouseName: warehouseName.get(String(e.warehouse)) || '',
+      requested: e.qty,
+      available,
+      ok: available >= e.qty,
+    };
+  });
+}
+
 module.exports = {
+  checkStock,
   createSale,
   updateSale,
   recordPayment,

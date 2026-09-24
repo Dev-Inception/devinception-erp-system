@@ -38,6 +38,7 @@ import { SettingsPage } from '@/pages/settings';
 import { CashPage } from '@/pages/cash';
 import { LedgersPage } from '@/pages/ledgers';
 import { PendingEntitiesPage } from '@/pages/pending-entities';
+import { LabourCashFlowPage } from '@/pages/labour-cash-flow';
 import { ReportsPage } from '@/pages/reports';
 import { DayBookPage } from '@/pages/day-book';
 import { WarehousesPage } from '@/pages/warehouses';
@@ -100,6 +101,7 @@ const MODULE_ROUTES: { path: string; element: React.ReactElement }[] = [
   { path: 'roles', element: <RolePage /> },
   { path: 'ledgers', element: <LedgersPage /> },
   { path: 'pending-entities', element: <PendingEntitiesPage /> },
+  { path: 'labour-cash-flow', element: <LabourCashFlowPage /> },
   { path: 'reports', element: <ReportsPage /> },
   { path: 'expenses', element: <ExpensesPage /> },
   { path: 'day-book', element: <DayBookPage /> },

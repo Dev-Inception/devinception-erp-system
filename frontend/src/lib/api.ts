@@ -1185,6 +1185,7 @@ function mapSale(s: any) {
     taxPercent: s.taxPercent ?? 0,
     transportFare: s.transportFare ?? 0,
     labourRentTotal: s.labourRent ?? 0,
+    labourPricingMode: (s.labourPricingMode ?? 'DIRECT') as 'DIRECT' | 'PENDING',
     transport: s.transport
       ? {
           driverName: s.transport.driverName || '',
@@ -1284,6 +1285,30 @@ async function realGetSale(id: string) {
   const res = await http.get(`/sales/${id}`);
   return mapSale(res.data.sale);
 }
+/* POS "Products → Next": live availability for warehouse-sourced lines. */
+async function realCheckSaleStock(body: any) {
+  const res = await http.post('/sales/stock-check', {
+    store: body.store || undefined,
+    items: (body.items ?? []).map((it: any) => ({
+      product: it.productId,
+      warehouse: it.warehouseId,
+      quantity: it.quantity,
+    })),
+  });
+  return {
+    ok: !!res.data.ok,
+    lines: (res.data.lines ?? []).map((l: any) => ({
+      productId: String(l.product),
+      warehouseId: String(l.warehouse),
+      productName: l.productName || '',
+      warehouseName: l.warehouseName || '',
+      requested: Number(l.requested) || 0,
+      available: Number(l.available) || 0,
+      ok: !!l.ok,
+    })),
+  };
+}
+
 async function realCreateSale(body: any) {
   // POS (flat) → backend (nested payment). The POS sends one tax rate per line;
   // the backend applies a single order-level taxPercent on the net.
@@ -1896,7 +1921,7 @@ async function realListVendorSaleReturns(vendorSaleId: string) {
 function mapPendingEntity(e: any) {
   return {
     id: String(e._id ?? e.id),
-    sourceType: e.sourceType as 'SALE_ITEM' | 'STOCK_RECEIPT_ITEM',
+    sourceType: e.sourceType as 'SALE_ITEM' | 'STOCK_RECEIPT_ITEM' | 'SALE_LABOUR',
     sourceNo: e.sourceNo || '',
     sale: e.sale ? String(e.sale?._id ?? e.sale) : undefined,
     vendorId: e.vendor ? String(e.vendor?._id ?? e.vendor) : undefined,
@@ -1911,6 +1936,11 @@ function mapPendingEntity(e: any) {
     status: e.status as 'PENDING' | 'PRICED',
     purchasePrice: e.purchasePrice ?? undefined,
     lineTotal: e.lineTotal ?? undefined,
+    // SALE_LABOUR only — purchasePrice/lineTotal are the labourer's payout.
+    labourId: e.labour ? String(e.labour?._id ?? e.labour) : undefined,
+    labourName: e.labourName || '',
+    serviceName: e.serviceName || '',
+    chargedAmount: e.chargedAmount ?? undefined,
   };
 }
 async function realListPendingEntities(params: any = {}) {
@@ -1935,7 +1965,7 @@ async function realListPendingEntities(params: any = {}) {
 function mapPendingInvoice(inv: any) {
   return {
     id: String(inv.id),
-    sourceType: inv.sourceType as 'SALE_ITEM' | 'STOCK_RECEIPT_ITEM',
+    sourceType: inv.sourceType as 'SALE_ITEM' | 'STOCK_RECEIPT_ITEM' | 'SALE_LABOUR',
     sourceNo: inv.sourceNo || '',
     vendorName: inv.vendorName || '',
     storeName: inv.storeName || undefined,
@@ -1945,6 +1975,7 @@ function mapPendingInvoice(inv: any) {
     pricedCount: inv.pricedCount ?? 0,
     status: inv.status as 'PENDING' | 'PRICED',
     total: inv.total ?? undefined,
+    chargedTotal: inv.chargedTotal ?? undefined,
   };
 }
 async function realListPendingInvoices(params: any = {}) {
@@ -1972,6 +2003,38 @@ async function realListInvoiceItems(params: any = {}) {
   });
   return { items: (res.data.items as any[]).map(mapPendingEntity) };
 }
+/* ── Labour cash flow (charged to customers vs paid out to labourers) ── */
+async function realLabourCashFlow(params: any = {}) {
+  const res = await http.get('/finance/labour-cash-flow', {
+    params: {
+      labour: params.labour || undefined,
+      status: params.status || undefined,
+      from: params.from || undefined,
+      to: params.to || undefined,
+      store: params.store || undefined,
+      page: params.page || undefined,
+      limit: params.limit || undefined,
+    },
+  });
+  return {
+    rows: (res.data.rows as any[]).map((r) => ({
+      saleId: String(r.saleId),
+      saleNo: r.saleNo || '',
+      date: r.date,
+      customerName: r.customerName || '',
+      labour: String(r.labour),
+      labourName: r.labourName || '',
+      serviceName: r.serviceName || '',
+      status: r.status as 'DIRECT' | 'PENDING' | 'PRICED',
+      charged: r.charged ?? 0,
+      payout: r.payout ?? null,
+      margin: r.margin ?? null,
+    })),
+    total: res.data.total ?? 0,
+    summary: res.data.summary,
+  };
+}
+
 async function realSetPendingEntityPrice(id: string, body: any) {
   const res = await http.patch(`/pending-entities/${id}/price`, {
     purchasePrice: body.purchasePrice,
@@ -2501,10 +2564,17 @@ function mapDayEndStatus(s: any) {
     remainingBalance: typeof s.remainingBalance === 'number' ? s.remainingBalance : undefined,
     reopenedByName: s.reopenedByName || undefined,
     reopenedAt: s.reopenedAt || undefined,
+    // CURRENT | LATE_NIGHT | STALE | CLOSED | NONE — see dayEndService.sessionState.
+    state: (s.state || 'NONE') as 'CURRENT' | 'LATE_NIGHT' | 'STALE' | 'CLOSED' | 'NONE',
+    businessDate: s.businessDate || undefined,
+    rolloverHour: typeof s.rolloverHour === 'number' ? s.rolloverHour : undefined,
   };
 }
 async function realDayEndStatus(params: any = {}) {
-  const res = await http.get('/day-end', { params: { store: params.store, date: params.date } });
+  // No `date` → the store's live state (latest session).
+  const res = await http.get('/day-end', {
+    params: { store: params.store, date: params.date || undefined },
+  });
   return mapDayEndStatus(res.data);
 }
 async function realOpenDay(body: any) {
@@ -2611,6 +2681,7 @@ async function realUpdateSettings(body: any, params: any) {
         twilioAccountSid: body.twilioAccountSid,
         twilioAuthToken: body.twilioAuthToken || undefined,
         twilioWhatsAppFrom: body.twilioWhatsAppFrom,
+        labourPricingMode: body.labourPricingMode || undefined,
       },
       { params },
     )
@@ -2795,6 +2866,7 @@ async function tryReal(
     if (url === '/pending-entities/invoices') return wrap(await realListPendingInvoices(params));
     if (url === '/pending-entities/invoice-items') return wrap(await realListInvoiceItems(params));
     if (url === '/pending-entities') return wrap(await realListPendingEntities(params));
+    if (url === '/finance/labour-cash-flow') return wrap(await realLabourCashFlow(params));
     if (url === '/sales/returns') return wrap(await realListAllSaleReturns(params));
     if (seg[0] === 'sales' && seg[1] && seg[2] === 'returns')
       return wrap(await realListSaleReturns(seg[1]));
@@ -2820,6 +2892,8 @@ async function tryReal(
     if (url === '/dashboard/kpis') return wrap(await realDashKpis(params.store as string));
     if (url === '/dashboard/sales-trend') return wrap(await realDashTrend(params.store as string));
     if (url === '/dashboard/top-products') return wrap(await realDashTop(params.store as string));
+    if (seg[0] === 'reports' && seg[1] === 'day-book' && seg[2] === 'entries' && seg[3])
+      return wrap((await http.get(`/reports/day-book/entries/${seg[3]}`)).data);
     if (seg[0] === 'reports' && seg[1]) return wrap(await realReport(seg[1], params));
     if (
       (seg[0] === 'customers' ||
@@ -2850,6 +2924,7 @@ async function tryReal(
     if (url === '/stock-receipts') return wrap(await realCreateStockReceipt(body));
     if (url === '/damaged-stock/returns') return wrap(await realCreateDamagedStockReturn(body));
     if (url === '/sales') return wrap(await realCreateSale(body));
+    if (url === '/sales/stock-check') return wrap(await realCheckSaleStock(body));
     if (seg[0] === 'sales' && seg[1] && seg[2] === 'payments')
       return wrap(await realRecordSalePayment(seg[1], body));
     if (url === '/notifications/email') return wrap(await realSendEmail(body));

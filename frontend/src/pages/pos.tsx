@@ -726,6 +726,81 @@ export function PosPage() {
 
   const saleWarehouseId = cart.find((l) => !l.vendorId)?.desiredWarehouseId ?? defaultWarehouseId;
 
+  // Stock shortfalls found by the Products → Next check, keyed by cart line.
+  // Cleared whenever the cart changes, so a fixed row stops showing its
+  // error straight away (the next Next re-checks everything anyway).
+  const [stockIssues, setStockIssues] = useState<
+    Record<string, { available: number; warehouseName: string } | 'NO_WAREHOUSE'>
+  >({});
+  useEffect(() => {
+    setStockIssues({});
+  }, [cart]);
+
+  // Before leaving Products, confirm every warehouse-sourced line can
+  // actually be filled from its warehouse right now — the same check
+  // checkout does, just early, so the cashier doesn't find out on the
+  // Payment step. Vendor-sourced lines don't draw on stock and are skipped.
+  // Each line is checked against exactly what checkout will send for it.
+  const checkStockAndContinue = useMutation({
+    mutationFn: async () => {
+      const warehouseLines = cart.filter((l) => !l.vendorId);
+      const issues: Record<string, { available: number; warehouseName: string } | 'NO_WAREHOUSE'> =
+        {};
+      const toCheck = warehouseLines.flatMap((l) => {
+        const warehouseId = l.desiredWarehouseId ?? saleWarehouseId;
+        if (!warehouseId) {
+          issues[l.key] = 'NO_WAREHOUSE';
+          return [];
+        }
+        return [{ line: l, productId: l.product.id, warehouseId, quantity: l.qty }];
+      });
+      if (toCheck.length > 0) {
+        const result = (
+          await api.post('/sales/stock-check', {
+            store: hasSpecificStore ? currentStoreId : undefined,
+            items: toCheck.map(({ productId, warehouseId, quantity }) => ({
+              productId,
+              warehouseId,
+              quantity,
+            })),
+          })
+        ).data as {
+          lines: {
+            productId: string;
+            warehouseId: string;
+            warehouseName: string;
+            available: number;
+            ok: boolean;
+          }[];
+        };
+        for (const { line, productId, warehouseId } of toCheck) {
+          const row = result.lines.find(
+            (r) => r.productId === productId && r.warehouseId === warehouseId,
+          );
+          if (row && !row.ok) {
+            issues[line.key] = { available: row.available, warehouseName: row.warehouseName };
+          }
+        }
+      }
+      return issues;
+    },
+    onSuccess: (issues) => {
+      const count = Object.keys(issues).length;
+      if (count === 0) {
+        setStep(3);
+        return;
+      }
+      setStockIssues(issues);
+      toast.error(
+        count === 1
+          ? t('Not enough stock for 1 item — reduce the quantity or switch it to a vendor')
+          : `${t('Not enough stock for')} ${count} ${t('items — reduce the quantity or switch them to a vendor')}`,
+      );
+    },
+    onError: (e: any) =>
+      toast.error(e?.response?.data?.message ?? e?.message ?? t('Could not check stock')),
+  });
+
   const completeSale = useMutation({
     mutationFn: async (): Promise<CompletedSale> => {
       if (!hasSpecificStore) {
@@ -1178,6 +1253,7 @@ export function PosPage() {
                         (v) => v.warehouseId === l.desiredWarehouseId,
                       );
                       const notStockedHere = !desiredVariant;
+                      const stockIssue = stockIssues[l.key];
                       return (
                         <tr key={l.key} className="border-b last:border-0">
                           <td className="px-3 py-2">
@@ -1194,10 +1270,23 @@ export function PosPage() {
                               <div className="min-w-0">
                                 <p className="truncate font-medium">{l.product.name}</p>
                                 <p className="text-xs text-muted-foreground">{l.product.sku}</p>
-                                {notStockedHere && !l.vendorId && (
+                                {stockIssue === 'NO_WAREHOUSE' ? (
                                   <p className="mt-0.5 text-xs text-destructive">
-                                    {t('Not stocked here — pick a vendor')}
+                                    {t('Pick a warehouse or a vendor')}
                                   </p>
+                                ) : stockIssue ? (
+                                  <p className="mt-0.5 text-xs text-destructive">
+                                    {stockIssue.available > 0
+                                      ? `${t('Only')} ${stockIssue.available} ${t('in stock at')} ${stockIssue.warehouseName} — ${t('reduce the quantity or pick a vendor')}`
+                                      : `${t('Out of stock at')} ${stockIssue.warehouseName} — ${t('pick another warehouse or a vendor')}`}
+                                  </p>
+                                ) : (
+                                  notStockedHere &&
+                                  !l.vendorId && (
+                                    <p className="mt-0.5 text-xs text-destructive">
+                                      {t('Not stocked here — pick a vendor')}
+                                    </p>
+                                  )
                                 )}
                               </div>
                             </div>
@@ -1269,7 +1358,7 @@ export function PosPage() {
                               min={1}
                               className={cn(
                                 'h-9 w-full min-w-[70px] text-right',
-                                (!l.qty || l.qty <= 0) && 'border-destructive',
+                                (!l.qty || l.qty <= 0 || !!stockIssue) && 'border-destructive',
                               )}
                               value={l.qty || ''}
                               onChange={(e) => setLineQty(l.key, Number(e.target.value))}
@@ -2117,9 +2206,14 @@ export function PosPage() {
           )}
           {step === 2 && (
             <Button
-              disabled={cart.length === 0 || cart.some((l) => !l.qty || l.qty <= 0)}
-              onClick={() => setStep(3)}
+              disabled={
+                cart.length === 0 ||
+                cart.some((l) => !l.qty || l.qty <= 0) ||
+                checkStockAndContinue.isPending
+              }
+              onClick={() => checkStockAndContinue.mutate()}
             >
+              {checkStockAndContinue.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
               {t('Next')} <ArrowRight className="h-4 w-4" />
             </Button>
           )}

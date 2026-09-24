@@ -16,6 +16,7 @@ const {
   assertStoreAccess,
 } = require('../utils/storeScope');
 const { ROLES } = require('../utils/constants');
+const dayEndService = require('./dayEndService');
 
 const EXPENSE_STATUS = { PENDING: 'PENDING', APPROVED: 'APPROVED', REJECTED: 'REJECTED' };
 
@@ -166,7 +167,11 @@ async function createExpense(actor, input) {
     if (amt <= 0) throw ApiError.badRequest('Amount must be positive');
     if (!method) throw ApiError.badRequest('A payment method is required');
 
-    const when = date ? new Date(date) : new Date();
+    const when = await dayEndService.businessTimestamp(
+      storeDoc.id,
+      date ? new Date(date) : new Date(),
+      transaction,
+    );
     const number = await counterService.nextDocNumber('EXP', when.getFullYear(), 6, transaction);
 
     const expense = Expense.build({

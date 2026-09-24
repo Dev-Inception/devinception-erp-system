@@ -10,6 +10,7 @@ const {
   updateSaleValidator,
   recordPaymentValidator,
   idParamValidator,
+  checkStockValidator,
 } = require('../validators/saleValidator');
 const {
   createReturnValidator,
@@ -40,6 +41,14 @@ router.post(
   createSaleValidator,
   validate,
   saleController.createSale,
+);
+// POS "Products → Next": is there enough stock for the cart right now?
+router.post(
+  '/stock-check',
+  requirePermission(PERMISSIONS.SALES_CREATE),
+  checkStockValidator,
+  validate,
+  saleController.checkStock,
 );
 router.patch(
   '/:id',

@@ -138,4 +138,12 @@ const getSale = asyncHandler(async (req, res) => {
   return sendSuccess(res, 200, 'Sale fetched', { sale: await serializeWithBalances(sale) });
 });
 
-module.exports = { createSale, updateSale, recordPayment, listSales, getSale };
+const checkStock = asyncHandler(async (req, res) => {
+  const lines = await saleService.checkStock(req.user, req.body);
+  return sendSuccess(res, 200, 'Stock checked', {
+    lines,
+    ok: lines.every((l) => l.ok),
+  });
+});
+
+module.exports = { createSale, updateSale, recordPayment, listSales, getSale, checkStock };

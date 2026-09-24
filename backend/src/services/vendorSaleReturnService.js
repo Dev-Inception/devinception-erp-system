@@ -8,6 +8,7 @@ const stockService = require('./stockService');
 const counterService = require('./counterService');
 const { requirePositiveQuantity, normalizeQuantity } = require('../utils/quantity');
 const { assertStoreAccess } = require('../utils/storeScope');
+const dayEndService = require('./dayEndService');
 
 /**
  * Product returns against a vendor sale — the mirror of saleReturnService,
@@ -118,7 +119,7 @@ async function createReturn(actor, vendorSaleId, { items, note }) {
       throw ApiError.badRequest("Return amount exceeds the vendor sale's remaining value");
     }
 
-    const when = new Date();
+    const when = await dayEndService.businessTimestamp(vendorSale.store, new Date(), transaction);
     const number = await counterService.nextDocNumber('VSLRTN', when.getFullYear(), 6, transaction);
 
     // Restock at the exact original cost, so the moving average is undone

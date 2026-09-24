@@ -22,4 +22,5 @@ module.exports = [
   require('./021-sale-labour-services'),
   require('./022-vendor-sale-gate-pass'),
   require('./023-day-end-sessions'),
+  require('./024-labour-pricing-mode'),
 ];

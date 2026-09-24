@@ -50,8 +50,16 @@ async function post({
     throw ApiError.badRequest('Internal posting is not balanced');
   }
 
+  // Store-scoped entries follow the late-night rule: posted after midnight
+  // while yesterday's day is still open, they belong to that day (see
+  // dayEndService.businessTimestamp). Required lazily to keep this core
+  // module free of a load-time dependency on the day-end service.
+  const entryDate = store
+    ? await require('./dayEndService').businessTimestamp(store, date || new Date(), transaction)
+    : date || new Date();
+
   const entry = await JournalEntry.create(
-    { date: date || new Date(), description, refType, refId, refNo, warehouse, store, createdBy },
+    { date: entryDate, description, refType, refId, refNo, warehouse, store, createdBy },
     { transaction },
   );
   await JournalLine.bulkCreate(

@@ -6,7 +6,47 @@ const { ROLES } = require('../utils/constants');
 const { ACCOUNT } = require('../utils/finance');
 const { toPaisa, toRupees } = require('../utils/money');
 const { assertStoreAccess } = require('../utils/storeScope');
-const { isCalendarDate, formatReportDate } = require('../utils/reportDate');
+const {
+  isCalendarDate,
+  formatReportDate,
+  parseReportDate,
+  reportHour,
+  shiftReportDate,
+} = require('../utils/reportDate');
+
+/**
+ * Late-night rule. A day opened on date D stays D's business day past
+ * midnight: anything posted between 00:00 and the rollover hour on D+1 is
+ * recorded as D at 11:59:59 PM (see businessTimestamp), so a shop working
+ * late doesn't split one trading day across two calendar dates.
+ *
+ * Once the rollover hour passes with D still open, it's no longer "working
+ * late" — the day was forgotten. The session is then STALE: new sales are
+ * blocked (assertDayOpen) and the app asks the user to close D before doing
+ * anything else. Read at call time so a .env change applies without a
+ * code change; defaults to 6 AM.
+ */
+function rolloverHour() {
+  const n = Number(process.env.DAY_ROLLOVER_HOUR);
+  return Number.isInteger(n) && n >= 0 && n <= 23 ? n : 6;
+}
+
+// One of:
+//  NONE       — the store has never opened a day (legacy: treated as open)
+//  CLOSED     — the latest session is closed
+//  CURRENT    — open, and opened today
+//  LATE_NIGHT — open since yesterday, and it's still before the rollover hour
+//  STALE      — open since an earlier day and the rollover hour has passed
+function sessionState(session, now = new Date()) {
+  if (!session) return 'NONE';
+  if (!isSessionOpen(session)) return 'CLOSED';
+  const today = formatReportDate(now);
+  if (session.date >= today) return 'CURRENT';
+  if (session.date === shiftReportDate(today, -1) && reportHour(now) < rolloverHour()) {
+    return 'LATE_NIGHT';
+  }
+  return 'STALE';
+}
 
 function assertCalendarDate(date) {
   if (!isCalendarDate(date)) throw ApiError.badRequest('date must be in YYYY-MM-DD format');
@@ -109,13 +149,30 @@ async function cashMovementSince(storeId, since, transaction) {
   return net;
 }
 
+// With a `date`: the session covering that date (history view). Without
+// one: the store's live state — its latest session plus `state` and the
+// `businessDate` the Day Book should default to (the open day's date while
+// it's open, even after midnight; otherwise today).
 async function getStatus(storeId, date) {
-  assertCalendarDate(date);
-  const { session, isOpen } = await resolveSessionForDate(storeId, date);
-  if (!session) return { isOpen: true };
+  const now = new Date();
+  let session;
+  let isOpen;
+  if (date) {
+    assertCalendarDate(date);
+    ({ session, isOpen } = await resolveSessionForDate(storeId, date));
+  } else {
+    session = await latestSession(storeId);
+    isOpen = session ? isSessionOpen(session) : true;
+  }
+  const state = sessionState(session, now);
+  const businessDate = session && isOpen ? session.date : formatReportDate(now);
+  if (!session) return { isOpen: true, state, businessDate, rolloverHour: rolloverHour() };
 
   const result = {
     isOpen,
+    state,
+    businessDate,
+    rolloverHour: rolloverHour(),
     openDate: session.date,
     openedByName: session.opener?.name,
     openedAt: session.openedAt,
@@ -222,6 +279,14 @@ async function reopenDay(actor, { store }) {
 // Called from saleService.createSale right before a sale is actually
 // created — must run inside the same transaction as the sale.
 async function assertDayOpen(actor, storeId, when, transaction) {
+  // A forgotten day blocks everyone, admins included — closing it is one
+  // click, and letting sales in first would muddle which day they belong to.
+  const latest = await latestSession(storeId, transaction);
+  if (sessionState(latest) === 'STALE') {
+    throw ApiError.forbidden(
+      `The day opened on ${latest.date} was never closed. Close it from the Day Book before adding new sales.`,
+    );
+  }
   if (isStoreAdminOf(actor, storeId)) return;
   const date = formatReportDate(when);
   const { isOpen } = await resolveSessionForDate(storeId, date, transaction);
@@ -232,4 +297,38 @@ async function assertDayOpen(actor, storeId, when, transaction) {
   }
 }
 
-module.exports = { getStatus, openDay, closeDay, reopenDay, assertDayOpen };
+/**
+ * The timestamp a store-scoped entry made at `when` should carry. During a
+ * LATE_NIGHT session (open since yesterday, before the rollover hour) any
+ * entry falling on today's calendar date is moved back to 11:59:59 PM of
+ * the open day. Everything else — including explicitly back-dated entries
+ * and entries with no store — keeps its own time. Safe to call more than
+ * once on the same value.
+ */
+async function businessTimestamp(storeId, when, transaction) {
+  const at = when ? new Date(when) : new Date();
+  if (!storeId) return at;
+  const now = new Date();
+  if (formatReportDate(at) !== formatReportDate(now)) return at;
+  const { DayEnd } = initializeModels();
+  const session = await DayEnd.findOne({
+    where: { store: storeId },
+    order: [
+      ['date', 'DESC'],
+      ['createdAt', 'DESC'],
+    ],
+    transaction,
+  });
+  if (sessionState(session, now) !== 'LATE_NIGHT') return at;
+  return parseReportDate(session.date, 'date', { endOfDay: true });
+}
+
+module.exports = {
+  getStatus,
+  openDay,
+  closeDay,
+  reopenDay,
+  assertDayOpen,
+  businessTimestamp,
+  sessionState,
+};

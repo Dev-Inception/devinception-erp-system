@@ -121,6 +121,9 @@ const WRITABLE = [
   'smtpFrom',
   'twilioAccountSid',
   'twilioWhatsAppFrom',
+  // Per-store operational choice, deliberately not in FALLBACK_FIELDS — a
+  // store always has its own value (defaults to DIRECT).
+  'labourPricingMode',
   // Secrets: also writable, but through a truthy check below instead of the
   // plain `!== undefined` the rest use, so an empty/omitted value never
   // clears a previously saved credential.
@@ -143,4 +146,17 @@ async function updateSettings({ store, actor } = {}, data = {}) {
   return settings;
 }
 
-module.exports = { getSettings, updateSettings };
+// The store's own labour pricing mode ('DIRECT' | 'PENDING') — read at
+// checkout inside the sale's transaction. A store with no settings row yet
+// hasn't opted in, so it gets the default DIRECT behaviour.
+async function getLabourPricingMode(storeId, transaction) {
+  const { Settings } = initializeModels();
+  const settings = await Settings.findOne({
+    where: { store: storeId },
+    attributes: ['labourPricingMode'],
+    transaction,
+  });
+  return settings && settings.labourPricingMode === 'PENDING' ? 'PENDING' : 'DIRECT';
+}
+
+module.exports = { getSettings, updateSettings, getLabourPricingMode };
