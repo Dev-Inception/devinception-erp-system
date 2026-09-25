@@ -756,10 +756,20 @@ async function updateSale(actor, saleId, input) {
       transaction,
     );
 
-    // What was already collected at the original checkout doesn't change on
-    // an item edit — only what's still owed does. Clamp at zero for the rare
-    // case an edit brings the new total below what's already been collected.
-    const newCredit = Math.max(0, total - sale.cashAmount - sale.onlineAmount);
+    // What was already collected (at checkout or via later payments against
+    // this sale) doesn't change on an item edit — only what's still owed does.
+    // An edit can't bring the total below that: there'd be no credit left to
+    // absorb the excess cash/bank debit, and silently clamping it left the
+    // revised journal entry unbalanced. The excess has to go back to the
+    // customer as a refund, which an edit doesn't do.
+    const collected = sale.cashAmount + sale.onlineAmount + sale.additionalPaidAmount;
+    if (total < collected) {
+      throw ApiError.badRequest(
+        `The revised total (Rs ${toRupees(total)}) is less than the Rs ${toRupees(collected)} ` +
+          'already collected on this sale — refund the difference instead of lowering the total',
+      );
+    }
+    const newCredit = total - sale.cashAmount - sale.onlineAmount;
     if (newCredit > 0 && !sale.customer) {
       throw ApiError.badRequest('A customer is required for a credit (unpaid) sale');
     }

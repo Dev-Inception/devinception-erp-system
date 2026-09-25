@@ -2,6 +2,7 @@ const { Op } = require('sequelize');
 const { getPostgres } = require('../db/postgres');
 const { initializeModels } = require('../db/models');
 const ApiError = require('../utils/ApiError');
+const { toRupees } = require('../utils/money');
 const { ACCOUNT, REF } = require('../utils/finance');
 const { resolveUnitPrice, calculateInvoiceTotals } = require('./invoiceCalculationService');
 const { resolveSettlement } = require('../utils/paymentSplit');
@@ -383,6 +384,17 @@ async function updateVendorSale(actor, vendorSaleId, input) {
 
     const totals = calculateInvoiceTotals(pricedItems, { discount, taxPercent });
 
+    // Same rule as saleService.updateSale: an edit can't bring the total below
+    // what was already settled at creation — the excess cash/bank debit would
+    // have no credit to absorb it and the revised journal entry won't balance.
+    const collected = vendorSale.cashAmount + vendorSale.onlineAmount;
+    if (totals.total < collected) {
+      throw ApiError.badRequest(
+        `The revised total (Rs ${toRupees(totals.total)}) is less than the Rs ${toRupees(collected)} ` +
+          'already collected on this vendor sale — refund the difference instead of lowering the total',
+      );
+    }
+
     const when = new Date();
 
     let cost = 0;
@@ -400,8 +412,9 @@ async function updateVendorSale(actor, vendorSaleId, input) {
     }
 
     // What was already collected/settled at creation doesn't change on an
-    // item edit — only the still-owed credit balance does.
-    const newCredit = Math.max(0, totals.total - vendorSale.cashAmount - vendorSale.onlineAmount);
+    // item edit — only the still-owed credit balance does (never negative,
+    // per the guard above).
+    const newCredit = totals.total - collected;
 
     // Reverse the original revenue + COGS entries (using the sale's own
     // pre-edit stored totals), then post fresh ones below for the revision.
