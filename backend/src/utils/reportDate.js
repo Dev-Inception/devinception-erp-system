@@ -52,4 +52,23 @@ function formatReportDate(value) {
   return shifted.toISOString().slice(0, 10);
 }
 
-module.exports = { parseReportDate, formatReportDate, isCalendarDate };
+// Hour of day (0–23) on the business clock — same offset as formatReportDate.
+function reportHour(value) {
+  const date = new Date(value);
+  return new Date(date.getTime() + offsetMinutes() * 60 * 1000).getUTCHours();
+}
+
+// 'YYYY-MM-DD' shifted by whole calendar days.
+function shiftReportDate(value, days) {
+  const d = new Date(`${value}T00:00:00.000Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+module.exports = {
+  parseReportDate,
+  formatReportDate,
+  isCalendarDate,
+  reportHour,
+  shiftReportDate,
+};

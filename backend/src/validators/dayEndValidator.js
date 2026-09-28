@@ -4,14 +4,25 @@ const CALENDAR_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 const statusQueryValidator = [
   query('store').isMongoId().withMessage('A valid store is required'),
-  query('date').matches(CALENDAR_DATE).withMessage('date must be in YYYY-MM-DD format'),
+  // Omit `date` for the store's live state (see dayEndService.getStatus).
+  query('date')
+    .optional({ values: 'falsy' })
+    .matches(CALENDAR_DATE)
+    .withMessage('date must be in YYYY-MM-DD format'),
 ];
+
+const openDayValidator = [body('store').isMongoId().withMessage('A valid store is required')];
 
 const closeDayValidator = [
   body('store').isMongoId().withMessage('A valid store is required'),
-  body('date').matches(CALENDAR_DATE).withMessage('date must be in YYYY-MM-DD format'),
+  body('handoverAmount').isFloat({ min: 0 }).withMessage('A valid amount to submit is required'),
 ];
 
-const reopenDayValidator = closeDayValidator;
+const reopenDayValidator = [body('store').isMongoId().withMessage('A valid store is required')];
 
-module.exports = { statusQueryValidator, closeDayValidator, reopenDayValidator };
+module.exports = {
+  statusQueryValidator,
+  openDayValidator,
+  closeDayValidator,
+  reopenDayValidator,
+};

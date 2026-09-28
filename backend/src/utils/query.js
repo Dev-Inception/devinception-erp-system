@@ -28,4 +28,14 @@ function escapeRegex(str) {
   return String(str).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-module.exports = { parsePagination, escapeRegex };
+/**
+ * Escape SQL LIKE/ILIKE metacharacters (`%`, `_`, and the escape character
+ * itself) so a search term is matched literally when interpolated into a
+ * `LIKE '%' || :term || '%'`-style pattern. Callers still bind `term` as a
+ * query replacement — this only neutralizes the wildcard characters inside it.
+ */
+function escapeLike(str) {
+  return String(str).replace(/[\\%_]/g, '\\$&');
+}
+
+module.exports = { parsePagination, escapeRegex, escapeLike };

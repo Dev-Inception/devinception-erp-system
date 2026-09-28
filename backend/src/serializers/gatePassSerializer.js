@@ -15,22 +15,33 @@ function serializeGatePass(gatePass) {
   const g = gatePass && gatePass.toJSON ? gatePass.toJSON() : { ...gatePass };
   const gatePassId = idOf(g._id);
   const status = g.status === 'ACTIVE' ? 'PENDING' : g.status === 'USED' ? 'PROCESSED' : g.status;
+  // `processedBy`/`createdBy` are the raw FK ids; the populated user rows
+  // (when the query included them) sit under the association aliases
+  // `processor`/`creator` instead — see associations.js.
   const processor = g.processedBy
     ? withoutEmptyValues({
-        id: idOf(g.processedBy),
-        name: g.processedBy?.name,
+        id: idOf(g.processor ?? g.processedBy),
+        name: g.processor?.name,
       })
     : null;
 
   return {
     id: gatePassId,
     number: g.number,
+    storeId: idOf(g.store),
     sourceType: g.sourceType,
     kind: g.kind || 'CUSTOMER',
-    direction: g.sourceType === 'SALE' ? 'OUT' : 'IN',
+    direction:
+      g.sourceType === 'SALE' ||
+      g.sourceType === 'SUPPLIER_RETURN' ||
+      g.sourceType === 'VENDOR_SALE'
+        ? 'OUT'
+        : 'IN',
     saleId: idOf(g.sale),
     saleReturnId: idOf(g.saleReturn),
     stockReceiptId: idOf(g.stockReceipt),
+    damagedStockReturnId: idOf(g.damagedStockReturn),
+    vendorSaleId: idOf(g.vendorSale),
     saleNumber: g.documentNumber,
     saleDate: g.saleDate,
     partyName: g.partyName || '',
@@ -55,7 +66,10 @@ function serializeGatePass(gatePass) {
       : {}),
     ...(Array.isArray(g.saleLabour) && g.saleLabour.length
       ? {
-          labour: g.saleLabour.map((l) =>
+          // A labourer can have several sale_labour rows (one per service,
+          // see labourService.resolveLabourLines) — dedupe by labour id so
+          // the "who's loading" list shows each person once.
+          labour: [...new Map(g.saleLabour.map((l) => [String(l.labour), l])).values()].map((l) =>
             withoutEmptyValues({ name: l.name, phoneNumber: l.phoneNumber }),
           ),
         }
@@ -63,8 +77,8 @@ function serializeGatePass(gatePass) {
     ...(g.createdBy
       ? {
           createdBy: withoutEmptyValues({
-            id: idOf(g.createdBy),
-            name: g.createdBy?.name,
+            id: idOf(g.creator ?? g.createdBy),
+            name: g.creator?.name,
           }),
         }
       : {}),

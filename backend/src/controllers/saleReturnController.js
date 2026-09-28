@@ -29,13 +29,22 @@ const createReturn = asyncHandler(async (req, res) => {
 });
 
 const listReturns = asyncHandler(async (req, res) => {
-  const returns = await saleReturnService.listReturnsForSale(req.params.saleId);
+  const returns = await saleReturnService.listReturnsForSale(req.user, req.params.saleId);
   return sendSuccess(res, 200, 'Returns fetched', { returns: returns.map(serialize) });
 });
 
 const listAllReturns = asyncHandler(async (req, res) => {
-  const { page, limit, customer, from, to, search } = req.query;
-  const result = await saleReturnService.listReturns({ page, limit, customer, from, to, search });
+  const { page, limit, customer, store, from, to, search } = req.query;
+  const result = await saleReturnService.listReturns({
+    page,
+    limit,
+    customer,
+    store,
+    from,
+    to,
+    search,
+    actor: req.user,
+  });
   return sendSuccess(res, 200, 'Returns fetched', {
     ...result,
     returns: result.returns.map(serialize),

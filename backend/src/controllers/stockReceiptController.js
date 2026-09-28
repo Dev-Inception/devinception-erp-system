@@ -5,8 +5,26 @@ const { sendSuccess } = require('../utils/ApiResponse');
 const { view } = require('../utils/money');
 
 const out = (r) => (r && r.toJSON ? r.toJSON() : r);
+
+// Sequelize includes land under a `*Info` alias (e.g. `warehouseInfo`)
+// alongside the untouched raw FK (`warehouse`). The frontend still expects
+// the old Mongo-`populate()` shape, where the ref field itself becomes the
+// populated object — so move each `*Info` value onto its ref field when
+// present (a receipt whose query didn't include that association keeps the
+// raw id, same as an un-populated Mongo ref).
+function foldRefs(raw, refs) {
+  for (const ref of refs) {
+    const infoKey = `${ref}Info`;
+    if (infoKey in raw) {
+      raw[ref] = raw[infoKey];
+      delete raw[infoKey];
+    }
+  }
+  return raw;
+}
+
 function serialize(receipt) {
-  const r = out(receipt);
+  const r = foldRefs(out(receipt), ['warehouse', 'store', 'transporter']);
   if (r.gatePass) {
     const gatePassId = String(r.gatePass._id ?? r.gatePass);
     r.gatePassId = gatePassId;
@@ -25,7 +43,7 @@ function serialize(receipt) {
  */
 async function withPricing(receipts) {
   const list = Array.isArray(receipts) ? receipts : [receipts];
-  const ids = list.map((r) => r._id);
+  const ids = list.map((r) => r.id);
   const [totals, entitiesByReceipt] = await Promise.all([
     pendingEntityService.pricedTotalsByStockReceipt(ids),
     pendingEntityService.listByStockReceipts(ids),
@@ -33,7 +51,7 @@ async function withPricing(receipts) {
 
   const results = list.map((receipt) => {
     const r = serialize(receipt);
-    const entities = entitiesByReceipt.get(String(receipt._id)) || [];
+    const entities = entitiesByReceipt.get(String(receipt.id)) || [];
     const entityByProduct = new Map(entities.map((e) => [String(e.product), e]));
 
     r.items = (r.items || []).map((item) => {
@@ -52,7 +70,7 @@ async function withPricing(receipts) {
       r.labour = r.labour.map((l) => view(l, ['rent']));
     }
 
-    const pricedTotal = totals.get(String(receipt._id)) || 0;
+    const pricedTotal = totals.get(String(receipt.id)) || 0;
     const paidAmount = receipt.additionalPaidAmount || 0;
     const balanceDue = Math.max(0, pricedTotal - paidAmount);
     return {

@@ -29,6 +29,12 @@ function balanceFields(storeMessage) {
       .optional({ values: 'falsy' })
       .isFloat({ min: 0 })
       .withMessage('Amount must be non-negative'),
+    // Unconditional format check — the vendor's own store (see
+    // vendorService.createVendor/requireWriteStore).
+    body('store').optional({ values: 'falsy' }).isMongoId().withMessage('Invalid store'),
+    // Additionally required (not just well-formed) when an opening
+    // balance/adjustment is requested, since that's posted against this
+    // same store — see vendorService.postVendorBalanceAdjustment.
     body('store')
       .if(
         (_value, { req }) => Number(req.body.weOweAmount) > 0 || Number(req.body.theyOweAmount) > 0,

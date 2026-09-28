@@ -68,14 +68,14 @@ build, and deploy targets).
 
 ```bash
 npm install                              # installs all workspaces
-cp backend/.env.example backend/.env     # then edit MONGO_URI, JWT secrets, SMTP, super admin
+cp backend/.env.example backend/.env     # then edit MONGO_URI, JWT secrets, SMTP
 ```
 
 ### 3. Seed roles & the bootstrap super admin
 
 ```bash
 npm run seed:roles      -w backend       # create system roles + permissions
-npm run seed:superadmin -w backend       # create the super admin from SUPER_ADMIN_* env vars
+npm run seed:superadmin -w backend       # create the super admin from src/scripts/_superAdmin.js
 ```
 
 Mongoose has no migration step — schemas/indexes are created on first use.
@@ -105,9 +105,9 @@ The system defines five roles (lowest → highest authority):
 | Admin       | `admin`       |
 | Super Admin | `super_admin` |
 
-The `seed:superadmin` script creates the initial account from your `.env`
-(`SUPER_ADMIN_EMAIL` / `SUPER_ADMIN_PASSWORD`, defaults `superadmin@devinception.com`
-/ `ChangeMe123!`). Change these before deploying. All other users are created
+The seed creates the initial account defined in `backend/src/scripts/_superAdmin.js`
+(`superadmin@devinception.com` / `ChangeMe123!`). Change the password from the app
+after first login. All other users are created
 through the app once you're logged in.
 
 ---
@@ -144,7 +144,6 @@ See [`backend/.env.example`](backend/.env.example). Key values:
 | `JWT_ACCESS_EXPIRES_IN` / `JWT_REFRESH_EXPIRES_IN`                  | Token lifetimes                         |
 | `RESET_TOKEN_EXPIRES_MIN`                                           | Password-reset token lifetime (minutes) |
 | `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASS` / `MAIL_FROM` | Email (nodemailer)                      |
-| `SUPER_ADMIN_NAME` / `SUPER_ADMIN_EMAIL` / `SUPER_ADMIN_PASSWORD`   | Bootstrap super admin                   |
 
 The frontend reads `VITE_API_URL` (default `http://localhost:5050/api`) from
 `frontend/.env`.

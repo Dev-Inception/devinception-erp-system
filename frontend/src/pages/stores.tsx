@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Plus, Loader2, Building2, Star, Check, Pencil, Trash2, Search } from 'lucide-react';
 import { toast } from 'sonner';
+import { useConfirmDelete } from '@/components/confirm-provider';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -36,6 +37,7 @@ interface StoreRow {
 function StoreDialog({ store, trigger }: { store?: StoreRow; trigger: React.ReactNode }) {
   const qc = useQueryClient();
   const { t } = useLanguage();
+  const isSuperAdmin = useAuthStore((s) => s.user?.role) === 'SUPER_ADMIN';
   const editing = !!store;
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({
@@ -153,7 +155,7 @@ function StoreDialog({ store, trigger }: { store?: StoreRow; trigger: React.Reac
               ))}
             </div>
           </div>
-          {!editing && (
+          {!editing && isSuperAdmin && (
             <label className="flex items-center gap-2 text-sm">
               <input
                 type="checkbox"
@@ -184,7 +186,14 @@ export function StoresPage() {
   const qc = useQueryClient();
   const { t } = useLanguage();
   const perms = useAuthStore((s) => s.user?.permissions);
-  const canManage = grantsPermission(perms, 'stores:manage');
+  const role = useAuthStore((s) => s.user?.role);
+  const isSuperAdmin = role === 'SUPER_ADMIN';
+  // Editing your own store (name/address/warehouses) is available to an
+  // admin too (see backend storeService.updateStore, which only ever lets
+  // them touch their own) — buying a new store or deleting one is a
+  // subscription action, so those stay super-admin-only regardless of the
+  // stores:manage permission.
+  const canEdit = grantsPermission(perms, 'stores:manage');
 
   const [search, setSearch] = useState('');
   const q = search.trim().toLowerCase();
@@ -225,8 +234,9 @@ export function StoresPage() {
     onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Could not delete store'),
   });
 
-  const remove = (s: StoreRow) => {
-    if (window.confirm(`Delete store “${s.name}”? This cannot be undone.`)) del.mutate(s.id);
+  const confirmDelete = useConfirmDelete();
+  const remove = async (s: StoreRow) => {
+    if (await confirmDelete(`store "${s.name}"`)) del.mutate(s.id);
   };
 
   return (
@@ -249,7 +259,7 @@ export function StoresPage() {
             {filtered.length} store(s) — each groups one or more warehouses.
           </p>
         </div>
-        {canManage && (
+        {isSuperAdmin ? (
           <StoreDialog
             trigger={
               <Button>
@@ -257,6 +267,11 @@ export function StoresPage() {
               </Button>
             }
           />
+        ) : (
+          <p className="max-w-xs text-right text-sm text-muted-foreground">
+            You have {stores.length} store{stores.length === 1 ? '' : 's'}. To add more, contact
+            DevInception.
+          </p>
         )}
       </div>
 
@@ -300,9 +315,9 @@ export function StoresPage() {
                   </p>
                 </div>
 
-                {canManage && (
+                {(canEdit || isSuperAdmin) && (
                   <div className="flex gap-2">
-                    {!s.isDefault && (
+                    {isSuperAdmin && !s.isDefault && (
                       <Button
                         variant="outline"
                         size="sm"
@@ -313,23 +328,31 @@ export function StoresPage() {
                         <Check className="h-4 w-4" /> {t('Set default')}
                       </Button>
                     )}
-                    <StoreDialog
-                      store={s}
-                      trigger={
-                        <Button variant="outline" size="sm" className={s.isDefault ? 'flex-1' : ''}>
-                          <Pencil className="h-4 w-4" /> {t('Edit')}
-                        </Button>
-                      }
-                    />
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      title={t('Delete')}
-                      disabled={del.isPending || s.isDefault}
-                      onClick={() => remove(s)}
-                    >
-                      <Trash2 className="h-4 w-4 text-destructive" />
-                    </Button>
+                    {canEdit && (
+                      <StoreDialog
+                        store={s}
+                        trigger={
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className={isSuperAdmin && s.isDefault ? 'flex-1' : ''}
+                          >
+                            <Pencil className="h-4 w-4" /> {t('Edit')}
+                          </Button>
+                        }
+                      />
+                    )}
+                    {isSuperAdmin && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        title={t('Delete')}
+                        disabled={del.isPending || s.isDefault}
+                        onClick={() => remove(s)}
+                      >
+                        <Trash2 className="h-4 w-4 text-destructive" />
+                      </Button>
+                    )}
                   </div>
                 )}
               </CardContent>

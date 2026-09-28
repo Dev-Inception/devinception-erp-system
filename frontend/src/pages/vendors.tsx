@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Plus, Search, Loader2, Pencil, Trash2, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
+import { useConfirmDelete } from '@/components/confirm-provider';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -40,7 +41,16 @@ const PAGE_SIZE = 20;
 const emptyForm = { name: '', phone: '', email: '', address: '', ntn: '' };
 
 /** Create (no `vendor`) or edit (with `vendor`) a vendor. */
-function VendorDialog({ vendor, trigger }: { vendor?: Vendor; trigger: React.ReactNode }) {
+export function VendorDialog({
+  vendor,
+  trigger,
+  onCreated,
+}: {
+  vendor?: Vendor;
+  trigger: React.ReactNode;
+  /** Called with the newly created vendor once a create (not edit) succeeds. */
+  onCreated?: (vendor: Vendor) => void;
+}) {
   const qc = useQueryClient();
   const { t } = useLanguage();
   const editing = !!vendor;
@@ -87,27 +97,28 @@ function VendorDialog({ vendor, trigger }: { vendor?: Vendor; trigger: React.Rea
 
   const save = useMutation({
     mutationFn: async () => {
-      if (hasBalanceEntry && !hasSpecificStore) {
-        throw new Error(
-          editing
-            ? 'Select a specific store from the header before adjusting the balance.'
-            : 'Select a specific store from the header before adding an opening balance.',
-        );
+      if (!editing && !hasSpecificStore) {
+        throw new Error('Select a specific store from the header before adding a vendor.');
       }
-      const payload = hasBalanceEntry
-        ? { ...form, weOweAmount, theyOweAmount, store: currentStoreId }
-        : form;
+      if (hasBalanceEntry && !hasSpecificStore) {
+        throw new Error('Select a specific store from the header before adjusting the balance.');
+      }
+      const balanceFields = hasBalanceEntry ? { weOweAmount, theyOweAmount } : {};
+      const payload = editing
+        ? { ...form, ...balanceFields, ...(hasBalanceEntry ? { store: currentStoreId } : {}) }
+        : { ...form, ...balanceFields, store: currentStoreId };
       return (
         editing
           ? await api.patch(`/vendors/${vendor!.id}`, payload)
           : await api.post('/vendors', payload)
       ).data;
     },
-    onSuccess: () => {
+    onSuccess: (saved: Vendor) => {
       toast.success(editing ? 'Vendor updated' : 'Vendor created');
       qc.invalidateQueries({ queryKey: ['vendors'] });
       qc.invalidateQueries({ queryKey: ['vendor-ledger'] });
       setOpen(false);
+      if (!editing) onCreated?.(saved);
     },
     onError: (e: any) =>
       toast.error(e?.response?.data?.message ?? e?.message ?? 'Could not save vendor'),
@@ -244,6 +255,12 @@ function VendorDialog({ vendor, trigger }: { vendor?: Vendor; trigger: React.Rea
             )}
           </div>
 
+          {!editing && !hasSpecificStore && (
+            <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+              {t('Select a specific store from the header before adding a vendor.')}
+            </p>
+          )}
+
           <div className="flex justify-end gap-2 pt-2">
             <DialogClose asChild>
               <Button type="button" variant="outline">
@@ -252,7 +269,11 @@ function VendorDialog({ vendor, trigger }: { vendor?: Vendor; trigger: React.Rea
             </DialogClose>
             <Button
               type="submit"
-              disabled={save.isPending || (hasBalanceEntry && !hasSpecificStore)}
+              disabled={
+                save.isPending ||
+                (hasBalanceEntry && !hasSpecificStore) ||
+                (!editing && !hasSpecificStore)
+              }
             >
               {save.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
               {t('Save')}
@@ -303,8 +324,9 @@ export function VendorsPage() {
     onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Could not delete vendor'),
   });
 
-  const remove = (v: Vendor) => {
-    if (window.confirm(`Delete vendor “${v.name}”? This cannot be undone.`)) del.mutate(v.id);
+  const confirmDelete = useConfirmDelete();
+  const remove = async (v: Vendor) => {
+    if (await confirmDelete(`vendor "${v.name}"`)) del.mutate(v.id);
   };
 
   const colSpan = showActions ? 6 : 5;

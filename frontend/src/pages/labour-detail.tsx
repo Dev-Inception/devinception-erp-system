@@ -13,6 +13,9 @@ import { useStorefrontFilter } from '@/store/storefront';
 import { useLanguage } from '@/components/language-provider';
 import { PayLabourDialog } from '@/components/pay-labour-dialog';
 import { openLabourInvoicePopup } from '@/lib/invoicePopup';
+import { useAuthStore } from '@/store/auth';
+import { grantsPermission } from '@/lib/modules';
+import { LabourCashFlowView, type LabourCashFlowResponse } from '@/pages/labour-cash-flow';
 
 interface Labour {
   id: string;
@@ -32,6 +35,9 @@ interface SaleRow {
   saleNumber: string;
   date: string;
   labour?: { id: string; rent: number }[];
+  // PENDING: the labour rent on the sale is what the customer was charged,
+  // not what this labourer earns — that's the payout set in Pending Entities.
+  labourPricingMode?: 'DIRECT' | 'PENDING';
 }
 interface StockReceiptRow {
   id: string;
@@ -43,12 +49,18 @@ interface Job {
   key: string;
   sourceLabel: string;
   date: string;
-  rent: number;
+  /** null while the payout for a PENDING-mode sale hasn't been set yet (or
+   * the viewer can't see payouts). */
+  rent: number | null;
 }
 
-const TABS = ['statement', 'jobs'] as const;
+const TABS = ['statement', 'jobs', 'cashflow'] as const;
 type Tab = (typeof TABS)[number];
-const TAB_LABEL: Record<Tab, string> = { statement: 'Statement', jobs: 'Jobs' };
+const TAB_LABEL: Record<Tab, string> = {
+  statement: 'Statement',
+  jobs: 'Jobs',
+  cashflow: 'Cash Flow',
+};
 
 export function LabourDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -60,6 +72,12 @@ export function LabourDetailPage() {
   const [paying, setPaying] = useState(false);
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
+  // Payouts/margins are finance data — same gate as the Labour Cash Flow page.
+  const canReadFinance = grantsPermission(
+    useAuthStore((s) => s.user?.permissions),
+    'finance:read',
+  );
+  const tabs = TABS.filter((tabKey) => tabKey !== 'cashflow' || canReadFinance);
 
   const { data: labourList = [] } = useQuery<Labour[]>({
     queryKey: ['labour'],
@@ -94,18 +112,44 @@ export function LabourDetailPage() {
     enabled: !!id && tab === 'jobs',
   });
 
-  const jobsLoading = salesLoading || receiptsLoading;
+  // Payouts for this labourer's PENDING-mode sales, keyed by sale id.
+  const { data: cashFlow, isLoading: cashFlowLoading } = useQuery<LabourCashFlowResponse>({
+    queryKey: ['labour-cash-flow', 'jobs', id, storefront.store],
+    queryFn: async () =>
+      (
+        await api.get('/finance/labour-cash-flow', {
+          params: { labour: id, status: 'PRICED', limit: 100, ...storefront },
+        })
+      ).data,
+    enabled: !!id && tab === 'jobs' && canReadFinance,
+  });
+  const payoutBySale = new Map<string, number>();
+  for (const r of cashFlow?.rows ?? []) {
+    payoutBySale.set(r.saleId, (payoutBySale.get(r.saleId) ?? 0) + (r.payout ?? 0));
+  }
+
+  const jobsLoading = salesLoading || receiptsLoading || (canReadFinance && cashFlowLoading);
   const jobs: Job[] = [
-    ...(salesData?.sales ?? []).flatMap((s) =>
-      (s.labour ?? [])
-        .filter((l) => l.id === id)
-        .map((l) => ({
-          key: `sale-${s.id}`,
-          sourceLabel: `Sale #${s.saleNumber}`,
-          date: s.date,
-          rent: l.rent,
-        })),
-    ),
+    ...(salesData?.sales ?? []).flatMap((s) => {
+      const lines = (s.labour ?? []).filter((l) => l.id === id);
+      if (lines.length === 0) return [];
+      if (s.labourPricingMode === 'PENDING') {
+        return [
+          {
+            key: `sale-${s.id}`,
+            sourceLabel: `Sale #${s.saleNumber}`,
+            date: s.date,
+            rent: payoutBySale.get(s.id) ?? null,
+          },
+        ];
+      }
+      return lines.map((l, i) => ({
+        key: `sale-${s.id}-${i}`,
+        sourceLabel: `Sale #${s.saleNumber}`,
+        date: s.date,
+        rent: l.rent,
+      }));
+    }),
     ...(receiptsData?.receipts ?? []).flatMap((r) =>
       (r.labour ?? [])
         .filter((l) => l.labourId === id)
@@ -119,20 +163,16 @@ export function LabourDetailPage() {
   ].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
   const handlePrintStatement = async () => {
-    const win = window.open('', '_blank', 'width=850,height=1000');
-    win?.document.write(
-      '<p style="font-family:sans-serif;padding:24px;color:#666">Preparing statement…</p>',
-    );
     try {
-      await openLabourInvoicePopup(
-        {
-          labourName: labour?.name ?? '',
-          jobs: jobs.map((j) => ({ sourceLabel: j.sourceLabel, date: j.date, rent: j.rent })),
-        },
-        win,
-      );
+      await openLabourInvoicePopup({
+        labourName: labour?.name ?? '',
+        // Only jobs with a settled amount — a payout still pending isn't owed yet.
+        jobs: jobs
+          .filter((j) => j.rent !== null)
+          .map((j) => ({ sourceLabel: j.sourceLabel, date: j.date, rent: j.rent ?? 0 })),
+      });
     } catch {
-      toast.error('Enable popups to view the printable statement');
+      toast.error('Could not prepare the statement');
     }
   };
 
@@ -166,7 +206,7 @@ export function LabourDetailPage() {
       </Card>
 
       <div className="flex gap-1 rounded-lg bg-muted p-1 w-fit">
-        {TABS.map((tabKey) => (
+        {tabs.map((tabKey) => (
           <button
             key={tabKey}
             onClick={() => setTab(tabKey)}
@@ -226,8 +266,8 @@ export function LabourDetailPage() {
                   <tr className="border-y bg-muted/50 text-left text-xs uppercase text-muted-foreground">
                     <th className="px-4 py-2 font-medium">{t('Date')}</th>
                     <th className="px-4 py-2 font-medium">{t('Description')}</th>
-                    <th className="px-4 py-2 text-right font-medium">{t('Debit')}</th>
-                    <th className="px-4 py-2 text-right font-medium">{t('Credit')}</th>
+                    <th className="px-4 py-2 text-right font-medium">{t('Out')}</th>
+                    <th className="px-4 py-2 text-right font-medium">{t('In')}</th>
                     <th className="px-4 py-2 text-right font-medium">{t('Balance')}</th>
                   </tr>
                 </thead>
@@ -300,7 +340,11 @@ export function LabourDetailPage() {
                         {new Date(j.date).toLocaleDateString()}
                       </td>
                       <td className="px-4 py-3 text-right tabular-nums">
-                        {formatCurrency(j.rent)}
+                        {j.rent !== null ? (
+                          formatCurrency(j.rent)
+                        ) : (
+                          <span className="text-muted-foreground">{t('Awaiting payout')}</span>
+                        )}
                       </td>
                     </tr>
                   ))}
@@ -316,6 +360,8 @@ export function LabourDetailPage() {
           </div>
         </Card>
       )}
+
+      {tab === 'cashflow' && canReadFinance && <LabourCashFlowView labourId={id} />}
 
       <PayLabourDialog
         labour={

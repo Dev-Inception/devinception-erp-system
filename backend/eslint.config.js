@@ -10,7 +10,7 @@ const globals = require('globals');
  */
 module.exports = [
   {
-    ignores: ['node_modules/**', 'storage/**'],
+    ignores: ['node_modules/**', 'storage/**', 'out/**'],
   },
   js.configs.recommended,
   {

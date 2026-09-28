@@ -84,4 +84,4 @@ or are partially broken until the backend adds them.
 - `backend/.env`: `CLIENT_URL=http://localhost:5173` (CORS for the Vite app), `PORT=5050`,
   Mongo running. _(Already configured locally.)_
 - Seed before first login: `npm run seed:roles && npm run seed:superadmin`. Login uses the
-  seeded `SUPER_ADMIN_EMAIL` / `SUPER_ADMIN_PASSWORD` (not the login form's demo hint).
+  super admin from `src/scripts/_superAdmin.js` (not the login form's demo hint).

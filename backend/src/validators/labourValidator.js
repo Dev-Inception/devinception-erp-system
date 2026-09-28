@@ -19,6 +19,7 @@ const createLabourValidator = [
     .withMessage('Phone number must be a string')
     .matches(/^[0-9+\-\s()]{10,15}$/)
     .withMessage('Please enter a valid phone number'),
+  body('store').optional({ values: 'falsy' }).isMongoId().withMessage('Invalid store'),
 ];
 
 const updateLabourValidator = [

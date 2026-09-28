@@ -1,5 +1,7 @@
 import { renderTemplate } from './printing';
 import { api } from './api';
+import { formatCurrency } from './utils';
+import { usePrintPreviewStore } from '@/store/printPreview';
 
 /**
  * Opens a printable INVOICE_A4 popup for a sale. Shared by the POS "Charge"
@@ -30,7 +32,7 @@ export interface SaleForInvoice {
   storeId?: string;
   storeName?: string;
   storeAddress?: string;
-  customer?: { name: string; phone?: string };
+  customer?: { name: string; phone?: string; email?: string };
   paymentMethod?: string;
   items: SaleItemForInvoice[];
   subtotal: number | string;
@@ -45,7 +47,7 @@ export interface SaleForInvoice {
   // walk-in sales, which don't carry a running balance.
   previousBalance?: number | string | null;
   totalRemaining?: number | string | null;
-  labour?: { name: string; phone?: string; rent?: number }[];
+  labour?: { name: string; phone?: string; serviceName?: string; rent?: number }[];
   transport?: { driverName?: string; driverPhone?: string; vehicleNumber?: string };
   returnedTotal?: number | string;
   returns?: {
@@ -56,6 +58,42 @@ export interface SaleForInvoice {
 }
 
 const COMPANY = { name: 'DevInception Retail', address: 'HQ, Lahore', phone: '+92 300 1234567' };
+
+interface CompanyInfo {
+  name: string;
+  address?: string;
+  phone?: string;
+  email?: string;
+  taxNumber?: string;
+  logoUrl?: string;
+}
+
+// The company identity (name, address, contact, tax number, logo) configured
+// once on the Settings page — printed at the top of every invoice/receipt so
+// a change there is reflected everywhere without touching each template.
+// Falls back to the generic placeholder identity if the lookup fails, so a
+// Settings hiccup never blocks printing.
+//
+// `storeId` must be passed whenever the document belongs to a specific store:
+// an admin who manages more than one store has no "current store" on the
+// backend without it, and GET /settings 400s ("Select a store first") —
+// silently caught below, which otherwise looks like Settings was just empty.
+async function companyInfo(storeId?: string): Promise<CompanyInfo> {
+  try {
+    const s = (await api.get('/settings', storeId ? { params: { store: storeId } } : undefined))
+      .data;
+    return {
+      name: s?.companyName || COMPANY.name,
+      address: s?.address || COMPANY.address,
+      phone: s?.phone || COMPANY.phone,
+      email: s?.email || undefined,
+      taxNumber: s?.taxNumber || undefined,
+      logoUrl: s?.logoUrl || undefined,
+    };
+  } catch {
+    return { name: COMPANY.name, address: COMPANY.address, phone: COMPANY.phone };
+  }
+}
 
 // The issuing store's active bank account(s), formatted as a one-line note
 // so a customer can settle any remaining balance by transfer. Silently
@@ -83,35 +121,72 @@ async function bankNoteFor(storeId: string | undefined): Promise<string | undefi
   }
 }
 
-// The company-wide invoice note (e.g. a return policy) set once in Settings.
+// The invoice note set once in Settings (falls back from the store's own row
+// to the super-admin's global one — see FALLBACK_FIELDS in settingsService).
 // Omitted, never blocks printing, if unset or the lookup fails.
-async function invoiceFooterNote(): Promise<string | undefined> {
+//
+// `storeId` must be forwarded here for the same reason `companyInfo` takes
+// it: a multi-store admin has no "current store" on the backend without it,
+// so an omitted store param resolves to the *global* settings row instead of
+// the store's own — silently returning the wrong (usually empty) note.
+async function invoiceFooterNote(storeId?: string): Promise<string | undefined> {
   try {
-    const note = (await api.get('/settings')).data?.invoiceNote;
+    const note = (await api.get('/settings', storeId ? { params: { store: storeId } } : undefined))
+      .data?.invoiceNote;
     return note && String(note).trim() ? String(note).trim() : undefined;
   } catch {
     return undefined;
   }
 }
 
+// Replaces the generic store return-policy footer note on an Estimate print
+// with the estimate's own validity window — a fixed "goods aren't returnable
+// after N days" line doesn't apply to a quote that hasn't been sold yet.
+// Omitted (falls back to no footer note at all) once an estimate has no
+// `validUntil` set, rather than showing a stale/incorrect date.
+function estimateValidityNote(validUntil?: string): string | undefined {
+  if (!validUntil) return undefined;
+  const until = new Date(validUntil);
+  if (Number.isNaN(until.getTime())) return undefined;
+  const MS_PER_DAY = 24 * 60 * 60 * 1000;
+  const daysLeft = Math.ceil((until.setHours(23, 59, 59, 999) - Date.now()) / MS_PER_DAY);
+  const formatted = until.toLocaleDateString();
+  if (daysLeft < 0) return `This estimate expired on ${formatted}.`;
+  if (daysLeft === 0) return `This estimate is valid until today (${formatted}).`;
+  return `This estimate is valid for ${daysLeft} more day${daysLeft === 1 ? '' : 's'} (until ${formatted}).`;
+}
+
 async function buildInvoiceHtml(sale: SaleForInvoice) {
-  // The invoice header identifies the physical storefront the sale happened
-  // at, not a single generic company block — falls back to the generic
-  // identity only for legacy sales that predate the store field.
-  const company = sale.storeName
-    ? { name: sale.storeName, address: sale.storeAddress || COMPANY.address, phone: COMPANY.phone }
-    : COMPANY;
-  const [bankNote, footerNote] = await Promise.all([
+  const [bankNote, footerNote, settings] = await Promise.all([
     bankNoteFor(sale.storeId),
-    invoiceFooterNote(),
+    invoiceFooterNote(sale.storeId),
+    companyInfo(sale.storeId),
   ]);
+  // The invoice header identifies the physical storefront the sale happened
+  // at, not a single generic company block — falls back to the configured
+  // company identity (name/address) only for legacy sales that predate the
+  // store field. Contact details, tax number and logo always come from
+  // Settings, since those aren't captured per-store-snapshot.
+  const company = {
+    name: sale.storeName || settings.name,
+    address: sale.storeAddress || settings.address,
+    phone: settings.phone,
+    email: settings.email,
+    taxNumber: settings.taxNumber,
+    logoUrl: settings.logoUrl,
+  };
+  // Sale/Credit/Return badge shown next to the invoice number — a return
+  // (partial or full) takes priority over the payment method, since at that
+  // point the money movement the invoice documents is a refund, not a sale.
+  const documentType =
+    Number(sale.returnedTotal) > 0 ? 'Return' : sale.paymentMethod === 'CREDIT' ? 'Credit' : 'Sale';
   return renderTemplate('INVOICE_A4', {
     company,
     number: sale.saleNumber,
     date: new Date(sale.date).toLocaleString(),
+    documentType,
     partyName: sale.customer?.name ?? 'Walk-in Customer',
     partyPhone: sale.customer?.phone || undefined,
-    invoiceType: sale.paymentMethod ? PAYMENT_METHOD_LABEL[sale.paymentMethod] : undefined,
     items: sale.items.map((i) => ({
       name: i.name,
       qty: Number(i.quantity),
@@ -126,14 +201,6 @@ async function buildInvoiceHtml(sale: SaleForInvoice) {
     total: Number(sale.grandTotal),
     paidAmount: sale.paidAmount !== undefined ? Number(sale.paidAmount) : undefined,
     balanceDue: sale.balanceDue !== undefined ? Number(sale.balanceDue) : undefined,
-    previousBalance:
-      sale.previousBalance !== undefined && sale.previousBalance !== null
-        ? Number(sale.previousBalance)
-        : null,
-    totalRemaining:
-      sale.totalRemaining !== undefined && sale.totalRemaining !== null
-        ? Number(sale.totalRemaining)
-        : null,
     labour: sale.labour,
     transport: sale.transport,
     returnedTotal: sale.returnedTotal ? Number(sale.returnedTotal) : undefined,
@@ -151,31 +218,50 @@ async function buildInvoiceHtml(sale: SaleForInvoice) {
   });
 }
 
-// Writes `html` into `target` if it's still open (a window pre-opened
-// synchronously on the triggering click, so it isn't blocked by the
-// browser), otherwise opens a fresh one.
-function writeHtmlPopup(html: string, target?: Window | null) {
-  const win =
-    target && !target.closed ? target : window.open('', '_blank', 'width=850,height=1000');
-  if (!win) return false;
-  win.document.open();
-  win.document.write(html);
-  win.document.close();
-  win.focus();
-  return true;
+export async function openSaleInvoicePopup(sale: SaleForInvoice) {
+  const html = await buildInvoiceHtml(sale);
+  usePrintPreviewStore.getState().open(html);
 }
 
-export async function openSaleInvoicePopup(sale: SaleForInvoice, target?: Window | null) {
-  // Open (or claim) the window synchronously, before the bank-details fetch
-  // below, so it stays a direct result of the click — an async gap here
-  // would make browsers treat the later window.open as a blocked popup.
-  const win =
-    target && !target.closed ? target : window.open('', '_blank', 'width=850,height=1000');
-  if (!win) throw new Error('POPUP_BLOCKED');
+/** Emails a sale invoice to a customer — same INVOICE_A4 HTML as the print
+ * popup above, relayed through the issuing store's SMTP (Settings >
+ * Notifications; falls back to the platform's shared SMTP if unconfigured).
+ * Throws (with the backend's message) if sending fails. */
+export async function sendSaleInvoiceEmail(sale: SaleForInvoice, to: string) {
   const html = await buildInvoiceHtml(sale);
-  if (!writeHtmlPopup(html, win)) {
-    throw new Error('POPUP_BLOCKED');
+  await api.post('/notifications/email', {
+    store: sale.storeId,
+    to,
+    subject: `Invoice ${sale.saleNumber}`,
+    html,
+  });
+}
+
+// WhatsApp has no rich layout, so this is a short plain-text summary rather
+// than the full HTML invoice — number, date, total, and balance due if any.
+function saleWhatsAppMessage(sale: SaleForInvoice) {
+  const lines = [
+    `Invoice ${sale.saleNumber}`,
+    `Date: ${new Date(sale.date).toLocaleDateString()}`,
+    `Total: ${formatCurrency(Number(sale.grandTotal))}`,
+  ];
+  if (sale.balanceDue !== undefined && Number(sale.balanceDue) > 0) {
+    lines.push(`Balance due: ${formatCurrency(Number(sale.balanceDue))}`);
   }
+  lines.push('Thank you for shopping with us!');
+  return lines.join('\n');
+}
+
+/** Sends a sale invoice summary over WhatsApp (Twilio — Settings >
+ * Notifications; no fallback, since a WhatsApp sender number can't be
+ * shared the way SMTP can). Throws (with the backend's message, e.g.
+ * "not configured") if sending fails. */
+export async function sendSaleInvoiceWhatsApp(sale: SaleForInvoice, to: string) {
+  await api.post('/notifications/whatsapp', {
+    store: sale.storeId,
+    to,
+    message: saleWhatsAppMessage(sale),
+  });
 }
 
 /** A GRN-style supplier invoice for a stock receipt — same INVOICE_A4
@@ -185,6 +271,7 @@ export async function openSaleInvoicePopup(sale: SaleForInvoice, target?: Window
 export interface StockReceiptForInvoice {
   receiptNumber: string;
   date: string;
+  storeId?: string;
   storeName?: string;
   supplierName: string;
   items: {
@@ -206,10 +293,19 @@ export interface StockReceiptForInvoice {
   labourRentTotal?: number | string;
 }
 
-function buildReceiptInvoiceHtml(receipt: StockReceiptForInvoice) {
-  const company = receipt.storeName
-    ? { name: receipt.storeName, address: COMPANY.address, phone: COMPANY.phone }
-    : COMPANY;
+async function buildReceiptInvoiceHtml(receipt: StockReceiptForInvoice) {
+  const [footerNote, settings] = await Promise.all([
+    invoiceFooterNote(receipt.storeId),
+    companyInfo(receipt.storeId),
+  ]);
+  const company = {
+    name: receipt.storeName || settings.name,
+    address: settings.address,
+    phone: settings.phone,
+    email: settings.email,
+    taxNumber: settings.taxNumber,
+    logoUrl: settings.logoUrl,
+  };
   const hasUnpriced = receipt.items.some((i) => i.pricingStatus !== 'PRICED');
   const truckFare = Number(receipt.truckFare ?? 0);
   const labourRentTotal = Number(receipt.labourRentTotal ?? 0);
@@ -248,16 +344,284 @@ function buildReceiptInvoiceHtml(receipt: StockReceiptForInvoice) {
     paidAmount: receipt.paidAmount !== undefined ? Number(receipt.paidAmount) : undefined,
     balanceDue: receipt.balanceDue !== undefined ? Number(receipt.balanceDue) : undefined,
     notes: notes || undefined,
+    footerNote,
   });
 }
 
-export async function openStockReceiptInvoicePopup(
-  receipt: StockReceiptForInvoice,
-  target?: Window | null,
+export async function openStockReceiptInvoicePopup(receipt: StockReceiptForInvoice) {
+  const html = await buildReceiptInvoiceHtml(receipt);
+  usePrintPreviewStore.getState().open(html);
+}
+
+/** A vendor-facing printout of a *regular* sale's vendor-sourced lines —
+ * same INVOICE_A4 template, with the vendor as the "party" instead of the
+ * customer and only the items whose stock originated from that vendor.
+ * Prices are the vendor's purchase price/line total from Pending Entities
+ * (not the customer's sale price), same blank-until-priced convention as
+ * `StockReceiptForInvoice`. Distinct from `VendorSaleForInvoice` below,
+ * which prints an actual VendorSale document (a vendor buying stock from
+ * us) rather than vendor-sourced lines embedded in someone else's sale. */
+export interface VendorSourcedItemsForInvoice {
+  saleNumber: string;
+  date: string;
+  storeId?: string;
+  storeName?: string;
+  storeAddress?: string;
+  vendorName: string;
+  vendorPhone?: string;
+  items: {
+    name: string;
+    quantity: number | string;
+    purchasePrice?: number | string;
+    lineTotal?: number | string;
+    pricingStatus?: 'PENDING' | 'PRICED';
+  }[];
+  pricedTotal: number | string;
+}
+
+async function buildVendorSourcedItemsInvoiceHtml(sale: VendorSourcedItemsForInvoice) {
+  const [bankNote, footerNote, settings] = await Promise.all([
+    bankNoteFor(sale.storeId),
+    invoiceFooterNote(sale.storeId),
+    companyInfo(sale.storeId),
+  ]);
+  const company = {
+    name: sale.storeName || settings.name,
+    address: sale.storeAddress || settings.address,
+    phone: settings.phone,
+    email: settings.email,
+    taxNumber: settings.taxNumber,
+    logoUrl: settings.logoUrl,
+  };
+  const hasUnpriced = sale.items.some((i) => i.pricingStatus !== 'PRICED');
+  return renderTemplate('INVOICE_A4', {
+    company,
+    docTitle: 'Vendor Invoice',
+    docNumberLabel: 'Sale #',
+    number: sale.saleNumber,
+    date: new Date(sale.date).toLocaleString(),
+    partyName: sale.vendorName,
+    partyPhone: sale.vendorPhone || undefined,
+    invoiceType: 'Items Sourced from Vendor',
+    items: sale.items.map((i) => ({
+      name: i.name,
+      qty: Number(i.quantity),
+      price: i.purchasePrice !== undefined ? Number(i.purchasePrice) : 0,
+      amount: i.lineTotal !== undefined ? Number(i.lineTotal) : 0,
+    })),
+    subtotal: Number(sale.pricedTotal),
+    tax: 0,
+    total: Number(sale.pricedTotal),
+    notes: hasUnpriced
+      ? 'Some items are awaiting a purchase price from Pending Entities and show as 0 until priced.'
+      : undefined,
+    bankNote,
+    footerNote,
+  });
+}
+
+export async function openVendorSourcedItemsInvoicePopup(sale: VendorSourcedItemsForInvoice) {
+  const html = await buildVendorSourcedItemsInvoiceHtml(sale);
+  usePrintPreviewStore.getState().open(html);
+}
+
+/** The actual VendorSale document's own invoice — a vendor buying stock
+ * from us, the mirror of a regular customer SaleForInvoice but with the
+ * vendor as the "Bill To" party. See VendorSourcedItemsForInvoice above for
+ * the unrelated "vendor-sourced lines inside someone else's sale" printout. */
+export interface VendorSaleForInvoice {
+  number: string;
+  date: string;
+  storeId?: string;
+  storeName?: string;
+  vendorName: string;
+  vendorPhone?: string;
+  items: {
+    name: string;
+    quantity: number | string;
+    unitPrice: number | string;
+    amount: number | string;
+  }[];
+  subtotal: number | string;
+  discount: number | string;
+  tax: number | string;
+  total: number | string;
+  paymentMethod?: string;
+  returnedTotal?: number | string;
+  note?: string;
+}
+
+async function buildVendorSaleDocInvoiceHtml(sale: VendorSaleForInvoice) {
+  const [bankNote, footerNote, settings] = await Promise.all([
+    bankNoteFor(sale.storeId),
+    invoiceFooterNote(sale.storeId),
+    companyInfo(sale.storeId),
+  ]);
+  const company = {
+    name: sale.storeName || settings.name,
+    address: settings.address,
+    phone: settings.phone,
+    email: settings.email,
+    taxNumber: settings.taxNumber,
+    logoUrl: settings.logoUrl,
+  };
+  return renderTemplate('INVOICE_A4', {
+    company,
+    number: sale.number,
+    date: new Date(sale.date).toLocaleString(),
+    partyName: sale.vendorName,
+    partyPhone: sale.vendorPhone || undefined,
+    invoiceType: sale.paymentMethod ? PAYMENT_METHOD_LABEL[sale.paymentMethod] : undefined,
+    items: sale.items.map((i) => ({
+      name: i.name,
+      qty: Number(i.quantity),
+      price: Number(i.unitPrice),
+      amount: Number(i.amount),
+    })),
+    subtotal: Number(sale.subtotal),
+    tax: Number(sale.tax),
+    discount: Number(sale.discount),
+    total: Number(sale.total),
+    returnedTotal: sale.returnedTotal ? Number(sale.returnedTotal) : undefined,
+    notes: sale.note || undefined,
+    bankNote,
+    footerNote,
+  });
+}
+
+export async function openVendorSaleInvoicePopup(sale: VendorSaleForInvoice) {
+  const html = await buildVendorSaleDocInvoiceHtml(sale);
+  usePrintPreviewStore.getState().open(html);
+}
+
+/** A debit note for damaged goods handed back to a supplier — same
+ * INVOICE_A4 template, headed "Debit Note" since it documents value going
+ * back out rather than a purchase coming in. */
+export interface DamagedStockReturnForInvoice {
+  returnNumber: string;
+  date: string;
+  storeId?: string;
+  storeName?: string;
+  supplierName: string;
+  items: {
+    name: string;
+    quantity: number | string;
+    unitCost?: number | string;
+    lineTotal?: number | string;
+  }[];
+  total: number | string;
+  truck?: { driverName?: string; driverPhone?: string; vehicleNumber?: string };
+  note?: string;
+}
+
+async function buildDamagedStockReturnInvoiceHtml(damagedReturn: DamagedStockReturnForInvoice) {
+  const [footerNote, settings] = await Promise.all([
+    invoiceFooterNote(damagedReturn.storeId),
+    companyInfo(damagedReturn.storeId),
+  ]);
+  const company = {
+    name: damagedReturn.storeName || settings.name,
+    address: settings.address,
+    phone: settings.phone,
+    email: settings.email,
+    taxNumber: settings.taxNumber,
+    logoUrl: settings.logoUrl,
+  };
+  return renderTemplate('INVOICE_A4', {
+    company,
+    docTitle: 'Debit Note',
+    docNumberLabel: 'Return #',
+    number: damagedReturn.returnNumber,
+    date: new Date(damagedReturn.date).toLocaleString(),
+    partyName: damagedReturn.supplierName,
+    invoiceType: 'Damaged Goods Returned',
+    items: damagedReturn.items.map((i) => ({
+      name: i.name,
+      qty: Number(i.quantity),
+      price: i.unitCost !== undefined ? Number(i.unitCost) : 0,
+      amount: i.lineTotal !== undefined ? Number(i.lineTotal) : 0,
+    })),
+    subtotal: Number(damagedReturn.total),
+    tax: 0,
+    total: Number(damagedReturn.total),
+    transport:
+      damagedReturn.truck?.driverName || damagedReturn.truck?.vehicleNumber
+        ? damagedReturn.truck
+        : undefined,
+    notes: damagedReturn.note || undefined,
+    footerNote,
+  });
+}
+
+export async function openDamagedStockReturnInvoicePopup(
+  damagedReturn: DamagedStockReturnForInvoice,
 ) {
-  if (!writeHtmlPopup(buildReceiptInvoiceHtml(receipt), target)) {
-    throw new Error('POPUP_BLOCKED');
-  }
+  const html = await buildDamagedStockReturnInvoiceHtml(damagedReturn);
+  usePrintPreviewStore.getState().open(html);
+}
+
+/** A customer-facing printout of a quote — same INVOICE_A4 template as
+ * sales, headed "Estimate" instead of "Invoice" and with none of the
+ * payment/transport/labour/returns sections a real sale can have (the
+ * estimate schema carries no such data, so the template simply omits
+ * those sections rather than needing a forked layout). */
+export interface EstimateForInvoice {
+  estimateNumber: string;
+  date: string;
+  storeId?: string;
+  storeName?: string;
+  storeAddress?: string;
+  customer?: { name: string; phone?: string };
+  items: SaleItemForInvoice[];
+  subtotal: number | string;
+  taxTotal: number | string;
+  discountTotal: number | string;
+  grandTotal: number | string;
+  notes?: string;
+  validUntil?: string;
+}
+
+async function buildEstimateInvoiceHtml(estimate: EstimateForInvoice) {
+  const [bankNote, settings] = await Promise.all([
+    bankNoteFor(estimate.storeId),
+    companyInfo(estimate.storeId),
+  ]);
+  const footerNote = estimateValidityNote(estimate.validUntil);
+  const company = {
+    name: estimate.storeName || settings.name,
+    address: estimate.storeAddress || settings.address,
+    phone: settings.phone,
+    email: settings.email,
+    taxNumber: settings.taxNumber,
+    logoUrl: settings.logoUrl,
+  };
+  return renderTemplate('INVOICE_A4', {
+    company,
+    docTitle: 'Estimate',
+    docNumberLabel: 'Estimate #',
+    number: estimate.estimateNumber,
+    date: new Date(estimate.date).toLocaleString(),
+    partyName: estimate.customer?.name ?? 'Walk-in Customer',
+    partyPhone: estimate.customer?.phone || undefined,
+    items: estimate.items.map((i) => ({
+      name: i.name,
+      qty: Number(i.quantity),
+      price: Number(i.unitPrice),
+      amount: Number(i.amount),
+    })),
+    subtotal: Number(estimate.subtotal),
+    tax: Number(estimate.taxTotal),
+    discount: Number(estimate.discountTotal),
+    total: Number(estimate.grandTotal),
+    notes: estimate.notes || undefined,
+    bankNote,
+    footerNote,
+  });
+}
+
+export async function openEstimateInvoicePopup(estimate: EstimateForInvoice) {
+  const html = await buildEstimateInvoiceHtml(estimate);
+  usePrintPreviewStore.getState().open(html);
 }
 
 /** A running statement of what a labourer earned rent on — same INVOICE_A4
@@ -272,10 +636,11 @@ export interface LabourForInvoice {
   }[];
 }
 
-function buildLabourInvoiceHtml(labour: LabourForInvoice) {
+async function buildLabourInvoiceHtml(labour: LabourForInvoice) {
+  const [footerNote, settings] = await Promise.all([invoiceFooterNote(), companyInfo()]);
   const total = labour.jobs.reduce((sum, j) => sum + Number(j.rent), 0);
   return renderTemplate('INVOICE_A4', {
-    company: COMPANY,
+    company: settings,
     number: '',
     date: new Date().toLocaleString(),
     partyName: labour.labourName,
@@ -289,11 +654,11 @@ function buildLabourInvoiceHtml(labour: LabourForInvoice) {
     subtotal: total,
     tax: 0,
     total,
+    footerNote,
   });
 }
 
-export async function openLabourInvoicePopup(labour: LabourForInvoice, target?: Window | null) {
-  if (!writeHtmlPopup(buildLabourInvoiceHtml(labour), target)) {
-    throw new Error('POPUP_BLOCKED');
-  }
+export async function openLabourInvoicePopup(labour: LabourForInvoice) {
+  const html = await buildLabourInvoiceHtml(labour);
+  usePrintPreviewStore.getState().open(html);
 }

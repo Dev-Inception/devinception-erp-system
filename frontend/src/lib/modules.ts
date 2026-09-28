@@ -17,6 +17,7 @@ import {
   HardHat,
   ClipboardCheck,
   PackagePlus,
+  PackageX,
   BookText,
   Store,
   FileText,
@@ -24,6 +25,10 @@ import {
   Hourglass,
   Container,
   Factory,
+  CreditCard,
+  HandCoins,
+  Wrench,
+  ArrowRightLeft,
 } from 'lucide-react';
 import type { Role } from '@/store/auth';
 
@@ -61,6 +66,14 @@ export interface ModuleDef {
 export const MODULES: ModuleDef[] = [
   { key: 'dashboard', to: '/', label: 'Dashboard', section: 'Overview', icon: LayoutDashboard },
   {
+    key: 'pending-entities',
+    to: '/pending-entities',
+    label: 'Pending Entities',
+    section: 'Overview',
+    icon: Hourglass,
+    defaultRoles: ['ACCOUNTANT', 'MANAGER', 'ADMIN'],
+  },
+  {
     key: 'pos',
     to: '/pos',
     label: 'Point of Sale',
@@ -69,6 +82,14 @@ export const MODULES: ModuleDef[] = [
     defaultRoles: ['CASHIER', 'MANAGER', 'ADMIN'],
   },
   { key: 'sales', to: '/sales', label: 'Sales', section: 'Operations', icon: ScrollText },
+  {
+    key: 'vendor-sales',
+    to: '/vendor-sales',
+    label: 'Vendor Sales',
+    section: 'Operations',
+    icon: HandCoins,
+    defaultRoles: ['MANAGER', 'ADMIN'],
+  },
   {
     key: 'estimates',
     to: '/estimates',
@@ -93,6 +114,14 @@ export const MODULES: ModuleDef[] = [
     icon: ClipboardCheck,
     defaultRoles: ['ADMIN'],
   },
+  {
+    key: 'damaged-stock',
+    to: '/damaged-stock',
+    label: 'Damaged Stock',
+    section: 'Operations',
+    icon: PackageX,
+    defaultRoles: ['MANAGER', 'ADMIN'],
+  },
   { key: 'products', to: '/products', label: 'Inventory', section: 'Catalog', icon: Package },
   {
     key: 'categories',
@@ -108,6 +137,14 @@ export const MODULES: ModuleDef[] = [
     label: 'Units',
     section: 'Catalog',
     icon: Ruler,
+    defaultRoles: ['MANAGER', 'ADMIN'],
+  },
+  {
+    key: 'labour-services',
+    to: '/labour-services',
+    label: 'Labour Services',
+    section: 'Catalog',
+    icon: Wrench,
     defaultRoles: ['MANAGER', 'ADMIN'],
   },
   {
@@ -137,7 +174,6 @@ export const MODULES: ModuleDef[] = [
     section: 'Partners',
     icon: Container,
   },
-  { key: 'roles', to: '/roles', label: 'Roles', section: 'Partners', icon: Users },
   {
     key: 'labour',
     to: '/labour',
@@ -155,11 +191,11 @@ export const MODULES: ModuleDef[] = [
     defaultRoles: ['ACCOUNTANT', 'MANAGER', 'ADMIN'],
   },
   {
-    key: 'pending-entities',
-    to: '/pending-entities',
-    label: 'Pending Entities',
+    key: 'labour-cash-flow',
+    to: '/labour-cash-flow',
+    label: 'Labour Cash Flow',
     section: 'Finance',
-    icon: Hourglass,
+    icon: ArrowRightLeft,
     defaultRoles: ['ACCOUNTANT', 'MANAGER', 'ADMIN'],
   },
   { key: 'reports', to: '/reports', label: 'Reports', section: 'Finance', icon: BarChart3 },
@@ -186,6 +222,18 @@ export const MODULES: ModuleDef[] = [
     icon: Wallet,
     defaultRoles: ['ACCOUNTANT', 'MANAGER', 'ADMIN'],
   },
+  { key: 'roles', to: '/roles', label: 'Roles', section: 'System', icon: Users },
+  {
+    key: 'users',
+    to: '/users',
+    label: 'Users',
+    section: 'System',
+    icon: Users,
+    // A store admin manages their own store's staff (see backend
+    // userService.js — creates/edits/removes are already scoped to their own
+    // store); super admin sees/manages every store's staff.
+    adminOnly: true,
+  },
   {
     key: 'settings',
     to: '/settings',
@@ -206,6 +254,16 @@ export const MODULES: ModuleDef[] = [
     // no-`permissions`-loaded fallback in defaultModulesForRole below; a real
     // session is always gated by MODULE_PERMISSION.permissions instead).
     defaultRoles: [],
+  },
+  {
+    key: 'subscriptions',
+    to: '/subscriptions',
+    label: 'Subscriptions',
+    section: 'System',
+    icon: CreditCard,
+    // Selling/provisioning stores is the company's own business, not a
+    // tenant's — only the super admin ever sees or manages it.
+    superAdminOnly: true,
   },
 ];
 
@@ -233,13 +291,16 @@ export const MODULE_PERMISSION: Record<string, string> = {
   estimates: 'estimates:read',
   'stock-receipts': 'inventory:read',
   'gate-passes': 'gate-passes:read',
+  'damaged-stock': 'damaged-stock:read',
   products: 'inventory:read',
   categories: 'inventory:manage',
   units: 'inventory:manage',
+  'labour-services': 'inventory:manage',
   warehouses: 'inventory:manage',
   stores: 'stores:manage',
   customers: 'customers:read',
   vendors: 'vendors:read',
+  'vendor-sales': 'vendor-sales:read',
   suppliers: 'suppliers:read',
   transporters: 'transporters:read',
   // No dedicated backend permission — the Roles page only lets a non-super-
@@ -248,10 +309,15 @@ export const MODULE_PERMISSION: Record<string, string> = {
   // roles:read (currently held by nobody but super admin) is a reasonable,
   // purely opt-in visibility gate.
   roles: 'roles:read',
-  // Matches the backend's /labour read routes, which require sales:create
-  // (not a dedicated labour permission) — see labourRoutes.js.
-  labour: 'sales:create',
+  // Labour now has its own dedicated permissions (see permissions.js) — this
+  // was stale from before that split and pointed at sales:create, so
+  // checking "Labour" silently granted an unrelated POS permission instead
+  // of ever actually unlocking Labour access.
+  labour: 'labour:read',
   ledgers: 'finance:read',
+  // Shows the store's margin on labour (charged vs paid out), so it sits
+  // behind the same permission as the rest of the finance views.
+  'labour-cash-flow': 'finance:read',
   'pending-entities': 'finance:read',
   reports: 'reports:read',
   expenses: 'expenses:manage',
@@ -265,6 +331,48 @@ export const MODULE_PERMISSION: Record<string, string> = {
   // admin has to deliberately grant a role access to it (see the
   // defaultRoles note on the `permissions` module above).
   permissions: 'roles:update',
+};
+
+/**
+ * Some modules' backend permission model splits read from create/update
+ * (see permissions.js) rather than covering everything with one permission
+ * the way inventory:manage does for Categories/Units/Warehouses. For those,
+ * checking the module's box in Module Access grants the whole bundle, not
+ * just read — a super admin ticking "Labour" means "let this role manage
+ * Labour," not "let them only look at it." Modules not listed here keep
+ * toggling their single MODULE_PERMISSION value only.
+ */
+export const MODULE_PERMISSION_BUNDLE: Record<string, string[]> = {
+  customers: ['customers:read', 'customers:create', 'customers:update'],
+  vendors: ['vendors:read', 'vendors:create', 'vendors:update'],
+  // Vendor Sales has its own read/manage split (see permissions.js), same
+  // shape as damaged-stock/pending-entities above.
+  'vendor-sales': ['vendor-sales:read', 'vendor-sales:manage'],
+  suppliers: ['suppliers:read', 'suppliers:create', 'suppliers:update'],
+  transporters: ['transporters:read', 'transporters:create', 'transporters:update'],
+  labour: ['labour:read', 'labour:create', 'labour:update'],
+  // Sales the page (view/edit/refund/record-payment against an existing
+  // sale) is deliberately separate from POS (making a brand new one, see
+  // `pos` above, sales:create) — so this bundle stops at update, not create.
+  sales: ['sales:read', 'sales:update'],
+  // Estimates has no POS-style split — one page covers the whole lifecycle
+  // (create a quote, follow up, mark lost, edit), so its bundle covers all
+  // three.
+  estimates: ['estimates:read', 'estimates:create', 'estimates:update'],
+  // `inventory:manage` is one combined backend permission covering
+  // Stock Receiving, Products, Categories, Units, and Warehouses together —
+  // there's no separate "manage stock receipts only" permission on the
+  // backend, so checking any one of these necessarily grants write access
+  // to all of them. That's a backend permission-model characteristic, not
+  // introduced here.
+  'stock-receipts': ['inventory:read', 'inventory:manage'],
+  products: ['inventory:read', 'inventory:manage'],
+  // Damaged stock has its own read/manage split (see permissions.js), same
+  // shape as inventory:read/manage above.
+  'damaged-stock': ['damaged-stock:read', 'damaged-stock:manage'],
+  // Pricing a pending entity (the module's one real action) needs its own
+  // permission distinct from just reading the finance section.
+  'pending-entities': ['finance:read', 'pending-entities:price'],
 };
 
 /** True if a permission list grants `permission`, honoring the wildcard. */

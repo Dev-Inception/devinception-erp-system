@@ -1,12 +1,18 @@
 import { useState } from 'react';
 import { useNavigate, useParams, Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Banknote, Printer, QrCode } from 'lucide-react';
+import { ArrowLeft, Banknote, MoreHorizontal, Printer, QrCode } from 'lucide-react';
 import { toast } from 'sonner';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+} from '@/components/ui/dropdown-menu';
 import { api } from '@/lib/api';
 import { cn, formatCurrency } from '@/lib/utils';
 import { useStorefrontFilter } from '@/store/storefront';
@@ -46,6 +52,7 @@ interface PendingEntity {
 interface StockReceiptRow {
   id: string;
   number: string;
+  storeId?: string;
   storeName?: string;
   date: string;
   items: {
@@ -135,13 +142,10 @@ export function SupplierDetailPage() {
   const receipts = receiptsData?.receipts ?? [];
 
   const handlePrintReceiptInvoice = async (r: StockReceiptRow) => {
-    const win = window.open('', '_blank', 'width=850,height=1000');
-    win?.document.write(
-      '<p style="font-family:sans-serif;padding:24px;color:#666">Preparing invoice…</p>',
-    );
     const payload: StockReceiptForInvoice = {
       receiptNumber: r.number,
       date: r.date,
+      storeId: r.storeId,
       storeName: r.storeName,
       supplierName: supplier?.name ?? '',
       items: r.items.map((it) => ({
@@ -161,9 +165,9 @@ export function SupplierDetailPage() {
       labourRentTotal: r.labourRent,
     };
     try {
-      await openStockReceiptInvoicePopup(payload, win);
+      await openStockReceiptInvoicePopup(payload);
     } catch {
-      toast.error('Enable popups to view the printable invoice');
+      toast.error('Could not prepare the invoice');
     }
   };
 
@@ -261,8 +265,8 @@ export function SupplierDetailPage() {
                   <tr className="border-y bg-muted/50 text-left text-xs uppercase text-muted-foreground">
                     <th className="px-4 py-2 font-medium">{t('Date')}</th>
                     <th className="px-4 py-2 font-medium">{t('Description')}</th>
-                    <th className="px-4 py-2 text-right font-medium">{t('Debit')}</th>
-                    <th className="px-4 py-2 text-right font-medium">{t('Credit')}</th>
+                    <th className="px-4 py-2 text-right font-medium">{t('Out')}</th>
+                    <th className="px-4 py-2 text-right font-medium">{t('In')}</th>
                     <th className="px-4 py-2 text-right font-medium">{t('Balance')}</th>
                   </tr>
                 </thead>
@@ -305,11 +309,10 @@ export function SupplierDetailPage() {
               <thead>
                 <tr className="border-b bg-muted/50 text-left text-xs uppercase tracking-wide text-muted-foreground">
                   <th className="px-4 py-3 font-medium">{t('Source')}</th>
-                  <th className="px-4 py-3 font-medium">{t('#')}</th>
+                  <th className="px-4 py-3 font-medium">{t('Doc #')}</th>
                   <th className="px-4 py-3 font-medium">{t('Date')}</th>
                   <th className="px-4 py-3 font-medium">{t('Product')}</th>
                   <th className="px-4 py-3 text-right font-medium">{t('Qty')}</th>
-                  <th className="px-4 py-3 font-medium">{t('Status')}</th>
                   <th className="px-4 py-3 text-right font-medium">{t('Price')}</th>
                   <th className="px-4 py-3 text-right font-medium">{t('Total')}</th>
                 </tr>
@@ -317,7 +320,7 @@ export function SupplierDetailPage() {
               <tbody>
                 {purchasesLoading && (
                   <tr>
-                    <td colSpan={8} className="px-4 py-10 text-center text-muted-foreground">
+                    <td colSpan={7} className="px-4 py-10 text-center text-muted-foreground">
                       {t('Loading…')}
                     </td>
                   </tr>
@@ -332,11 +335,6 @@ export function SupplierDetailPage() {
                       </td>
                       <td className="px-4 py-3">{e.productName}</td>
                       <td className="px-4 py-3 text-right tabular-nums">{e.quantity}</td>
-                      <td className="px-4 py-3">
-                        <span className={e.status === 'PRICED' ? 'text-success' : 'text-blue-500'}>
-                          {e.status === 'PRICED' ? t('Priced') : t('Pending')}
-                        </span>
-                      </td>
                       <td className="px-4 py-3 text-right tabular-nums">
                         {e.purchasePrice !== undefined ? formatCurrency(e.purchasePrice) : '—'}
                       </td>
@@ -347,7 +345,7 @@ export function SupplierDetailPage() {
                   ))}
                 {!purchasesLoading && purchases.length === 0 && (
                   <tr>
-                    <td colSpan={8} className="px-4 py-10 text-center text-muted-foreground">
+                    <td colSpan={7} className="px-4 py-10 text-center text-muted-foreground">
                       {t('Nothing purchased from this supplier yet.')}
                     </td>
                   </tr>
@@ -373,7 +371,7 @@ export function SupplierDetailPage() {
                 <tr className="border-b bg-muted/50 text-left text-xs uppercase tracking-wide text-muted-foreground">
                   <th className="px-4 py-3 font-medium">{t('Receipt #')}</th>
                   <th className="px-4 py-3 font-medium">{t('Date')}</th>
-                  <th className="px-4 py-3 text-right font-medium">{t('Priced Total')}</th>
+                  <th className="px-4 py-3 text-right font-medium">{t('Total')}</th>
                   <th className="px-4 py-3 text-right font-medium">{t('Paid')}</th>
                   <th className="px-4 py-3 text-right font-medium">{t('Balance Due')}</th>
                   <th className="px-4 py-3 text-right font-medium">{t('Actions')}</th>
@@ -403,52 +401,50 @@ export function SupplierDetailPage() {
                       <td className="px-4 py-3 text-right tabular-nums font-medium">
                         {formatCurrency(r.balanceDue)}
                       </td>
-                      <td className="px-4 py-3">
-                        <div className="flex justify-end gap-1">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8"
-                            title={t('Print Invoice')}
-                            onClick={() => handlePrintReceiptInvoice(r)}
-                          >
-                            <Printer className="h-4 w-4" />
-                          </Button>
-                          {r.balanceDue > 0 && (
+                      <td className="px-4 py-3 text-right">
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
                             <Button
-                              variant="ghost"
                               size="icon"
-                              className="h-8 w-8"
-                              title={t('Record Payment')}
-                              onClick={() =>
-                                setPayingReceipt({
-                                  id: r.id,
-                                  receiptNumber: r.number,
-                                  balanceDue: r.balanceDue,
-                                })
-                              }
-                            >
-                              <Banknote className="h-4 w-4" />
-                            </Button>
-                          )}
-                          {r.gatePassId && (
-                            <Button
                               variant="ghost"
-                              size="icon"
                               className="h-8 w-8"
-                              title={t('View Gate Pass')}
-                              onClick={() =>
-                                setViewingGatePass({
-                                  gatePassId: r.gatePassId,
-                                  gatePassQrUrl: r.gatePassQrUrl,
-                                  title: r.number,
-                                })
-                              }
+                              title={t('Actions')}
                             >
-                              <QrCode className="h-4 w-4" />
+                              <MoreHorizontal className="h-4 w-4" />
                             </Button>
-                          )}
-                        </div>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem onSelect={() => handlePrintReceiptInvoice(r)}>
+                              <Printer className="h-4 w-4" /> {t('Print Invoice')}
+                            </DropdownMenuItem>
+                            {r.balanceDue > 0 && (
+                              <DropdownMenuItem
+                                onSelect={() =>
+                                  setPayingReceipt({
+                                    id: r.id,
+                                    receiptNumber: r.number,
+                                    balanceDue: r.balanceDue,
+                                  })
+                                }
+                              >
+                                <Banknote className="h-4 w-4" /> {t('Record Payment')}
+                              </DropdownMenuItem>
+                            )}
+                            {r.gatePassId && (
+                              <DropdownMenuItem
+                                onSelect={() =>
+                                  setViewingGatePass({
+                                    gatePassId: r.gatePassId,
+                                    gatePassQrUrl: r.gatePassQrUrl,
+                                    title: r.number,
+                                  })
+                                }
+                              >
+                                <QrCode className="h-4 w-4" /> {t('View Gate Pass')}
+                              </DropdownMenuItem>
+                            )}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
                       </td>
                     </tr>
                   ))}

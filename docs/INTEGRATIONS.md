@@ -1,9 +1,10 @@
 # Printing, WhatsApp & Email Integrations
 
-> **Status.** Printing and the invoice PDF are implemented. Email is implemented
-> for password-reset only (a generic `sendEmail` exists). WhatsApp send and
-> invoice email-send endpoints are **planned**, and there is no settings
-> collection yet (company info comes from env). Sections below mark each.
+> **Status.** Printing and the invoice PDF are implemented. Password-reset
+> email and sending a sale invoice by email or WhatsApp are both implemented
+> (`POST /notifications/email` and `POST /notifications/whatsapp` — see §3/§4).
+> Settings is a real per-store collection (§5), not env-only anymore. Sections
+> below mark each.
 
 ## 1. Printing service (frontend) ✅
 
@@ -52,44 +53,68 @@ disk/S3 and does not return a URL. Company name/address/phone come from env
 The stream lifecycle handles client disconnects (`res.on("close")` destroys the
 doc) and surfaces a clean error only if generation fails before any bytes are sent.
 
-## 3. WhatsApp integration 🚧 (planned)
+## 3. WhatsApp integration ✅ (Twilio)
 
-There is **no backend WhatsApp endpoint** yet. In the current mock frontend, the
-invoices page builds a `https://wa.me/<number>?text=<message>` **click-to-chat**
-link and opens it in a new tab.
+`POST /notifications/whatsapp` (`{ store?, to, message }`, gated by
+`sales:read`) sends a plain-text message via **Twilio's WhatsApp API**
+([`backend/src/services/whatsappService.js`](../backend/src/services/whatsappService.js)),
+using `Settings.twilioAccountSid` / `twilioAuthToken` / `twilioWhatsAppFrom`
+(per store, with a fallback to the super-admin's global row — see §5). There
+is **no fallback to a shared/platform Twilio number** — an unconfigured store
+gets a clear 400 ("add Twilio credentials in Settings") rather than silently
+using someone else's sender.
 
-Planned production path (config `WHATSAPP_DRIVER`):
+The frontend builds the message (a short plain-text invoice summary — number,
+date, total, balance due — see `sendSaleInvoiceWhatsApp` in
+[`frontend/src/lib/invoicePopup.ts`](../frontend/src/lib/invoicePopup.ts)) and
+posts it here; there is no rich WhatsApp layout (no PDF/document attachment).
+The Sales list's "Send via WhatsApp" action (`frontend/src/pages/sales.tsx` →
+`SendInvoiceDialog`) defaults the recipient to the customer's phone on file,
+editable per send.
 
-- **`cloud_api`** (WhatsApp Business Cloud API): host the PDF at a public/signed
-  URL, then send a document/template message via `WHATSAPP_CLOUD_TOKEN` +
-  `WHATSAPP_PHONE_NUMBER_ID`. Async-safe, production-grade.
-- **`web`** (wa.me click-to-chat): the zero-cost option the mock already uses;
-  requires the PDF (or a summary) be reachable via a public link.
+Setup (per store, in Settings → Notifications): sign up at twilio.com, grab
+the Account SID + Auth Token from the console, and either join the WhatsApp
+Sandbox for testing or apply for a production WhatsApp Sender.
 
-> Note: the streaming PDF endpoint (§2) returns no URL, so the share flow needs a
-> "render + persist to a hosted URL" step before either driver can attach the PDF.
-
-## 4. Email integration ◑
+## 4. Email integration ✅
 
 [`backend/src/services/emailService.js`](../backend/src/services/emailService.js)
-provides a generic `sendEmail({ to, subject, html, text })` over **Nodemailer/SMTP**
-(`SMTP_*` env), with a **dev fallback** that logs the message to the console when
-SMTP is unconfigured (or still set to the `.env.example` placeholders).
+provides:
 
-- **Implemented:** `sendPasswordResetEmail` — used by the forgot-password flow.
-- **Planned:** a "Send Invoice" endpoint that attaches the rendered PDF and a
-  payment summary. There is no `sentEmailAt` field on the invoice and no
-  notification/event emission today (no realtime layer).
+- `sendEmail({ to, subject, html, text })` — the original generic sender over
+  the platform's shared **Nodemailer/SMTP** (`SMTP_*` env), with a **dev
+  fallback** that logs to the console when SMTP is unconfigured (or still set
+  to the `.env.example` placeholders). Used by `sendPasswordResetEmail`.
+- `sendEmailAs(settings, { to, subject, html, text })` — sends using a
+  _store's own_ SMTP credentials (`Settings.smtp*`, resolved with the
+  super-admin fallback by `settingsService.getSettings` — see §5), falling
+  back to the shared platform SMTP above if the store hasn't configured its
+  own, and to the same dev-console fallback if neither is.
 
-## 5. Settings that drive integrations 🚧 (planned)
+`POST /notifications/email` (`{ store?, to, subject, html }`, gated by
+`sales:read`) is the "Send Invoice" endpoint: the frontend renders the exact
+same `INVOICE_A4` HTML used for printing (`buildInvoiceHtml` in
+`invoicePopup.ts`) and posts it here to be emailed via `sendEmailAs`. The
+Sales list's "Send via Email" action defaults the recipient to the customer's
+email on file, editable per send. There is no `sentEmailAt` field on the sale
+and no notification/event emission (no realtime layer) — sending is fire-and-forget from the caller's point of view beyond the success/error toast.
 
-There is **no settings collection** yet. Today:
+## 5. Settings that drive integrations ✅
 
-- Company identity (name/address/phone) → env (`COMPANY_NAME`, `COMPANY_ADDRESS`, `COMPANY_PHONE`).
-- SMTP → env (`SMTP_HOST/PORT/USER/PASS`, `MAIL_FROM`).
-- Printer mapping (device-per-document, paper width) is left to the browser's
-  print dialog — the user picks the target printer per print.
+`Settings` (one row per store, plus a `store IS NULL` global row — see
+[`backend/src/services/settingsService.js`](../backend/src/services/settingsService.js))
+persists company identity, invoice note, branding/social links, and
+notification config (SMTP + Twilio WhatsApp). A store row that hasn't set a
+given field falls back to the super-admin's global row (`FALLBACK_FIELDS`),
+so a store only needs to override what's different for it; `env.company.*`
+only seeds the _global_ row's initial defaults now, it isn't read live.
 
-Planned: a settings module persisting `printerConfig`, `whatsappConfig`,
-`emailConfig`, `invoiceConfig` (numbering/footer/terms), and `taxConfig`,
-editable from a Settings UI.
+Secrets (`smtpPass`, `twilioAuthToken`) never round-trip raw over
+`GET /settings` — only a `smtpPassSet`/`twilioAuthTokenSet` boolean — and
+`PUT /settings` only overwrites one when a non-empty value is actually sent,
+so the Settings UI can't display or accidentally blank out a saved
+credential (see `settingsController.serialize` / `settingsService.updateSettings`).
+
+Printer mapping (device-per-document, paper width) is still left to the
+browser's print dialog — the user picks the target printer per print; there
+is no `printerConfig` in Settings.

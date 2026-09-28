@@ -3,7 +3,9 @@ import { useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Check,
+  FileText,
   Loader2,
+  MoreHorizontal,
   Pencil,
   Phone,
   Plus,
@@ -13,6 +15,7 @@ import {
   UserX,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { useConfirmDelete } from '@/components/confirm-provider';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -25,8 +28,15 @@ import {
   DialogDescription,
   DialogClose,
 } from '@/components/ui/dialog';
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+} from '@/components/ui/dropdown-menu';
 import { Pagination } from '@/components/ui/pagination';
 import { api } from '@/lib/api';
+import { openEstimateInvoicePopup } from '@/lib/invoicePopup';
 import { cn, formatCurrency } from '@/lib/utils';
 import { useAuthStore } from '@/store/auth';
 import { grantsPermission } from '@/lib/modules';
@@ -69,6 +79,7 @@ interface Estimate {
   status: EstimateStatus;
   followUps: FollowUp[];
   nextFollowUpDate?: string;
+  validUntil?: string;
   lostReason: string;
   convertedSaleId?: string;
   convertedAt?: string;
@@ -144,6 +155,7 @@ function EstimateDialog({
   const [discount, setDiscount] = useState(0);
   const [taxPercent, setTaxPercent] = useState(0);
   const [notes, setNotes] = useState('');
+  const [validUntil, setValidUntil] = useState('');
 
   useEffect(() => {
     if (!open) return;
@@ -164,6 +176,7 @@ function EstimateDialog({
     setDiscount(Number(estimate?.discountTotal ?? 0));
     setTaxPercent(Number(estimate?.taxPercent ?? 0));
     setNotes(estimate?.notes ?? '');
+    setValidUntil(estimate?.validUntil ? estimate.validUntil.slice(0, 10) : '');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, estimate?.id]);
 
@@ -239,6 +252,7 @@ function EstimateDialog({
         discountTotal: discountAmount,
         taxPercent: Math.max(0, taxPercent),
         notes,
+        validUntil: validUntil || null,
       };
       return editing
         ? (await api.patch(`/estimates/${estimate!.id}`, payload)).data
@@ -456,7 +470,7 @@ function EstimateDialog({
             )}
           </div>
 
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid gap-3 sm:grid-cols-3">
             <div className="space-y-1.5">
               <Label>{t('Discount (Rs)')}</Label>
               <Input
@@ -476,6 +490,15 @@ function EstimateDialog({
                 step="0.01"
                 value={taxPercent || ''}
                 onChange={(e) => setTaxPercent(Number(e.target.value))}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>{t('Valid Until (optional)')}</Label>
+              <Input
+                type="date"
+                min={new Date().toISOString().slice(0, 10)}
+                value={validUntil}
+                onChange={(e) => setValidUntil(e.target.value)}
               />
             </div>
           </div>
@@ -693,11 +716,33 @@ export function EstimatesPage() {
     },
     onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Could not delete estimate'),
   });
-  const remove = (e: Estimate) => {
-    if (window.confirm(`Delete estimate ${e.number}? This cannot be undone.`)) del.mutate(e.id);
+  const confirmDelete = useConfirmDelete();
+  const remove = async (e: Estimate) => {
+    if (await confirmDelete(`estimate ${e.number}`)) del.mutate(e.id);
   };
 
   const convert = (e: Estimate) => navigate(`/pos?estimateId=${e.id}`);
+
+  const handleViewInvoice = async (e: Estimate) => {
+    try {
+      await openEstimateInvoicePopup({
+        estimateNumber: e.number,
+        date: e.date,
+        storeId: e.storeId,
+        storeName: e.storeName,
+        customer: { name: e.customerName, phone: e.customerPhone },
+        items: e.items,
+        subtotal: e.subtotal,
+        taxTotal: e.taxTotal,
+        discountTotal: e.discountTotal,
+        grandTotal: e.grandTotal,
+        notes: e.notes,
+        validUntil: e.validUntil,
+      });
+    } catch {
+      toast.error('Could not prepare the estimate');
+    }
+  };
 
   const isOverdue = (e: Estimate) =>
     !!e.nextFollowUpDate &&
@@ -711,18 +756,17 @@ export function EstimatesPage() {
           {isSearching ? estimates.length : total} estimate(s)
         </p>
         <div className="flex flex-wrap items-end gap-3">
-          <div className="flex gap-1">
+          <select
+            value={status}
+            onChange={(e) => setStatus(e.target.value as typeof status)}
+            className="flex h-9 rounded-md border border-input bg-transparent px-3 text-sm"
+          >
             {(['ALL', 'PENDING', 'FOLLOWED_UP', 'LOST'] as const).map((value) => (
-              <Button
-                key={value}
-                size="sm"
-                variant={status === value ? 'default' : 'outline'}
-                onClick={() => setStatus(value)}
-              >
+              <option key={value} value={value}>
                 {value === 'ALL' ? t('All') : t(STATUS_LABEL[value])}
-              </Button>
+              </option>
             ))}
-          </div>
+          </select>
           <Button
             size="sm"
             variant={dueOnly ? 'default' : 'outline'}
@@ -809,7 +853,7 @@ export function EstimatesPage() {
                         )}
                       </td>
                       <td className="px-4 py-3 text-right">
-                        <div className="flex justify-end gap-1">
+                        <div className="flex justify-end items-center gap-1">
                           {editable && canManage && (
                             <Button size="sm" variant="outline" onClick={() => setFollowUpFor(e)}>
                               {t('Follow Up')}
@@ -820,34 +864,42 @@ export function EstimatesPage() {
                               <ShoppingCart className="h-3.5 w-3.5" /> {t('Convert')}
                             </Button>
                           )}
-                          {editable && canManage && (
-                            <Button
-                              size="icon"
-                              variant="ghost"
-                              className="h-8 w-8"
-                              title={t('Edit')}
-                              onClick={() => setEditingEstimate(e)}
-                            >
-                              <Pencil className="h-4 w-4" />
-                            </Button>
-                          )}
                           {!editable && e.convertedSaleId && (
                             <span className="self-center text-xs text-muted-foreground">
                               {t('Converted')}
                             </span>
                           )}
-                          {canDelete && e.status !== 'CONVERTED' && (
-                            <Button
-                              size="icon"
-                              variant="ghost"
-                              className="h-8 w-8"
-                              title={t('Delete')}
-                              disabled={del.isPending}
-                              onClick={() => remove(e)}
-                            >
-                              <Trash2 className="h-4 w-4 text-destructive" />
-                            </Button>
-                          )}
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                className="h-8 w-8"
+                                title={t('Actions')}
+                              >
+                                <MoreHorizontal className="h-4 w-4" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuItem onSelect={() => handleViewInvoice(e)}>
+                                <FileText className="h-4 w-4" /> {t('View Estimate')}
+                              </DropdownMenuItem>
+                              {editable && canManage && (
+                                <DropdownMenuItem onSelect={() => setEditingEstimate(e)}>
+                                  <Pencil className="h-4 w-4" /> {t('Edit')}
+                                </DropdownMenuItem>
+                              )}
+                              {canDelete && e.status !== 'CONVERTED' && (
+                                <DropdownMenuItem
+                                  className="text-destructive focus:text-destructive"
+                                  disabled={del.isPending}
+                                  onSelect={() => remove(e)}
+                                >
+                                  <Trash2 className="h-4 w-4" /> {t('Delete')}
+                                </DropdownMenuItem>
+                              )}
+                            </DropdownMenuContent>
+                          </DropdownMenu>
                         </div>
                       </td>
                     </tr>

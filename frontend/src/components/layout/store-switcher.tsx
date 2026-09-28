@@ -10,22 +10,25 @@ interface StoreRow {
   code?: string;
 }
 
-/** Header dropdown: switch between a specific store or "All Stores". Super
- * admin only — every other role is confined to the one store they were
- * created under (see the Users table on the Permissions page), so there's
- * nothing for them to switch between. Also hidden when there are no stores
- * configured yet. */
+/** Header dropdown: switch between a specific store or "All Stores". Shown
+ * to the super admin (every store) and to a multi-store ADMIN (just the
+ * store(s) they own) — every other role is confined to the one store they
+ * were created under (see the Users table on the Permissions page), so
+ * there's nothing for them to switch between. Also hidden when there are no
+ * stores configured yet. */
 export function StoreSwitcher() {
   const role = useAuthStore((s) => s.user?.role);
+  const storeIds = useAuthStore((s) => s.user?.storeIds);
+  const canSwitch = role === 'SUPER_ADMIN' || (role === 'ADMIN' && (storeIds?.length ?? 0) > 1);
   const { data: stores = [] } = useQuery<StoreRow[]>({
     queryKey: ['stores'],
     queryFn: async () => (await api.get('/stores')).data,
-    enabled: role === 'SUPER_ADMIN',
+    enabled: canSwitch,
   });
   const currentStoreId = useStorefrontStore((s) => s.currentStoreId);
   const setCurrentStore = useStorefrontStore((s) => s.setCurrentStore);
 
-  if (role !== 'SUPER_ADMIN' || stores.length === 0) return null;
+  if (!canSwitch || stores.length === 0) return null;
 
   return (
     <div className="relative w-28 shrink-0 sm:w-auto">

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Check, Loader2, Pencil, Plus, Receipt, Search, Trash2, X } from 'lucide-react';
 import { toast } from 'sonner';
+import { useConfirmDelete } from '@/components/confirm-provider';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -50,6 +51,10 @@ interface Expense {
 
 const PAGE_SIZE = 20;
 const SEARCH_FETCH_LIMIT = 200;
+// Rupees — mirrors backend/src/services/expenseService.js's
+// AUTO_APPROVE_THRESHOLD_RUPEES. Informational only; the server is the one
+// that actually decides and enforces the status on create.
+const AUTO_APPROVE_THRESHOLD = 1000;
 
 const METHOD_LABEL: Record<ExpenseMethod, string> = {
   CASH: 'Cash',
@@ -126,6 +131,12 @@ function ExpenseDialog({
   const [date, setDate] = useState(
     expense ? expense.date.slice(0, 10) : new Date().toISOString().slice(0, 10),
   );
+  // Tracks whether the user actually picked a date — the <input type="date">
+  // only ever carries a date, never a time, so submitting it unconditionally
+  // would collapse a fresh/unedited expense's timestamp to midnight UTC (shows
+  // as 5am in PKT). Left untouched, send the real current/original timestamp
+  // instead so "just added" expenses keep their actual time of day.
+  const [dateTouched, setDateTouched] = useState(false);
   const [note, setNote] = useState(expense?.note ?? '');
 
   const addCategory = useMutation({
@@ -147,7 +158,7 @@ function ExpenseDialog({
         method,
         bankAccountId: BANK_METHODS.has(method) ? bankAccountId : undefined,
         storeId: hasSpecificStore ? currentStoreId : undefined,
-        date,
+        date: dateTouched ? date : (expense?.date ?? new Date().toISOString()),
         note,
       };
       return editing
@@ -194,11 +205,17 @@ function ExpenseDialog({
               {t('Select a specific store from the header before recording an expense.')}
             </p>
           )}
-          {!editing && !isSuperAdmin && (
-            <p className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-600">
-              {t('This will be sent to the super admin for approval before it affects the books.')}
-            </p>
-          )}
+          {!editing &&
+            !isSuperAdmin &&
+            (amount > AUTO_APPROVE_THRESHOLD ? (
+              <p className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-600">
+                {`Over ${formatCurrency(AUTO_APPROVE_THRESHOLD)} needs approval before it affects the books.`}
+              </p>
+            ) : (
+              <p className="rounded-md border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-600">
+                {`${formatCurrency(AUTO_APPROVE_THRESHOLD)} or under is auto-approved.`}
+              </p>
+            ))}
 
           <div className="space-y-1.5">
             <Label>{t('Category')}</Label>
@@ -273,12 +290,19 @@ function ExpenseDialog({
             </div>
             <div className="space-y-1.5">
               <Label>{t('Date')}</Label>
-              <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+              <Input
+                type="date"
+                value={date}
+                onChange={(e) => {
+                  setDate(e.target.value);
+                  setDateTouched(true);
+                }}
+              />
             </div>
           </div>
 
           <div className="space-y-1.5">
-            <Label>{t('Paid via')}</Label>
+            <Label>{t('Method')}</Label>
             <div className="grid grid-cols-4 gap-1.5">
               {(Object.keys(METHOD_LABEL) as ExpenseMethod[]).map((m) => (
                 <Button
@@ -404,7 +428,7 @@ export function ExpensesPage() {
   const { t } = useLanguage();
   const authUser = useAuthStore((s) => s.user);
   const canManage = grantsPermission(authUser?.permissions, 'expenses:manage');
-  const isSuperAdmin = authUser?.role === 'SUPER_ADMIN';
+  const canApprove = grantsPermission(authUser?.permissions, 'expenses:approve');
   const storefront = useStorefrontFilter();
 
   const [categoryFilter, setCategoryFilter] = useState('');
@@ -468,8 +492,9 @@ export function ExpensesPage() {
     },
     onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Could not delete expense'),
   });
-  const remove = (e: Expense) => {
-    if (window.confirm(`Delete expense ${e.number}? This cannot be undone.`)) del.mutate(e.id);
+  const confirmDelete = useConfirmDelete();
+  const remove = async (e: Expense) => {
+    if (await confirmDelete(`expense ${e.number}`)) del.mutate(e.id);
   };
 
   const approve = useMutation({
@@ -494,21 +519,20 @@ export function ExpensesPage() {
           </p>
         </div>
         <div className="flex flex-wrap items-end gap-3">
-          <div className="flex gap-1">
+          <select
+            value={statusFilter}
+            onChange={(e) => {
+              setStatusFilter(e.target.value as typeof statusFilter);
+              setPage(1);
+            }}
+            className="flex h-9 rounded-md border border-input bg-transparent px-3 text-sm"
+          >
             {(['ALL', 'PENDING', 'APPROVED', 'REJECTED'] as const).map((value) => (
-              <Button
-                key={value}
-                size="sm"
-                variant={statusFilter === value ? 'default' : 'outline'}
-                onClick={() => {
-                  setStatusFilter(value);
-                  setPage(1);
-                }}
-              >
+              <option key={value} value={value}>
                 {value === 'ALL' ? t('All') : t(STATUS_LABEL[value])}
-              </Button>
+              </option>
             ))}
-          </div>
+          </select>
           <select
             value={categoryFilter}
             onChange={(e) => {
@@ -573,7 +597,7 @@ export function ExpensesPage() {
                 <th className="px-4 py-3 font-medium">{t('Date')}</th>
                 <th className="px-4 py-3 font-medium">{t('Category')}</th>
                 <th className="px-4 py-3 font-medium">{t('Note')}</th>
-                <th className="px-4 py-3 font-medium">{t('Paid via')}</th>
+                <th className="px-4 py-3 font-medium">{t('Method')}</th>
                 <th className="px-4 py-3 font-medium">{t('Status')}</th>
                 <th className="px-4 py-3 text-right font-medium">{t('Amount')}</th>
                 <th className="px-4 py-3 text-right font-medium">{t('Actions')}</th>
@@ -619,7 +643,7 @@ export function ExpensesPage() {
                     </td>
                     <td className="px-4 py-3 text-right">
                       <div className="flex justify-end gap-1">
-                        {isSuperAdmin && e.status !== 'APPROVED' && (
+                        {canApprove && e.status !== 'APPROVED' && (
                           <Button
                             size="icon"
                             variant="ghost"
@@ -633,7 +657,7 @@ export function ExpensesPage() {
                             <Check className="h-4 w-4" />
                           </Button>
                         )}
-                        {isSuperAdmin && e.status !== 'REJECTED' && (
+                        {canApprove && e.status !== 'REJECTED' && (
                           <Button
                             size="icon"
                             variant="ghost"

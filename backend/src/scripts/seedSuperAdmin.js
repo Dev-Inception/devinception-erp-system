@@ -1,44 +1,38 @@
 /**
  * Bootstrap the first super admin so there is an account that can create
- * other privileged users. Run once after configuring .env:
+ * other privileged users. The account itself is defined in _superAdmin.js.
  *
  *   node src/scripts/seedSuperAdmin.js
  */
-const mongoose = require('mongoose');
 const connectDB = require('../config/db');
-const env = require('../config/env');
-const User = require('../models/userModel');
+const { initializeModels } = require('../db/models');
 const roleService = require('../services/roleService');
 const { ROLES } = require('../utils/constants');
+const SUPER_ADMIN = require('./_superAdmin');
 
 async function seed() {
-  if (!env.superAdmin.email || !env.superAdmin.password) {
-    // eslint-disable-next-line no-console
-    console.error('Set SUPER_ADMIN_EMAIL and SUPER_ADMIN_PASSWORD in .env first');
-    process.exit(1);
-  }
-
-  await connectDB();
+  const db = await connectDB();
 
   // The super_admin role must exist before we can create the user with it.
   await roleService.ensureSystemRoles();
 
-  const existing = await User.findOne({ email: env.superAdmin.email });
+  const { User } = initializeModels();
+  const existing = await User.findOne({ where: { email: SUPER_ADMIN.email } });
   if (existing) {
     // eslint-disable-next-line no-console
     console.log(`Super admin already exists: ${existing.email}`);
   } else {
     const user = await User.create({
-      name: env.superAdmin.name,
-      email: env.superAdmin.email,
-      password: env.superAdmin.password,
+      name: SUPER_ADMIN.name,
+      email: SUPER_ADMIN.email,
+      password: SUPER_ADMIN.password,
       role: ROLES.SUPER_ADMIN,
     });
     // eslint-disable-next-line no-console
     console.log(`Super admin created: ${user.email}`);
   }
 
-  await mongoose.connection.close();
+  await db.close();
   process.exit(0);
 }
 

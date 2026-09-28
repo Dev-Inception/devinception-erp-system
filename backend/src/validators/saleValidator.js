@@ -35,6 +35,10 @@ const itemsAndTermsValidator = [
     .withMessage('Invalid item warehouse'),
   body('labour').optional({ values: 'falsy' }).isArray().withMessage('Labour must be an array'),
   body('labour.*.labour').isMongoId().withMessage('Each labour entry must be a valid labour id'),
+  body('labour.*.service')
+    .optional({ values: 'falsy' })
+    .isMongoId()
+    .withMessage('Invalid labour service'),
   body('labour.*.rent')
     .optional({ values: 'falsy' })
     .isFloat({ min: 0 })
@@ -117,11 +121,36 @@ const recordPaymentValidator = [
   body('method').isIn(RECEIVABLE_METHODS).withMessage('Invalid payment method'),
   body('bankAccount').optional({ values: 'falsy' }).isMongoId().withMessage('Invalid bank account'),
   body('note').optional({ values: 'falsy' }).isString().trim().isLength({ max: 500 }),
+  body('transactionId')
+    .optional({ values: 'falsy' })
+    .isString()
+    .trim()
+    .isLength({ max: 100 })
+    .withMessage('Invalid transaction ID'),
+  // A bank transfer's amount is only as traceable as the reference the
+  // customer hands over for it — require it the same way bankAccount is
+  // required client-side for BANK_TRANSFER.
+  body('transactionId').custom((value, { req }) => {
+    if (req.body.method === PAYMENT_METHOD.BANK_TRANSFER && !value) {
+      throw new Error('Transaction ID is required for bank transfers');
+    }
+    return true;
+  }),
 ];
 
 const idParamValidator = [idParam];
 
+// POS pre-checkout availability check — warehouse-sourced lines only.
+const checkStockValidator = [
+  body('store').optional({ values: 'falsy' }).isMongoId().withMessage('Invalid store'),
+  body('items').isArray().withMessage('Items must be an array'),
+  body('items.*.product').isMongoId().withMessage('Each item needs a valid product'),
+  body('items.*.warehouse').isMongoId().withMessage('Each item needs a valid warehouse'),
+  body('items.*.quantity').isFloat({ gt: 0 }).withMessage('Each item quantity must be positive'),
+];
+
 module.exports = {
+  checkStockValidator,
   createSaleValidator,
   updateSaleValidator,
   recordPaymentValidator,

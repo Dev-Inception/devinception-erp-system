@@ -7,9 +7,22 @@ const env = require('../config/env');
 // Attach the caller's resolved permission list to a serialized user object so
 // the client can gate its navigation without a second round-trip. `user` is a
 // plain object carrying the role name (super_admin resolves to the wildcard).
+// Also attaches the role's human-typed label (a custom role's `role` is its
+// namespaced technical name, e.g. `<storeId>__manager` — never fit for
+// display) and flattens the store(s) an ADMIN owns (see utils/storeScope.js)
+// into a plain id array — present only when the `adminStores` association
+// was eager-loaded onto the source user instance.
 async function withPermissions(user) {
-  const perms = await roleService.getPermissions(user.role);
-  return { ...user, permissions: [...perms] };
+  const [perms, roleLabel] = await Promise.all([
+    roleService.getPermissions(user.role),
+    roleService.getRoleLabel(user.role),
+  ]);
+  const out = { ...user, permissions: [...perms], roleLabel };
+  if (Array.isArray(user.adminStores)) {
+    out.adminStoreIds = user.adminStores.map((s) => String(s.id));
+    delete out.adminStores;
+  }
+  return out;
 }
 
 // Set the refresh token as an httpOnly cookie so it isn't exposed to JS.
@@ -74,7 +87,7 @@ const resetPassword = asyncHandler(async (req, res) => {
 
 const changePassword = asyncHandler(async (req, res) => {
   const { currentPassword, newPassword } = req.body;
-  const tokens = await authService.changePassword(req.user._id, currentPassword, newPassword);
+  const tokens = await authService.changePassword(req.user.id, currentPassword, newPassword);
 
   setRefreshCookie(res, tokens.refreshToken);
   return sendSuccess(res, 200, 'Password changed', {

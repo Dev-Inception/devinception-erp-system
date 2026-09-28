@@ -12,10 +12,13 @@ const {
   payLabourValidator,
   payTransportValidator,
   receiveCustomerValidator,
+  receiveVendorReceivableValidator,
+  refundVendorReceivableValidator,
   cashEntryValidator,
   expenseValidator,
   statementParamValidator,
   idParamValidator,
+  labourCashFlowValidator,
 } = require('../validators/financeValidator');
 
 const router = express.Router();
@@ -94,10 +97,25 @@ router.post(
   validate,
   financeController.receiveFromCustomer,
 );
+router.post(
+  '/payments/vendor-receivable/receive',
+  MANAGE,
+  receiveVendorReceivableValidator,
+  validate,
+  financeController.receiveFromVendorReceivable,
+);
+router.post(
+  '/payments/vendor-receivable/refund',
+  MANAGE,
+  refundVendorReceivableValidator,
+  validate,
+  financeController.refundVendorReceivable,
+);
 
 /* Ledgers (party statements) */
 router.get('/ledgers/customers', READ, financeController.customerLedgers);
 router.get('/ledgers/vendors', READ, financeController.vendorLedgers);
+router.get('/ledgers/vendor-receivables', READ, financeController.vendorReceivableLedgers);
 router.get('/ledgers/suppliers', READ, financeController.supplierLedgers);
 router.get('/ledgers/labour', READ, financeController.labourLedgers);
 router.get('/ledgers/transport', READ, financeController.transporterLedgers);
@@ -107,6 +125,15 @@ router.get(
   statementParamValidator,
   validate,
   financeController.partyStatement,
+);
+
+/* Labour cash flow — charged to customers vs paid out to labourers */
+router.get(
+  '/labour-cash-flow',
+  READ,
+  labourCashFlowValidator,
+  validate,
+  financeController.labourCashFlow,
 );
 
 module.exports = router;

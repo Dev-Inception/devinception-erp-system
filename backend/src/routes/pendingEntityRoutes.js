@@ -1,11 +1,14 @@
 const express = require('express');
 const pendingEntityController = require('../controllers/pendingEntityController');
 const { protect } = require('../middlewares/authMiddleware');
-const { authorize, requirePermission } = require('../middlewares/roleMiddleware');
+const { requirePermission } = require('../middlewares/roleMiddleware');
 const { validate } = require('../middlewares/validateMiddleware');
-const { ROLES } = require('../utils/constants');
 const { PERMISSIONS } = require('../utils/permissions');
-const { idParamValidator, setPriceValidator } = require('../validators/pendingEntityValidator');
+const {
+  idParamValidator,
+  setPriceValidator,
+  invoiceItemsValidator,
+} = require('../validators/pendingEntityValidator');
 
 const router = express.Router();
 
@@ -18,6 +21,22 @@ router.get(
   pendingEntityController.listPendingEntities,
 );
 
+// Order matters: these must come before /:id so "invoices"/"invoice-items"
+// aren't swallowed as an :id.
+router.get(
+  '/invoices',
+  requirePermission(PERMISSIONS.FINANCE_READ),
+  pendingEntityController.listInvoices,
+);
+
+router.get(
+  '/invoice-items',
+  requirePermission(PERMISSIONS.FINANCE_READ),
+  invoiceItemsValidator,
+  validate,
+  pendingEntityController.getInvoiceItems,
+);
+
 router.get(
   '/:id',
   requirePermission(PERMISSIONS.FINANCE_READ),
@@ -26,11 +45,13 @@ router.get(
   pendingEntityController.getPendingEntity,
 );
 
-// Only a super admin may put a price on a vendor's unpriced item — that's
-// what actually creates the vendor's payable.
+// Putting a price on a vendor/supplier's unpriced item is what actually
+// creates their payable — a store admin may only do this for their own
+// store's entities (see pendingEntityService.setPurchasePrice's
+// assertStoreAccess check).
 router.patch(
   '/:id/price',
-  authorize(ROLES.SUPER_ADMIN),
+  requirePermission(PERMISSIONS.PENDING_ENTITIES_PRICE),
   setPriceValidator,
   validate,
   pendingEntityController.setPrice,

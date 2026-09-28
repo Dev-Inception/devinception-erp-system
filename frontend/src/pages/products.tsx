@@ -1,7 +1,18 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Search, Plus, AlertTriangle, Loader2, Pencil, Trash2, ChevronDown } from 'lucide-react';
+import {
+  Search,
+  Plus,
+  AlertTriangle,
+  Loader2,
+  Pencil,
+  Trash2,
+  ChevronDown,
+  ImagePlus,
+  X,
+} from 'lucide-react';
 import { toast } from 'sonner';
+import { useConfirmDelete } from '@/components/confirm-provider';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -14,9 +25,11 @@ import {
   DialogDescription,
 } from '@/components/ui/dialog';
 import { api } from '@/lib/api';
-import { formatCurrency, cn } from '@/lib/utils';
+import { cn, resizeImageToDataUrl } from '@/lib/utils';
 import { useWarehouses } from '@/components/layout/warehouse-switcher';
 import { useStorefrontFilter } from '@/store/storefront';
+import { useAuthStore } from '@/store/auth';
+import { grantsPermission } from '@/lib/modules';
 import { Pagination } from '@/components/ui/pagination';
 import { useLanguage } from '@/components/language-provider';
 
@@ -36,6 +49,7 @@ interface Product {
   warehouseId?: string;
   category?: { name: string };
   unit?: { abbreviation: string };
+  image?: string;
 }
 
 interface Catalog {
@@ -57,6 +71,7 @@ const blank = {
   salePrice: 0,
   taxRate: 0,
   minStock: 0,
+  image: '' as string | null,
 };
 
 /* ── Add / edit a product ── */
@@ -89,6 +104,7 @@ function ProductDialog({
           salePrice: Number(editing.salePrice),
           taxRate: Number(editing.taxRate),
           minStock: Number(editing.minStock),
+          image: editing.image ?? '',
         }
       : { ...blank, warehouseId: currentId ?? '' },
   );
@@ -118,6 +134,23 @@ function ProductDialog({
   });
 
   const field = (k: keyof typeof form, v: any) => setForm((f) => ({ ...f, [k]: v }));
+  const [imageBusy, setImageBusy] = useState(false);
+
+  const pickImage = async (file: File | undefined) => {
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      toast.error('Please choose an image file');
+      return;
+    }
+    setImageBusy(true);
+    try {
+      field('image', await resizeImageToDataUrl(file));
+    } catch {
+      toast.error('Could not read that image');
+    } finally {
+      setImageBusy(false);
+    }
+  };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -140,6 +173,41 @@ function ProductDialog({
           <div className="col-span-2 space-y-1.5">
             <Label>Name *</Label>
             <Input required value={form.name} onChange={(e) => field('name', e.target.value)} />
+          </div>
+          <div className="col-span-2 space-y-1.5">
+            <Label>Photo</Label>
+            <div className="flex items-center gap-3">
+              <label
+                className={cn(
+                  'relative flex h-16 w-16 shrink-0 cursor-pointer items-center justify-center overflow-hidden rounded-md border border-dashed border-input bg-muted/30 text-muted-foreground hover:border-primary',
+                  imageBusy && 'pointer-events-none opacity-60',
+                )}
+              >
+                {form.image ? (
+                  <img src={form.image} alt="" className="h-full w-full object-cover" />
+                ) : imageBusy ? (
+                  <Loader2 className="h-5 w-5 animate-spin" />
+                ) : (
+                  <ImagePlus className="h-5 w-5" />
+                )}
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={(e) => pickImage(e.target.files?.[0])}
+                />
+              </label>
+              {form.image && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => field('image', '')}
+                >
+                  <X className="h-3.5 w-3.5" /> {t('Remove')}
+                </Button>
+              )}
+            </div>
           </div>
           <div className="col-span-2 space-y-1.5">
             <Label>Warehouse *</Label>
@@ -262,6 +330,9 @@ function ProductDialog({
 export function ProductsPage() {
   const { t } = useLanguage();
   const qc = useQueryClient();
+  const perms = useAuthStore((s) => s.user?.permissions);
+  // Product create/update/delete all require inventory:manage on the backend.
+  const canManage = grantsPermission(perms, 'inventory:manage');
   const [search, setSearch] = useState('');
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<Product | null>(null);
@@ -318,8 +389,9 @@ export function ProductsPage() {
     onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Could not delete product'),
   });
 
-  const remove = (p: Product) => {
-    if (window.confirm(`Delete product "${p.name}"? This cannot be undone.`)) del.mutate(p.id);
+  const confirmDelete = useConfirmDelete();
+  const remove = async (p: Product) => {
+    if (await confirmDelete(`product "${p.name}"`)) del.mutate(p.id);
   };
 
   return (
@@ -369,14 +441,16 @@ export function ProductsPage() {
             <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           </div>
         </div>
-        <Button
-          onClick={() => {
-            setEditing(null);
-            setDialogOpen(true);
-          }}
-        >
-          <Plus className="h-4 w-4" /> {t('Add Product')}
-        </Button>
+        {canManage && (
+          <Button
+            onClick={() => {
+              setEditing(null);
+              setDialogOpen(true);
+            }}
+          >
+            <Plus className="h-4 w-4" /> {t('Add Product')}
+          </Button>
+        )}
       </div>
 
       <Card className="overflow-hidden">
@@ -388,16 +462,17 @@ export function ProductsPage() {
                 <th className="px-4 py-3 font-medium">{t('SKU')}</th>
                 <th className="px-4 py-3 font-medium">{t('Category')}</th>
                 <th className="px-4 py-3 font-medium">{t('Warehouse')}</th>
-                <th className="px-4 py-3 text-right font-medium">{t('Purchase')}</th>
-                <th className="px-4 py-3 text-right font-medium">{t('Sale')}</th>
                 <th className="px-4 py-3 text-right font-medium">{t('Stock')}</th>
-                <th className="px-4 py-3 text-right font-medium">{t('Action')}</th>
+                {canManage && <th className="px-4 py-3 text-right font-medium">{t('Action')}</th>}
               </tr>
             </thead>
             <tbody>
               {isLoading && (
                 <tr>
-                  <td colSpan={8} className="px-4 py-10 text-center text-muted-foreground">
+                  <td
+                    colSpan={canManage ? 6 : 5}
+                    className="px-4 py-10 text-center text-muted-foreground"
+                  >
                     Loading…
                   </td>
                 </tr>
@@ -406,13 +481,30 @@ export function ProductsPage() {
                 pageItems.map((p) => (
                   <tr key={p.id} className="border-b last:border-0 hover:bg-muted/30">
                     <td
-                      className="px-4 py-3 font-medium cursor-pointer"
-                      onClick={() => {
-                        setEditing(p);
-                        setDialogOpen(true);
-                      }}
+                      className={cn('px-4 py-3 font-medium', canManage && 'cursor-pointer')}
+                      onClick={
+                        canManage
+                          ? () => {
+                              setEditing(p);
+                              setDialogOpen(true);
+                            }
+                          : undefined
+                      }
                     >
-                      {p.name}
+                      <div className="flex items-center gap-2.5">
+                        {p.image ? (
+                          <img
+                            src={p.image}
+                            alt=""
+                            className="h-8 w-8 shrink-0 rounded object-cover"
+                          />
+                        ) : (
+                          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded bg-muted text-muted-foreground">
+                            <ImagePlus className="h-3.5 w-3.5" />
+                          </div>
+                        )}
+                        {p.name}
+                      </div>
                     </td>
                     <td className="px-4 py-3 text-muted-foreground">{p.sku}</td>
                     <td className="px-4 py-3 text-muted-foreground">{p.category?.name ?? '—'}</td>
@@ -422,10 +514,6 @@ export function ProductsPage() {
                           product's static owning warehouse, so the two stay consistent. */}
                       {warehouseName(warehouse || p.warehouseId)}
                     </td>
-                    <td className="px-4 py-3 text-right">
-                      {formatCurrency(Number(p.purchasePrice))}
-                    </td>
-                    <td className="px-4 py-3 text-right">{formatCurrency(Number(p.salePrice))}</td>
                     <td className="px-4 py-3 text-right">
                       <span
                         className={cn(
@@ -439,37 +527,42 @@ export function ProductsPage() {
                         {p.currentStock} {p.unit?.abbreviation ?? ''}
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-right">
-                      <div className="flex justify-end gap-1">
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          className="h-8 w-8"
-                          title={t('Edit')}
-                          onClick={() => {
-                            setEditing(p);
-                            setDialogOpen(true);
-                          }}
-                        >
-                          <Pencil className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          className="h-8 w-8"
-                          title={t('Delete')}
-                          disabled={del.isPending}
-                          onClick={() => remove(p)}
-                        >
-                          <Trash2 className="h-4 w-4 text-destructive" />
-                        </Button>
-                      </div>
-                    </td>
+                    {canManage && (
+                      <td className="px-4 py-3 text-right">
+                        <div className="flex justify-end gap-1">
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-8 w-8"
+                            title={t('Edit')}
+                            onClick={() => {
+                              setEditing(p);
+                              setDialogOpen(true);
+                            }}
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-8 w-8"
+                            title={t('Delete')}
+                            disabled={del.isPending}
+                            onClick={() => remove(p)}
+                          >
+                            <Trash2 className="h-4 w-4 text-destructive" />
+                          </Button>
+                        </div>
+                      </td>
+                    )}
                   </tr>
                 ))}
               {!isLoading && pageItems.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="px-4 py-10 text-center text-muted-foreground">
+                  <td
+                    colSpan={canManage ? 6 : 5}
+                    className="px-4 py-10 text-center text-muted-foreground"
+                  >
                     No products found.
                   </td>
                 </tr>

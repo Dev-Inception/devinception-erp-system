@@ -15,6 +15,7 @@ import {
   Wallet,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { useConfirm } from '@/components/confirm-provider';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -135,10 +136,8 @@ function ReceiptDialog({ receipt, onClose }: { receipt?: StockReceipt; onClose: 
   const qc = useQueryClient();
   const { t } = useLanguage();
   const editing = !!receipt;
-  // The backend gates labour create by role (super admin only), not a
-  // permission string — see labour.tsx for the same pattern.
-  const role = useAuthStore((s) => s.user?.role);
-  const canCreateLabour = role === 'SUPER_ADMIN';
+  const authUserPerms = useAuthStore((s) => s.user?.permissions);
+  const canCreateLabour = grantsPermission(authUserPerms, 'labour:create');
   const { warehouses, currentId: defaultWarehouseId } = useWarehouses();
   const currentStoreId = useStorefrontStore((s) => s.currentStoreId);
   // A delivery is always received for one physical store — required on
@@ -201,20 +200,35 @@ function ReceiptDialog({ receipt, onClose }: { receipt?: StockReceipt; onClose: 
   }, [editing, warehouseId, defaultWarehouseId]);
 
   const { data: suppliers = [] } = useQuery<Supplier[]>({
-    queryKey: ['suppliers-select'],
-    queryFn: async () => (await api.get('/suppliers')).data,
+    queryKey: ['suppliers-select', hasSpecificStore ? currentStoreId : null],
+    queryFn: async () =>
+      (
+        await api.get('/suppliers', {
+          params: { store: hasSpecificStore ? currentStoreId : undefined },
+        })
+      ).data,
   });
   const { data: transporters = [] } = useQuery<Transporter[]>({
-    queryKey: ['transporters'],
-    queryFn: async () => (await api.get('/transporters')).data,
+    queryKey: ['transporters', hasSpecificStore ? currentStoreId : null],
+    queryFn: async () =>
+      (
+        await api.get('/transporters', {
+          params: { store: hasSpecificStore ? currentStoreId : undefined },
+        })
+      ).data,
   });
   const { data: products = [] } = useQuery<ProductOption[]>({
     queryKey: ['stock-receipt-products', productSearch],
     queryFn: async () => (await api.get('/products', { params: { search: productSearch } })).data,
   });
   const { data: labourList = [] } = useQuery<LabourOption[]>({
-    queryKey: ['labour'],
-    queryFn: async () => (await api.get('/labour')).data,
+    queryKey: ['labour', hasSpecificStore ? currentStoreId : null],
+    queryFn: async () =>
+      (
+        await api.get('/labour', {
+          params: { store: hasSpecificStore ? currentStoreId : undefined },
+        })
+      ).data,
   });
   const filteredLabour = labourList.filter(
     (l) =>
@@ -299,6 +313,7 @@ function ReceiptDialog({ receipt, onClose }: { receipt?: StockReceipt; onClose: 
         await api.post('/labour', {
           name: newLabour.name,
           phoneNumber: newLabour.phoneNumber,
+          store: hasSpecificStore ? currentStoreId : undefined,
         })
       ).data,
     onSuccess: (l: LabourOption) => {
@@ -891,7 +906,7 @@ function ReceiptDialog({ receipt, onClose }: { receipt?: StockReceipt; onClose: 
                   <thead>
                     <tr className="border-b bg-muted/50 text-left text-xs uppercase text-muted-foreground">
                       <th className="px-3 py-2 font-medium">{t('Product')}</th>
-                      <th className="px-3 py-2 font-medium">{t('Qty Received')}</th>
+                      <th className="px-3 py-2 font-medium">{t('Qty Good')}</th>
                       <th className="px-3 py-2 font-medium">{t('Qty Damaged')}</th>
                       {isOpeningStock && (
                         <th className="px-3 py-2 font-medium">{t('Unit Cost (optional)')}</th>
@@ -1006,7 +1021,7 @@ function ReceiptDetailDialog({
 
   return (
     <Dialog open onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="max-w-xl">
+      <DialogContent className="max-h-[85vh] max-w-xl overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Truck className="h-4 w-4" /> {receipt.number}
@@ -1072,17 +1087,19 @@ function ReceiptDetailDialog({
             <thead>
               <tr className="border-b bg-muted/50 text-left text-xs uppercase text-muted-foreground">
                 <th className="px-3 py-2 font-medium">{t('Product')}</th>
-                <th className="px-3 py-2 text-right font-medium">{t('Qty Received')}</th>
-                <th className="px-3 py-2 text-right font-medium">{t('Qty Damaged')}</th>
+                <th className="px-3 py-2 text-right font-medium">{t('Quantity')}</th>
+                <th className="px-3 py-2 text-right font-medium">{t('Damaged')}</th>
                 <th className="px-3 py-2 text-right font-medium">{t('Purchase Price')}</th>
-                <th className="px-3 py-2 text-right font-medium">{t('Line Total')}</th>
+                <th className="px-3 py-2 text-right font-medium">{t('Total')}</th>
               </tr>
             </thead>
             <tbody>
               {receipt.items.map((it) => (
                 <tr key={it.productId} className="border-b last:border-0">
                   <td className="px-3 py-2">{it.name}</td>
-                  <td className="px-3 py-2 text-right tabular-nums">{it.receivedQuantity}</td>
+                  <td className="px-3 py-2 text-right tabular-nums">
+                    {it.receivedQuantity + it.damagedQuantity}
+                  </td>
                   <td className="px-3 py-2 text-right tabular-nums">
                     {it.damagedQuantity > 0 ? (
                       <span className="text-destructive">{it.damagedQuantity}</span>
@@ -1106,7 +1123,9 @@ function ReceiptDetailDialog({
             <tfoot>
               <tr className="border-t bg-muted/30 font-medium">
                 <td className="px-3 py-2">{t('Total')}</td>
-                <td className="px-3 py-2 text-right tabular-nums">{totalReceived}</td>
+                <td className="px-3 py-2 text-right tabular-nums">
+                  {totalReceived + totalDamaged}
+                </td>
                 <td className="px-3 py-2 text-right tabular-nums">{totalDamaged}</td>
                 <td className="px-3 py-2" />
                 <td className="px-3 py-2 text-right tabular-nums">
@@ -1152,7 +1171,7 @@ function ReceiptDetailDialog({
 
         <div className="grid grid-cols-3 gap-x-4 rounded-md border p-3 text-sm">
           <div>
-            <p className="text-muted-foreground">{t('Priced Total')}</p>
+            <p className="text-muted-foreground">{t('Total')}</p>
             <p className="font-medium">{formatCurrency(receipt.pricedTotal)}</p>
           </div>
           <div>
@@ -1252,50 +1271,43 @@ export function StockReceiptsPage() {
     onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Could not delete this receipt'),
   });
 
-  const removeReceipt = (r: StockReceipt) => {
-    if (
-      window.confirm(
-        `Delete receipt ${r.number}? This reverses the stock it added and cannot be undone.`,
-      )
-    ) {
-      del.mutate(r.id);
-    }
+  const confirm = useConfirm();
+  const removeReceipt = async (r: StockReceipt) => {
+    const ok = await confirm({
+      title: `Delete receipt ${r.number}?`,
+      description: 'This reverses the stock it added and cannot be undone.',
+      confirmLabel: 'Delete',
+      variant: 'destructive',
+    });
+    if (ok) del.mutate(r.id);
   };
 
   const handlePrintInvoice = async (r: StockReceipt) => {
-    // Open synchronously so the browser ties the popup to this click rather
-    // than treating it as an unrequested popup.
-    const win = window.open('', '_blank', 'width=850,height=1000');
-    win?.document.write(
-      '<p style="font-family:sans-serif;padding:24px;color:#666">Preparing invoice…</p>',
-    );
     try {
-      await openStockReceiptInvoicePopup(
-        {
-          receiptNumber: r.number,
-          date: r.date,
-          storeName: r.storeName,
-          supplierName: r.supplierName,
-          items: r.items.map((it) => ({
-            name: it.name,
-            quantity: it.receivedQuantity,
-            purchasePrice: it.purchasePrice,
-            lineTotal: it.lineTotal,
-            pricingStatus: it.pricingStatus,
-          })),
-          pricedTotal: r.pricedTotal,
-          paidAmount: r.paidAmount,
-          balanceDue: r.balanceDue,
-          truckFare: r.truckFare,
-          truckFarePaidBy: r.truckFarePaidBy,
-          truck: r.truck,
-          labour: r.labour.map((l) => ({ name: l.name, phone: l.phoneNumber, rent: l.rent })),
-          labourRentTotal: r.labourRent,
-        },
-        win,
-      );
+      await openStockReceiptInvoicePopup({
+        receiptNumber: r.number,
+        date: r.date,
+        storeId: r.storeId,
+        storeName: r.storeName,
+        supplierName: r.supplierName,
+        items: r.items.map((it) => ({
+          name: it.name,
+          quantity: it.receivedQuantity,
+          purchasePrice: it.purchasePrice,
+          lineTotal: it.lineTotal,
+          pricingStatus: it.pricingStatus,
+        })),
+        pricedTotal: r.pricedTotal,
+        paidAmount: r.paidAmount,
+        balanceDue: r.balanceDue,
+        truckFare: r.truckFare,
+        truckFarePaidBy: r.truckFarePaidBy,
+        truck: r.truck,
+        labour: r.labour.map((l) => ({ name: l.name, phone: l.phoneNumber, rent: l.rent })),
+        labourRentTotal: r.labourRent,
+      });
     } catch {
-      toast.error('Enable popups to view the printable invoice');
+      toast.error('Could not prepare the invoice');
     }
   };
 
@@ -1352,27 +1364,20 @@ export function StockReceiptsPage() {
                 <th className="px-4 py-3 font-medium">{t('Receipt #')}</th>
                 <th className="px-4 py-3 font-medium">{t('Date')}</th>
                 <th className="px-4 py-3 font-medium">{t('Supplier')}</th>
-                <th className="px-4 py-3 font-medium">{t('Store')}</th>
                 <th className="px-4 py-3 font-medium">{t('Warehouse')}</th>
-                <th className="px-4 py-3 font-medium">{t('Truck')}</th>
-                <th className="px-4 py-3 text-right font-medium">{t('Items')}</th>
-                <th className="px-4 py-3 text-right font-medium">{t('Qty Received')}</th>
-                <th className="px-4 py-3 text-right font-medium">{t('Qty Damaged')}</th>
                 <th className="px-4 py-3 text-right font-medium">{t('Actions')}</th>
               </tr>
             </thead>
             <tbody>
               {isLoading && (
                 <tr>
-                  <td colSpan={10} className="px-4 py-10 text-center text-muted-foreground">
+                  <td colSpan={5} className="px-4 py-10 text-center text-muted-foreground">
                     Loading…
                   </td>
                 </tr>
               )}
               {!isLoading &&
                 receipts.map((receipt) => {
-                  const totalReceived = receipt.items.reduce((s, it) => s + it.receivedQuantity, 0);
-                  const totalDamaged = receipt.items.reduce((s, it) => s + it.damagedQuantity, 0);
                   return (
                     <tr
                       key={receipt.id}
@@ -1384,32 +1389,7 @@ export function StockReceiptsPage() {
                         {new Date(receipt.date).toLocaleDateString()}
                       </td>
                       <td className="px-4 py-3 text-muted-foreground">{receipt.supplierName}</td>
-                      <td className="px-4 py-3 text-muted-foreground">
-                        {receipt.storeName ?? '—'}
-                      </td>
                       <td className="px-4 py-3 text-muted-foreground">{receipt.warehouseName}</td>
-                      <td className="px-4 py-3 text-muted-foreground">
-                        {receipt.isOpeningStock ? (
-                          <span className="rounded-full bg-muted px-2 py-0.5 text-xs">
-                            {t('Opening Stock')}
-                          </span>
-                        ) : (
-                          receipt.truck.vehicleNumber
-                        )}
-                      </td>
-                      <td className="px-4 py-3 text-right tabular-nums text-muted-foreground">
-                        {receipt.items.length}
-                      </td>
-                      <td className="px-4 py-3 text-right tabular-nums font-medium">
-                        {totalReceived}
-                      </td>
-                      <td className="px-4 py-3 text-right tabular-nums">
-                        {totalDamaged > 0 ? (
-                          <span className="font-medium text-destructive">{totalDamaged}</span>
-                        ) : (
-                          <span className="text-muted-foreground">0</span>
-                        )}
-                      </td>
                       <td className="px-4 py-3 text-right" onClick={(e) => e.stopPropagation()}>
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
@@ -1461,7 +1441,7 @@ export function StockReceiptsPage() {
                 })}
               {!isLoading && receipts.length === 0 && (
                 <tr>
-                  <td colSpan={10} className="px-4 py-10 text-center text-muted-foreground">
+                  <td colSpan={5} className="px-4 py-10 text-center text-muted-foreground">
                     No stock receipts recorded yet.
                   </td>
                 </tr>

@@ -136,15 +136,19 @@ export function LoginPage() {
     try {
       await login(email, password);
       const user = useAuthStore.getState().user;
-      if (user?.role === 'SUPER_ADMIN') {
+      const isMultiStoreAdmin = user?.role === 'ADMIN' && (user?.storeIds?.length ?? 0) > 1;
+      if (user?.role === 'SUPER_ADMIN' || isMultiStoreAdmin) {
         // Fresh login — the store picker modal should prompt again if
         // there's more than one storefront, even if a selection was already
         // persisted.
         useStorefrontStore.getState().markLoggedIn();
       } else {
         // Every other role is confined to the one store they were created
-        // under — set it directly, no picker to show.
-        useStorefrontStore.getState().setCurrentStore(user?.storeId ?? 'ALL');
+        // under (or, for a single-store admin, the one they own) — set it
+        // directly, no picker to show.
+        useStorefrontStore
+          .getState()
+          .setCurrentStore(user?.storeId ?? user?.storeIds?.[0] ?? 'ALL');
       }
       // Land on the first module this user can actually see (a cashier, for
       // example, can't open the dashboard, so send them to their first module).

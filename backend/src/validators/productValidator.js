@@ -1,5 +1,5 @@
-const mongoose = require('mongoose');
 const { body, param, query } = require('express-validator');
+const { isValidId } = require('../db/id');
 
 const idParam = param('id').isMongoId().withMessage('Invalid product id');
 
@@ -13,6 +13,9 @@ const optionalFields = [
   body('category').optional({ values: 'falsy' }).trim().isLength({ max: 80 }),
   body('brand').optional({ values: 'falsy' }).trim().isLength({ max: 80 }),
   body('unit').optional({ values: 'falsy' }).trim().isLength({ max: 80 }),
+  // Only needed when a free-text category/brand/unit name has to be created
+  // under a specific store (a multi-store admin) — see catalogService.
+  body('store').optional({ values: 'falsy' }).isMongoId().withMessage('Invalid store'),
   body('purchasePrice')
     .optional({ values: 'falsy' })
     .isFloat({ min: 0 })
@@ -29,6 +32,16 @@ const optionalFields = [
     .optional({ values: 'falsy' })
     .isFloat({ min: 0 })
     .withMessage('Min stock must be non-negative'),
+  // A base64 data URL — the frontend resizes to a small thumbnail before
+  // upload, so 300kB comfortably covers a real image while still rejecting
+  // someone posting a full-resolution photo straight to the API.
+  body('image')
+    .optional({ values: 'falsy' })
+    .isString()
+    .matches(/^data:image\/(png|jpe?g|webp);base64,[A-Za-z0-9+/=]+$/)
+    .withMessage('Image must be a valid png/jpeg/webp data URL')
+    .isLength({ max: 300000 })
+    .withMessage('Image is too large'),
 ];
 
 const createProductValidator = [
@@ -36,7 +49,7 @@ const createProductValidator = [
   body('sku').trim().notEmpty().withMessage('SKU is required').isLength({ max: 60 }),
   body('warehouse').custom((value, { req }) => {
     const warehouse = value || req.body.warehouseId;
-    if (!mongoose.isValidObjectId(warehouse)) {
+    if (!isValidId(warehouse)) {
       throw new Error('A valid warehouse is required');
     }
     return true;

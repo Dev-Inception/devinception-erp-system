@@ -88,7 +88,7 @@ export function Header() {
             >
               <div className="hidden text-right sm:block">
                 <p className="text-sm font-medium leading-none">{user?.fullName}</p>
-                <p className="text-xs text-muted-foreground">{user?.role}</p>
+                <p className="text-xs text-muted-foreground">{user?.roleLabel}</p>
               </div>
               <div className="flex h-9 w-9 items-center justify-center rounded-full bg-primary/10 text-sm font-semibold text-primary">
                 {user?.fullName?.[0] ?? 'U'}

@@ -17,12 +17,20 @@ import {
   NotepadTextDashed,
   AlertTriangle,
   X,
+  ChevronDown,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { useConfirm, useConfirmDelete } from '@/components/confirm-provider';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+} from '@/components/ui/dropdown-menu';
 import { api } from '@/lib/api';
 import { formatCurrency, cn } from '@/lib/utils';
 import { useWarehouseStore } from '@/store/warehouse';
@@ -42,6 +50,7 @@ interface Product {
   currentStock: number;
   taxRate: string;
   warehouseId?: string;
+  image?: string;
 }
 type CartSource = 'WAREHOUSE' | 'VENDOR';
 interface CartLine {
@@ -94,9 +103,21 @@ interface LabourLite {
   name: string;
   phoneNumber: string;
 }
-/** A labourer picked for this sale, with what they're being paid for it. */
+interface LabourServiceLite {
+  id: string;
+  name: string;
+}
+/** One billable service a selected labourer is doing on this sale, and what
+ * they're being paid for it specifically. */
+interface SelectedLabourService {
+  serviceId: string;
+  serviceName: string;
+  amount: number;
+}
+/** A labourer picked for this sale, with the service(s) they're being paid
+ * for — a labourer can do more than one service on the same sale. */
 interface SelectedLabour extends LabourLite {
-  rent: number;
+  services: SelectedLabourService[];
 }
 
 interface CompletedSale extends SaleForInvoice {
@@ -127,13 +148,14 @@ interface DraftSale {
   advanceAmount: number;
 }
 
-type Step = 1 | 2 | 3 | 4 | 5;
+type Step = 1 | 2 | 3 | 4 | 5 | 6;
 const STEPS: { n: Step; label: string }[] = [
   { n: 1, label: 'Customer' },
   { n: 2, label: 'Products' },
-  { n: 3, label: 'Labour & Transport' },
-  { n: 4, label: 'Payment' },
-  { n: 5, label: 'Done' },
+  { n: 3, label: 'Labour' },
+  { n: 4, label: 'Transport' },
+  { n: 5, label: 'Payment' },
+  { n: 6, label: 'Done' },
 ];
 
 export function PosPage() {
@@ -245,10 +267,9 @@ export function PosPage() {
   const [discountType, setDiscountType] = useState<'amount' | 'percent'>('amount');
   const [taxPct, setTaxPct] = useState<number>(0);
   const [advanceAmount, setAdvanceAmount] = useState<number>(0);
-  const [advanceMethod, setAdvanceMethod] = useState<'CASH' | 'BANK_TRANSFER' | 'ONLINE' | 'CARD'>(
-    'CASH',
-  );
+  const [advanceMethod, setAdvanceMethod] = useState<'CASH' | 'BANK_TRANSFER'>('CASH');
   const [advanceBankAccountId, setAdvanceBankAccountId] = useState('');
+  const [advanceTransactionId, setAdvanceTransactionId] = useState('');
 
   // Step 5 — result
   const [completedSale, setCompletedSale] = useState<CompletedSale | null>(null);
@@ -314,28 +335,37 @@ export function PosPage() {
     enabled: step === 2,
   });
   const { data: vendors = [] } = useQuery<VendorLite[]>({
-    queryKey: ['vendors'],
-    queryFn: async () => (await api.get('/vendors')).data,
+    queryKey: ['vendors', hasSpecificStore ? currentStoreId : null],
+    queryFn: async () =>
+      (
+        await api.get('/vendors', {
+          params: { store: hasSpecificStore ? currentStoreId : undefined },
+        })
+      ).data,
     enabled: step === 2,
   });
   const { data: transporters = [] } = useQuery<TransporterLite[]>({
-    queryKey: ['transporters'],
-    queryFn: async () => (await api.get('/transporters')).data,
-    enabled: step === 3,
+    queryKey: ['transporters', hasSpecificStore ? currentStoreId : null],
+    queryFn: async () =>
+      (
+        await api.get('/transporters', {
+          params: { store: hasSpecificStore ? currentStoreId : undefined },
+        })
+      ).data,
+    enabled: step === 4,
   });
   const needsTransportFareBank =
     payTransportNow &&
     (transportFareMethod === 'BANK_TRANSFER' || transportFareMethod === 'ONLINE');
   const { data: transportBankAccountsRaw = [] } = useBankAccounts(
     hasSpecificStore ? currentStoreId : undefined,
-    step === 3 && needsTransportFareBank,
+    step === 4 && needsTransportFareBank,
   );
   const transportBankAccounts = transportBankAccountsRaw.filter((b) => b.isActive);
-  const needsAdvanceBank =
-    advanceMethod === 'BANK_TRANSFER' || advanceMethod === 'ONLINE' || advanceMethod === 'CARD';
+  const needsAdvanceBank = advanceMethod === 'BANK_TRANSFER';
   const { data: advanceBankAccountsRaw = [] } = useBankAccounts(
     hasSpecificStore ? currentStoreId : undefined,
-    step === 4 && needsAdvanceBank,
+    step === 5 && needsAdvanceBank,
   );
   const advanceBankAccounts = advanceBankAccountsRaw.filter((b) => b.isActive);
 
@@ -471,8 +501,25 @@ export function PosPage() {
   const removeLine = (key: string) => setCart((c) => c.filter((l) => l.key !== key));
 
   const { data: labourList = [] } = useQuery<LabourLite[]>({
-    queryKey: ['labour'],
-    queryFn: async () => (await api.get('/labour')).data,
+    queryKey: ['labour', hasSpecificStore ? currentStoreId : null],
+    queryFn: async () =>
+      (
+        await api.get('/labour', {
+          params: { store: hasSpecificStore ? currentStoreId : undefined },
+        })
+      ).data,
+    enabled: step === 3,
+  });
+  // Billable service types (Ceiling, Panel, UV Sheet, ...) a selected
+  // labourer can be assigned to and paid for individually on this sale.
+  const { data: labourServicesList = [] } = useQuery<LabourServiceLite[]>({
+    queryKey: ['labour-services', hasSpecificStore ? currentStoreId : null],
+    queryFn: async () =>
+      (
+        await api.get('/labour-services', {
+          params: { store: hasSpecificStore ? currentStoreId : undefined },
+        })
+      ).data,
     enabled: step === 3,
   });
   const filteredLabour = labourList.filter((l) => {
@@ -484,21 +531,58 @@ export function PosPage() {
     setSelectedLabour((sel) =>
       sel.some((s) => s.id === l.id)
         ? sel.filter((s) => s.id !== l.id)
-        : [...sel, { ...l, rent: 0 }],
+        : [...sel, { ...l, services: [] }],
     );
-  const setLabourRent = (id: string, rent: number) =>
+  const addLabourService = (labourId: string, service: LabourServiceLite) =>
     setSelectedLabour((sel) =>
-      sel.map((s) => (s.id === id ? { ...s, rent: Math.max(0, rent) } : s)),
+      sel.map((s) =>
+        s.id === labourId && !s.services.some((sv) => sv.serviceId === service.id)
+          ? {
+              ...s,
+              services: [
+                ...s.services,
+                { serviceId: service.id, serviceName: service.name, amount: 0 },
+              ],
+            }
+          : s,
+      ),
+    );
+  const removeLabourService = (labourId: string, serviceId: string) =>
+    setSelectedLabour((sel) =>
+      sel.map((s) =>
+        s.id === labourId
+          ? { ...s, services: s.services.filter((sv) => sv.serviceId !== serviceId) }
+          : s,
+      ),
+    );
+  const setLabourServiceAmount = (labourId: string, serviceId: string, amount: number) =>
+    setSelectedLabour((sel) =>
+      sel.map((s) =>
+        s.id === labourId
+          ? {
+              ...s,
+              services: s.services.map((sv) =>
+                sv.serviceId === serviceId ? { ...sv, amount: Math.max(0, amount) } : sv,
+              ),
+            }
+          : s,
+      ),
     );
 
   const [labourCreating, setLabourCreating] = useState(false);
   const [labourForm, setLabourForm] = useState({ name: '', phoneNumber: '' });
   const createLabour = useMutation({
-    mutationFn: async () => (await api.post('/labour', labourForm)).data,
+    mutationFn: async () =>
+      (
+        await api.post('/labour', {
+          ...labourForm,
+          store: hasSpecificStore ? currentStoreId : undefined,
+        })
+      ).data,
     onSuccess: (l: LabourLite) => {
       toast.success('Labour added');
       qc.invalidateQueries({ queryKey: ['labour'] });
-      setSelectedLabour((sel) => [...sel, { ...l, rent: 0 }]);
+      setSelectedLabour((sel) => [...sel, { ...l, services: [] }]);
       setLabourCreating(false);
       setLabourForm({ name: '', phoneNumber: '' });
       setLabourSearch('');
@@ -514,7 +598,10 @@ export function PosPage() {
   );
   const taxTotal = ((subtotal - discountAmount) * taxPct) / 100;
   const transportFareAmount = Math.max(0, transportFare);
-  const labourRentTotal = selectedLabour.reduce((s, l) => s + (l.rent || 0), 0);
+  const labourRentTotal = selectedLabour.reduce(
+    (s, l) => s + l.services.reduce((s2, sv) => s2 + (sv.amount || 0), 0),
+    0,
+  );
   const grandTotal = Math.max(
     0,
     subtotal - discountAmount + taxTotal + transportFareAmount + labourRentTotal,
@@ -541,6 +628,7 @@ export function PosPage() {
     setAdvanceAmount(0);
     setAdvanceMethod('CASH');
     setAdvanceBankAccountId('');
+    setAdvanceTransactionId('');
     setCompletedSale(null);
     setDraftId(null);
   };
@@ -574,9 +662,9 @@ export function PosPage() {
   });
 
   useEffect(() => {
-    // Step 5 (Done) is terminal — the sale is already real, don't re-create
+    // Step 6 (Done) is terminal — the sale is already real, don't re-create
     // a draft for it.
-    if (customer && step < 5) autosaveDraft.mutate();
+    if (customer && step < 6) autosaveDraft.mutate();
     // Autosave on every step change, not on every keystroke.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step]);
@@ -630,8 +718,88 @@ export function PosPage() {
       qc.invalidateQueries({ queryKey: ['sale-drafts'] });
     },
   });
+  const confirmDelete = useConfirmDelete();
+  const confirm = useConfirm();
+  const removeDraft = async (id: string) => {
+    if (await confirmDelete('this saved draft')) deleteDraftMutation.mutate(id);
+  };
 
   const saleWarehouseId = cart.find((l) => !l.vendorId)?.desiredWarehouseId ?? defaultWarehouseId;
+
+  // Stock shortfalls found by the Products → Next check, keyed by cart line.
+  // Cleared whenever the cart changes, so a fixed row stops showing its
+  // error straight away (the next Next re-checks everything anyway).
+  const [stockIssues, setStockIssues] = useState<
+    Record<string, { available: number; warehouseName: string } | 'NO_WAREHOUSE'>
+  >({});
+  useEffect(() => {
+    setStockIssues({});
+  }, [cart]);
+
+  // Before leaving Products, confirm every warehouse-sourced line can
+  // actually be filled from its warehouse right now — the same check
+  // checkout does, just early, so the cashier doesn't find out on the
+  // Payment step. Vendor-sourced lines don't draw on stock and are skipped.
+  // Each line is checked against exactly what checkout will send for it.
+  const checkStockAndContinue = useMutation({
+    mutationFn: async () => {
+      const warehouseLines = cart.filter((l) => !l.vendorId);
+      const issues: Record<string, { available: number; warehouseName: string } | 'NO_WAREHOUSE'> =
+        {};
+      const toCheck = warehouseLines.flatMap((l) => {
+        const warehouseId = l.desiredWarehouseId ?? saleWarehouseId;
+        if (!warehouseId) {
+          issues[l.key] = 'NO_WAREHOUSE';
+          return [];
+        }
+        return [{ line: l, productId: l.product.id, warehouseId, quantity: l.qty }];
+      });
+      if (toCheck.length > 0) {
+        const result = (
+          await api.post('/sales/stock-check', {
+            store: hasSpecificStore ? currentStoreId : undefined,
+            items: toCheck.map(({ productId, warehouseId, quantity }) => ({
+              productId,
+              warehouseId,
+              quantity,
+            })),
+          })
+        ).data as {
+          lines: {
+            productId: string;
+            warehouseId: string;
+            warehouseName: string;
+            available: number;
+            ok: boolean;
+          }[];
+        };
+        for (const { line, productId, warehouseId } of toCheck) {
+          const row = result.lines.find(
+            (r) => r.productId === productId && r.warehouseId === warehouseId,
+          );
+          if (row && !row.ok) {
+            issues[line.key] = { available: row.available, warehouseName: row.warehouseName };
+          }
+        }
+      }
+      return issues;
+    },
+    onSuccess: (issues) => {
+      const count = Object.keys(issues).length;
+      if (count === 0) {
+        setStep(3);
+        return;
+      }
+      setStockIssues(issues);
+      toast.error(
+        count === 1
+          ? t('Not enough stock for 1 item — reduce the quantity or switch it to a vendor')
+          : `${t('Not enough stock for')} ${count} ${t('items — reduce the quantity or switch them to a vendor')}`,
+      );
+    },
+    onError: (e: any) =>
+      toast.error(e?.response?.data?.message ?? e?.message ?? t('Could not check stock')),
+  });
 
   const completeSale = useMutation({
     mutationFn: async (): Promise<CompletedSale> => {
@@ -650,7 +818,15 @@ export function PosPage() {
           warehouseId: saleWarehouseId,
           customerId: customer!.id,
           estimateId,
-          labour: selectedLabour.map((l) => ({ labour: l.id, rent: l.rent || 0 })),
+          // One line per (labour, service) pair — a labourer doing several
+          // services on this sale gets one row each, billed individually.
+          labour: selectedLabour.flatMap((l) =>
+            l.services.map((sv) => ({
+              labour: l.id,
+              service: sv.serviceId,
+              rent: sv.amount || 0,
+            })),
+          ),
           discountTotal: discountAmount,
           transportFare: transportFareAmount,
           transport: {
@@ -689,6 +865,7 @@ export function PosPage() {
           amount: advance,
           method: advanceMethod,
           bankAccount: needsAdvanceBank ? advanceBankAccountId || undefined : undefined,
+          transactionId: needsAdvanceBank ? advanceTransactionId || undefined : undefined,
           note: `Advance for sale ${sale.saleNumber}`,
         });
       }
@@ -698,11 +875,14 @@ export function PosPage() {
         customer: { name: customer!.name, phone: customer!.phone },
         storeName: currentStore?.name,
         storeAddress: currentStore?.address,
-        labour: selectedLabour.map((l) => ({
-          name: l.name,
-          phone: l.phoneNumber,
-          rent: l.rent || 0,
-        })),
+        labour: selectedLabour.flatMap((l) =>
+          l.services.map((sv) => ({
+            name: l.name,
+            phone: l.phoneNumber,
+            serviceName: sv.serviceName,
+            rent: sv.amount || 0,
+          })),
+        ),
         labourRentTotal,
         paidAmount: advance,
         balanceDue: Math.max(0, grandTotal - advance),
@@ -723,7 +903,7 @@ export function PosPage() {
       }
       setDraftId(null);
       setCompletedSale(sale);
-      setStep(5);
+      setStep(6);
     },
     onError: (e: any) => toast.error(e?.response?.data?.message ?? e?.message ?? 'Checkout failed'),
   });
@@ -735,10 +915,6 @@ export function PosPage() {
     qrUrl?: string;
     title: string;
   } | null>(null);
-
-  const canStep3 = Boolean(
-    driver.name.trim() && driver.vehicleNumber.trim() && driver.phone.trim(),
-  );
 
   return (
     <div className="flex flex-col gap-4">
@@ -979,7 +1155,7 @@ export function PosPage() {
                         size="icon"
                         variant="ghost"
                         className="h-8 w-8 text-destructive"
-                        onClick={() => deleteDraftMutation.mutate(d.id)}
+                        onClick={() => removeDraft(d.id)}
                       >
                         <Trash2 className="h-3.5 w-3.5" />
                       </Button>
@@ -1021,6 +1197,17 @@ export function PosPage() {
                           onClick={() => addRow(variants)}
                           className="flex w-full items-center gap-3 border-b px-3 py-2 text-left text-sm last:border-0 hover:bg-accent"
                         >
+                          {p.image ? (
+                            <img
+                              src={p.image}
+                              alt=""
+                              className="h-9 w-9 shrink-0 rounded object-cover"
+                            />
+                          ) : (
+                            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded bg-muted text-[10px] font-medium text-muted-foreground">
+                              {p.name.slice(0, 2).toUpperCase()}
+                            </div>
+                          )}
                           <div className="min-w-0 flex-1">
                             <p className="truncate font-medium">{p.name}</p>
                             <p className="text-xs text-muted-foreground">
@@ -1047,8 +1234,8 @@ export function PosPage() {
                       <th className="px-3 py-2 font-medium">{t('Product')}</th>
                       <th className="px-3 py-2 font-medium">{t('Source')}</th>
                       <th className="px-3 py-2 font-medium">{t('Warehouse / Vendor')}</th>
-                      <th className="px-3 py-2 text-right font-medium">{t('Price')}</th>
                       <th className="px-3 py-2 text-right font-medium">{t('Qty')}</th>
+                      <th className="px-3 py-2 text-right font-medium">{t('Amount')}</th>
                       <th className="px-3 py-2 text-right font-medium">{t('Total')}</th>
                       <th className="px-3 py-2" />
                     </tr>
@@ -1066,16 +1253,43 @@ export function PosPage() {
                         (v) => v.warehouseId === l.desiredWarehouseId,
                       );
                       const notStockedHere = !desiredVariant;
+                      const stockIssue = stockIssues[l.key];
                       return (
                         <tr key={l.key} className="border-b last:border-0">
                           <td className="px-3 py-2">
-                            <p className="font-medium">{l.product.name}</p>
-                            <p className="text-xs text-muted-foreground">{l.product.sku}</p>
-                            {notStockedHere && !l.vendorId && (
-                              <p className="mt-0.5 text-xs text-destructive">
-                                {t('Not stocked here — pick a vendor')}
-                              </p>
-                            )}
+                            <div className="flex items-center gap-2">
+                              {l.product.image ? (
+                                <img
+                                  src={l.product.image}
+                                  alt=""
+                                  className="h-8 w-8 shrink-0 rounded object-cover"
+                                />
+                              ) : (
+                                <div className="h-8 w-8 shrink-0 rounded bg-muted" />
+                              )}
+                              <div className="min-w-0">
+                                <p className="truncate font-medium">{l.product.name}</p>
+                                <p className="text-xs text-muted-foreground">{l.product.sku}</p>
+                                {stockIssue === 'NO_WAREHOUSE' ? (
+                                  <p className="mt-0.5 text-xs text-destructive">
+                                    {t('Pick a warehouse or a vendor')}
+                                  </p>
+                                ) : stockIssue ? (
+                                  <p className="mt-0.5 text-xs text-destructive">
+                                    {stockIssue.available > 0
+                                      ? `${t('Only')} ${stockIssue.available} ${t('in stock at')} ${stockIssue.warehouseName} — ${t('reduce the quantity or pick a vendor')}`
+                                      : `${t('Out of stock at')} ${stockIssue.warehouseName} — ${t('pick another warehouse or a vendor')}`}
+                                  </p>
+                                ) : (
+                                  notStockedHere &&
+                                  !l.vendorId && (
+                                    <p className="mt-0.5 text-xs text-destructive">
+                                      {t('Not stocked here — pick a vendor')}
+                                    </p>
+                                  )
+                                )}
+                              </div>
+                            </div>
                           </td>
                           <td className="px-3 py-2">
                             <select
@@ -1107,18 +1321,48 @@ export function PosPage() {
                                 })}
                               </select>
                             ) : (
-                              <select
-                                className="h-9 w-full min-w-[180px] rounded-md border bg-transparent px-2 text-sm"
-                                value={l.vendorId ?? ''}
-                                onChange={(e) => setLineVendor(l.key, e.target.value)}
-                              >
-                                {vendors.map((v) => (
-                                  <option key={v.id} value={v.id}>
-                                    {v.name}
-                                  </option>
-                                ))}
-                              </select>
+                              <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                  <button
+                                    type="button"
+                                    className="flex h-9 w-full min-w-[180px] items-center justify-between rounded-md border bg-transparent px-2 text-sm"
+                                  >
+                                    <span className="truncate">
+                                      {l.vendorName || t('Select vendor…')}
+                                    </span>
+                                    <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
+                                  </button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent
+                                  align="start"
+                                  className="max-h-64 w-[var(--radix-dropdown-menu-trigger-width)] overflow-y-auto"
+                                >
+                                  {vendors.map((v) => (
+                                    <DropdownMenuItem
+                                      key={v.id}
+                                      onSelect={() => setLineVendor(l.key, v.id)}
+                                    >
+                                      {v.id === l.vendorId && <Check className="h-4 w-4" />}
+                                      <span className={cn(v.id !== l.vendorId && 'pl-6')}>
+                                        {v.name}
+                                      </span>
+                                    </DropdownMenuItem>
+                                  ))}
+                                </DropdownMenuContent>
+                              </DropdownMenu>
                             )}
+                          </td>
+                          <td className="px-3 py-2">
+                            <Input
+                              type="number"
+                              min={1}
+                              className={cn(
+                                'h-9 w-full min-w-[70px] text-right',
+                                (!l.qty || l.qty <= 0 || !!stockIssue) && 'border-destructive',
+                              )}
+                              value={l.qty || ''}
+                              onChange={(e) => setLineQty(l.key, Number(e.target.value))}
+                            />
                           </td>
                           <td className="px-3 py-2">
                             <Input
@@ -1127,18 +1371,6 @@ export function PosPage() {
                               className="h-9 w-full min-w-[90px] text-right"
                               value={l.price || ''}
                               onChange={(e) => setLinePrice(l.key, Number(e.target.value))}
-                            />
-                          </td>
-                          <td className="px-3 py-2">
-                            <Input
-                              type="number"
-                              min={1}
-                              className={cn(
-                                'h-9 w-full min-w-[70px] text-right',
-                                (!l.qty || l.qty <= 0) && 'border-destructive',
-                              )}
-                              value={l.qty || ''}
-                              onChange={(e) => setLineQty(l.key, Number(e.target.value))}
                             />
                           </td>
                           <td className="px-3 py-2 text-right font-medium">
@@ -1177,344 +1409,398 @@ export function PosPage() {
           )}
 
           {step === 3 && (
-            <div className="space-y-4">
-              <div className="grid gap-4 lg:grid-cols-2">
-                <div className="space-y-3">
-                  <div className="flex items-center gap-2 font-semibold">
-                    <HardHat className="h-4 w-4" /> {t('Labour')}
-                  </div>
-                  <p className="text-sm text-muted-foreground">
-                    {t('Optionally select who is loading the goods.')}
-                  </p>
+            <div className="mx-auto max-w-xl space-y-4">
+              <div className="space-y-3">
+                <div className="flex items-center gap-2 font-semibold">
+                  <HardHat className="h-4 w-4" /> {t('Labour')}
+                </div>
+                <p className="text-sm text-muted-foreground">
+                  {t('Optionally select who is working on this sale, and which services they did.')}
+                </p>
 
-                  {/* Top action — opens the picker below. Kept as the single
-                      entry point instead of an always-visible search box, so
-                      it's obvious what to click first. */}
-                  {!addingLabour && (
-                    <Button
+                {/* Top action — opens the picker below. Kept as the single
+                    entry point instead of an always-visible search box, so
+                    it's obvious what to click first. */}
+                {!addingLabour && (
+                  <Button
+                    type="button"
+                    size="lg"
+                    className="w-full text-base"
+                    onClick={() => {
+                      setAddingLabour(true);
+                      setLabourPickerOpen(true);
+                      setTimeout(() => labourSearchRef.current?.focus(), 0);
+                    }}
+                  >
+                    <Plus className="h-5 w-5" /> {t('Add Labour')}
+                  </Button>
+                )}
+
+                {addingLabour && !labourCreating && (
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground" />
+                    <Input
+                      ref={labourSearchRef}
+                      value={labourSearch}
+                      onChange={(e) => setLabourSearch(e.target.value)}
+                      onFocus={() => setLabourPickerOpen(true)}
+                      // delay so a click on a result registers before closing
+                      onBlur={() => setTimeout(() => setLabourPickerOpen(false), 150)}
+                      placeholder={t('Search labour by name or phone…')}
+                      className="h-11 pl-10 pr-10 text-base"
+                    />
+                    <button
                       type="button"
-                      size="lg"
-                      className="w-full text-base"
+                      aria-label={t('Cancel')}
                       onClick={() => {
-                        setAddingLabour(true);
-                        setLabourPickerOpen(true);
-                        setTimeout(() => labourSearchRef.current?.focus(), 0);
+                        setLabourSearch('');
+                        setLabourPickerOpen(false);
+                        setAddingLabour(false);
                       }}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
                     >
-                      <Plus className="h-5 w-5" /> {t('Add Labour')}
-                    </Button>
-                  )}
-
-                  {addingLabour && !labourCreating && (
-                    <div className="relative">
-                      <Search className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground" />
-                      <Input
-                        ref={labourSearchRef}
-                        value={labourSearch}
-                        onChange={(e) => setLabourSearch(e.target.value)}
-                        onFocus={() => setLabourPickerOpen(true)}
-                        // delay so a click on a result registers before closing
-                        onBlur={() => setTimeout(() => setLabourPickerOpen(false), 150)}
-                        placeholder={t('Search labour by name or phone…')}
-                        className="h-11 pl-10 pr-10 text-base"
-                      />
-                      <button
-                        type="button"
-                        aria-label={t('Cancel')}
-                        onClick={() => {
-                          setLabourSearch('');
-                          setLabourPickerOpen(false);
-                          setAddingLabour(false);
-                        }}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                      >
-                        <X className="h-4 w-4" />
-                      </button>
-                      {labourPickerOpen && (
-                        <div className="absolute z-10 mt-1 max-h-64 w-full overflow-y-auto rounded-lg border bg-popover shadow-lg">
-                          {filteredLabour.length === 0 && (
-                            <p className="p-3 text-center text-sm text-muted-foreground">
-                              {t('No labour found')}
-                            </p>
-                          )}
-                          {filteredLabour.map((l) => {
-                            const isSelected = selectedLabour.some((s) => s.id === l.id);
-                            return (
-                              <button
-                                key={l.id}
-                                onMouseDown={(e) => e.preventDefault()}
-                                onClick={() => {
-                                  toggleLabour(l);
-                                  setLabourSearch('');
-                                  setLabourPickerOpen(false);
-                                  setAddingLabour(false);
-                                }}
-                                className="flex w-full items-center justify-between gap-2 border-b px-3 py-2.5 text-left text-sm last:border-0 hover:bg-accent"
-                              >
-                                <span className="flex items-center gap-2 truncate">
-                                  <HardHat className="h-4 w-4 shrink-0 text-muted-foreground" />
-                                  <span className="truncate">{l.name}</span>
-                                </span>
-                                <span className="flex items-center gap-2 text-xs text-muted-foreground">
-                                  {l.phoneNumber}
-                                  {isSelected && <Check className="h-4 w-4 text-primary" />}
-                                </span>
-                              </button>
-                            );
-                          })}
-                          <button
-                            type="button"
-                            onMouseDown={(e) => e.preventDefault()}
-                            onClick={() => {
-                              setLabourForm({ name: labourSearch.trim(), phoneNumber: '' });
-                              setLabourCreating(true);
-                              setLabourPickerOpen(false);
-                            }}
-                            className="flex w-full items-center gap-2 border-t px-3 py-2.5 text-left text-sm font-medium text-primary hover:bg-accent"
-                          >
-                            <Plus className="h-4 w-4" /> {t('Add new labourer')}
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {labourCreating && (
-                    <form
-                      className="space-y-2 rounded-lg border bg-muted/20 p-3"
-                      onSubmit={(e) => {
-                        e.preventDefault();
-                        createLabour.mutate();
-                      }}
-                    >
-                      <div className="space-y-1">
-                        <Label className="text-xs">{t('Name *')}</Label>
-                        <Input
-                          required
-                          autoFocus
-                          value={labourForm.name}
-                          onChange={(e) => setLabourForm({ ...labourForm, name: e.target.value })}
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <Label className="text-xs">{t('Phone *')}</Label>
-                        <Input
-                          required
-                          value={labourForm.phoneNumber}
-                          onChange={(e) =>
-                            setLabourForm({ ...labourForm, phoneNumber: e.target.value })
-                          }
-                        />
-                      </div>
-                      <div className="flex gap-2">
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          className="flex-1"
-                          onClick={() => {
-                            setLabourCreating(false);
-                            setLabourPickerOpen(true);
-                          }}
-                        >
-                          {t('Cancel')}
-                        </Button>
-                        <Button
-                          type="submit"
-                          size="sm"
-                          className="flex-1"
-                          disabled={createLabour.isPending}
-                        >
-                          {createLabour.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
-                          {t('Add')}
-                        </Button>
-                      </div>
-                    </form>
-                  )}
-
-                  {selectedLabour.length > 0 ? (
-                    <div className="space-y-3 rounded-lg border p-4">
-                      <div className="flex items-center justify-between">
-                        <p className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-                          {t('Assigned')} ({selectedLabour.length})
-                        </p>
-                        {labourRentTotal > 0 && (
-                          <p className="text-sm font-semibold text-muted-foreground">
-                            {t('Total')} {formatCurrency(labourRentTotal)}
+                      <X className="h-4 w-4" />
+                    </button>
+                    {labourPickerOpen && (
+                      <div className="absolute z-10 mt-1 max-h-64 w-full overflow-y-auto rounded-lg border bg-popover shadow-lg">
+                        {filteredLabour.length === 0 && (
+                          <p className="p-3 text-center text-sm text-muted-foreground">
+                            {t('No labour found')}
                           </p>
                         )}
-                      </div>
-                      <div className="space-y-2">
-                        {selectedLabour.map((l) => (
-                          <div
-                            key={l.id}
-                            className="flex items-center gap-3 rounded-md border bg-card px-3 py-3"
-                          >
-                            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
-                              <HardHat className="h-5 w-5" />
-                            </div>
-                            <div className="min-w-0 flex-1">
-                              <p className="truncate text-base font-medium">{l.name}</p>
-                              {l.phoneNumber && (
-                                <p className="truncate text-xs text-muted-foreground">
-                                  {l.phoneNumber}
-                                </p>
-                              )}
-                            </div>
-                            <div className="flex shrink-0 flex-col items-end gap-0.5">
-                              <Input
-                                id={`labour-fare-${l.id}`}
-                                type="number"
-                                min={0}
-                                placeholder="Fare"
-                                className="h-10 w-28 text-right text-base font-medium"
-                                value={l.rent || ''}
-                                onChange={(e) => setLabourRent(l.id, Number(e.target.value))}
-                              />
-                            </div>
-                            <Button
-                              type="button"
-                              size="icon"
-                              variant="ghost"
-                              className="h-8 w-8 shrink-0 text-muted-foreground hover:text-destructive"
-                              aria-label={`${t('Remove')} ${l.name}`}
-                              onClick={() => toggleLabour(l)}
+                        {filteredLabour.map((l) => {
+                          const isSelected = selectedLabour.some((s) => s.id === l.id);
+                          return (
+                            <button
+                              key={l.id}
+                              onMouseDown={(e) => e.preventDefault()}
+                              onClick={() => {
+                                toggleLabour(l);
+                                setLabourSearch('');
+                                setLabourPickerOpen(false);
+                                setAddingLabour(false);
+                              }}
+                              className="flex w-full items-center justify-between gap-2 border-b px-3 py-2.5 text-left text-sm last:border-0 hover:bg-accent"
                             >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </div>
-                        ))}
+                              <span className="flex items-center gap-2 truncate">
+                                <HardHat className="h-4 w-4 shrink-0 text-muted-foreground" />
+                                <span className="truncate">{l.name}</span>
+                              </span>
+                              <span className="flex items-center gap-2 text-xs text-muted-foreground">
+                                {l.phoneNumber}
+                                {isSelected && <Check className="h-4 w-4 text-primary" />}
+                              </span>
+                            </button>
+                          );
+                        })}
+                        <button
+                          type="button"
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() => {
+                            setLabourForm({ name: labourSearch.trim(), phoneNumber: '' });
+                            setLabourCreating(true);
+                            setLabourPickerOpen(false);
+                          }}
+                          className="flex w-full items-center gap-2 border-t px-3 py-2.5 text-left text-sm font-medium text-primary hover:bg-accent"
+                        >
+                          <Plus className="h-4 w-4" /> {t('Add new labourer')}
+                        </button>
                       </div>
-                    </div>
-                  ) : (
-                    !addingLabour && (
-                      <p className="rounded-lg border border-dashed p-3 text-center text-xs text-muted-foreground">
-                        {t('No labour selected yet — click "Add Labour" above.')}
-                      </p>
-                    )
-                  )}
-                </div>
+                    )}
+                  </div>
+                )}
 
-                <div className="space-y-3">
-                  <div className="flex items-center gap-2 font-semibold">
-                    <Truck className="h-4 w-4" /> {t('Transport')}
-                  </div>
-                  <div className="space-y-1">
-                    <Label>{t('Transporter (optional)')}</Label>
-                    <select
-                      value={transporterId ?? ''}
-                      onChange={(e) => {
-                        const id = e.target.value || null;
-                        setTransporterId(id);
-                        const t = transporters.find((tr) => tr.id === id);
-                        if (t) {
-                          setDriver({
-                            name: t.name,
-                            phone: t.phone || '',
-                            vehicleNumber: t.vehicleNumber || '',
-                          });
-                        } else {
-                          setPayTransportNow(false);
+                {labourCreating && (
+                  <form
+                    className="space-y-2 rounded-lg border bg-muted/20 p-3"
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      createLabour.mutate();
+                    }}
+                  >
+                    <div className="space-y-1">
+                      <Label className="text-xs">{t('Name *')}</Label>
+                      <Input
+                        required
+                        autoFocus
+                        value={labourForm.name}
+                        onChange={(e) => setLabourForm({ ...labourForm, name: e.target.value })}
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">{t('Phone *')}</Label>
+                      <Input
+                        required
+                        value={labourForm.phoneNumber}
+                        onChange={(e) =>
+                          setLabourForm({ ...labourForm, phoneNumber: e.target.value })
                         }
-                      }}
-                      className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
-                    >
-                      <option value="">{t('One-off driver (no roster entry)')}</option>
-                      {transporters.map((tr) => (
-                        <option key={tr.id} value={tr.id}>
-                          {tr.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <div className="space-y-1">
-                      <Label>{t('Driver name *')}</Label>
-                      <Input
-                        value={driver.name}
-                        onChange={(e) => setDriver({ ...driver, name: e.target.value })}
                       />
                     </div>
-                    <div className="space-y-1">
-                      <Label>{t('Vehicle number *')}</Label>
-                      <Input
-                        value={driver.vehicleNumber}
-                        onChange={(e) => setDriver({ ...driver, vehicleNumber: e.target.value })}
-                      />
+                    <div className="flex gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="flex-1"
+                        onClick={() => {
+                          setLabourCreating(false);
+                          setLabourPickerOpen(true);
+                        }}
+                      >
+                        {t('Cancel')}
+                      </Button>
+                      <Button
+                        type="submit"
+                        size="sm"
+                        className="flex-1"
+                        disabled={createLabour.isPending}
+                      >
+                        {createLabour.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+                        {t('Add')}
+                      </Button>
                     </div>
-                    <div className="space-y-1">
-                      <Label>{t('Driver phone *')}</Label>
-                      <Input
-                        value={driver.phone}
-                        onChange={(e) => setDriver({ ...driver, phone: e.target.value })}
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <Label>{t('Transport fare')}</Label>
-                      <Input
-                        type="number"
-                        min={0}
-                        placeholder="0"
-                        value={transportFare || ''}
-                        onChange={(e) => setTransportFare(Number(e.target.value))}
-                      />
-                    </div>
-                  </div>
-                  {transporterId && transportFare > 0 && (
-                    <div className="space-y-3 rounded-md border p-3">
-                      <label className="flex items-center gap-2 text-sm font-medium">
-                        <input
-                          type="checkbox"
-                          checked={payTransportNow}
-                          onChange={(e) => setPayTransportNow(e.target.checked)}
-                        />
-                        {t('Pay driver now')}
-                      </label>
-                      {!payTransportNow && (
-                        <p className="text-xs text-muted-foreground">
-                          {t(
-                            'The fare will be owed to this transporter — pay them later from their profile.',
-                          )}
+                  </form>
+                )}
+
+                {selectedLabour.length > 0 ? (
+                  <div className="space-y-3 rounded-lg border p-4">
+                    <div className="flex items-center justify-between">
+                      <p className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+                        {t('Assigned')} ({selectedLabour.length})
+                      </p>
+                      {labourRentTotal > 0 && (
+                        <p className="text-sm font-semibold text-muted-foreground">
+                          {t('Total')} {formatCurrency(labourRentTotal)}
                         </p>
                       )}
-                      {payTransportNow && (
-                        <div className="grid gap-3 sm:grid-cols-2">
-                          <div className="space-y-1">
-                            <Label>{t('Method')}</Label>
-                            <select
-                              value={transportFareMethod}
-                              onChange={(e) => setTransportFareMethod(e.target.value)}
-                              className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
-                            >
-                              <option value="CASH">{t('Cash')}</option>
-                              <option value="BANK_TRANSFER">{t('Bank transfer')}</option>
-                              <option value="ONLINE">{t('Online')}</option>
-                              <option value="CARD">{t('Card')}</option>
-                            </select>
-                          </div>
-                          {needsTransportFareBank && (
-                            <div className="space-y-1">
-                              <Label>{t('Bank account')} *</Label>
-                              <select
-                                required
-                                value={transportFareBankAccountId}
-                                onChange={(e) => setTransportFareBankAccountId(e.target.value)}
-                                className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
+                    </div>
+                    <div className="space-y-2">
+                      {selectedLabour.map((l) => {
+                        const availableServices = labourServicesList.filter(
+                          (svc) => !l.services.some((sv) => sv.serviceId === svc.id),
+                        );
+                        return (
+                          <div key={l.id} className="space-y-2 rounded-md border bg-card p-3">
+                            <div className="flex items-center gap-3">
+                              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+                                <HardHat className="h-5 w-5" />
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <p className="truncate text-base font-medium">{l.name}</p>
+                                {l.phoneNumber && (
+                                  <p className="truncate text-xs text-muted-foreground">
+                                    {l.phoneNumber}
+                                  </p>
+                                )}
+                              </div>
+                              <Button
+                                type="button"
+                                size="icon"
+                                variant="ghost"
+                                className="h-8 w-8 shrink-0 text-muted-foreground hover:text-destructive"
+                                aria-label={`${t('Remove')} ${l.name}`}
+                                onClick={() => toggleLabour(l)}
                               >
-                                <option value="">{t('Select account…')}</option>
-                                {transportBankAccounts.map((b) => (
-                                  <option key={b.id} value={b.id}>
-                                    {b.name}
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </div>
+
+                            {l.services.length > 0 && (
+                              <div className="space-y-1.5 pl-1">
+                                {l.services.map((sv) => (
+                                  <div key={sv.serviceId} className="flex items-center gap-2">
+                                    <span className="min-w-0 flex-1 truncate text-sm">
+                                      {sv.serviceName}
+                                    </span>
+                                    <Input
+                                      type="number"
+                                      min={0}
+                                      placeholder={t('Amount')}
+                                      className="h-9 w-28 text-right text-sm"
+                                      value={sv.amount || ''}
+                                      onChange={(e) =>
+                                        setLabourServiceAmount(
+                                          l.id,
+                                          sv.serviceId,
+                                          Number(e.target.value),
+                                        )
+                                      }
+                                    />
+                                    <Button
+                                      type="button"
+                                      size="icon"
+                                      variant="ghost"
+                                      className="h-7 w-7 shrink-0 text-muted-foreground hover:text-destructive"
+                                      aria-label={`${t('Remove')} ${sv.serviceName}`}
+                                      onClick={() => removeLabourService(l.id, sv.serviceId)}
+                                    >
+                                      <X className="h-3.5 w-3.5" />
+                                    </Button>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+
+                            {availableServices.length > 0 && (
+                              <select
+                                value=""
+                                onChange={(e) => {
+                                  const svc = labourServicesList.find(
+                                    (s) => s.id === e.target.value,
+                                  );
+                                  if (svc) addLabourService(l.id, svc);
+                                }}
+                                className="flex h-9 w-full rounded-md border border-dashed border-input bg-transparent px-3 text-sm text-muted-foreground"
+                              >
+                                <option value="">{t('+ Add service…')}</option>
+                                {availableServices.map((svc) => (
+                                  <option key={svc.id} value={svc.id}>
+                                    {svc.name}
                                   </option>
                                 ))}
                               </select>
-                            </div>
-                          )}
-                        </div>
-                      )}
+                            )}
+                          </div>
+                        );
+                      })}
                     </div>
-                  )}
+                  </div>
+                ) : (
+                  !addingLabour && (
+                    <p className="rounded-lg border border-dashed p-3 text-center text-xs text-muted-foreground">
+                      {t('No labour selected yet — click "Add Labour" above.')}
+                    </p>
+                  )
+                )}
+              </div>
+            </div>
+          )}
+
+          {step === 4 && (
+            <div className="mx-auto max-w-xl space-y-4">
+              <div className="space-y-3">
+                <div className="flex items-center gap-2 font-semibold">
+                  <Truck className="h-4 w-4" /> {t('Transport')}
                 </div>
+                <p className="text-sm text-muted-foreground">
+                  {t('Optionally arrange a driver to deliver the goods.')}
+                </p>
+                <div className="space-y-1">
+                  <Label>{t('Transporter (optional)')}</Label>
+                  <select
+                    value={transporterId ?? ''}
+                    onChange={(e) => {
+                      const id = e.target.value || null;
+                      setTransporterId(id);
+                      const t = transporters.find((tr) => tr.id === id);
+                      if (t) {
+                        setDriver({
+                          name: t.name,
+                          phone: t.phone || '',
+                          vehicleNumber: t.vehicleNumber || '',
+                        });
+                      } else {
+                        setPayTransportNow(false);
+                      }
+                    }}
+                    className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
+                  >
+                    <option value="">{t('One-off driver (no roster entry)')}</option>
+                    {transporters.map((tr) => (
+                      <option key={tr.id} value={tr.id}>
+                        {tr.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="space-y-1">
+                    <Label>{t('Driver name')}</Label>
+                    <Input
+                      value={driver.name}
+                      onChange={(e) => setDriver({ ...driver, name: e.target.value })}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label>{t('Vehicle number')}</Label>
+                    <Input
+                      value={driver.vehicleNumber}
+                      onChange={(e) => setDriver({ ...driver, vehicleNumber: e.target.value })}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label>{t('Driver phone')}</Label>
+                    <Input
+                      value={driver.phone}
+                      onChange={(e) => setDriver({ ...driver, phone: e.target.value })}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label>{t('Transport fare')}</Label>
+                    <Input
+                      type="number"
+                      min={0}
+                      placeholder="0"
+                      value={transportFare || ''}
+                      onChange={(e) => setTransportFare(Number(e.target.value))}
+                    />
+                  </div>
+                </div>
+                {transporterId && transportFare > 0 && (
+                  <div className="space-y-3 rounded-md border p-3">
+                    <label className="flex items-center gap-2 text-sm font-medium">
+                      <input
+                        type="checkbox"
+                        checked={payTransportNow}
+                        onChange={(e) => setPayTransportNow(e.target.checked)}
+                      />
+                      {t('Pay driver now')}
+                    </label>
+                    {!payTransportNow && (
+                      <p className="text-xs text-muted-foreground">
+                        {t(
+                          'The fare will be owed to this transporter — pay them later from their profile.',
+                        )}
+                      </p>
+                    )}
+                    {payTransportNow && (
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <div className="space-y-1">
+                          <Label>{t('Method')}</Label>
+                          <select
+                            value={transportFareMethod}
+                            onChange={(e) => setTransportFareMethod(e.target.value)}
+                            className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
+                          >
+                            <option value="CASH">{t('Cash')}</option>
+                            <option value="BANK_TRANSFER">{t('Bank transfer')}</option>
+                            <option value="ONLINE">{t('Online')}</option>
+                            <option value="CARD">{t('Card')}</option>
+                          </select>
+                        </div>
+                        {needsTransportFareBank && (
+                          <div className="space-y-1">
+                            <Label>{t('Bank account')} *</Label>
+                            <select
+                              required
+                              value={transportFareBankAccountId}
+                              onChange={(e) => setTransportFareBankAccountId(e.target.value)}
+                              className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
+                            >
+                              <option value="">{t('Select account…')}</option>
+                              {transportBankAccounts.map((b) => (
+                                <option key={b.id} value={b.id}>
+                                  {b.name}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
 
               <div className="space-y-1 rounded-lg border p-3 text-sm">
@@ -1531,7 +1817,7 @@ export function PosPage() {
             </div>
           )}
 
-          {step === 4 && (
+          {step === 5 && (
             <div className="mx-auto max-w-md space-y-3">
               {!hasSpecificStore && (
                 <div className="flex items-center gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
@@ -1645,13 +1931,11 @@ export function PosPage() {
                   />
                   {advance > 0 && (
                     <>
-                      <div className="grid grid-cols-4 gap-1.5">
+                      <div className="grid grid-cols-2 gap-1.5">
                         {(
                           [
                             { value: 'CASH', label: 'Cash' },
                             { value: 'BANK_TRANSFER', label: 'Bank' },
-                            { value: 'ONLINE', label: 'Online' },
-                            { value: 'CARD', label: 'Card' },
                           ] as const
                         ).map((m) => (
                           <Button
@@ -1666,20 +1950,28 @@ export function PosPage() {
                         ))}
                       </div>
                       {needsAdvanceBank && (
-                        <select
-                          required
-                          value={advanceBankAccountId}
-                          onChange={(e) => setAdvanceBankAccountId(e.target.value)}
-                          className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
-                        >
-                          <option value="">{t('Select account…')}</option>
-                          {advanceBankAccounts.map((b) => (
-                            <option key={b.id} value={b.id}>
-                              {b.name}
-                              {b.bankName ? ` (${b.bankName})` : ''}
-                            </option>
-                          ))}
-                        </select>
+                        <>
+                          <select
+                            required
+                            value={advanceBankAccountId}
+                            onChange={(e) => setAdvanceBankAccountId(e.target.value)}
+                            className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
+                          >
+                            <option value="">{t('Select account…')}</option>
+                            {advanceBankAccounts.map((b) => (
+                              <option key={b.id} value={b.id}>
+                                {b.name}
+                                {b.bankName ? ` (${b.bankName})` : ''}
+                              </option>
+                            ))}
+                          </select>
+                          <Input
+                            required
+                            value={advanceTransactionId}
+                            onChange={(e) => setAdvanceTransactionId(e.target.value)}
+                            placeholder={t('Transaction ID from the customer')}
+                          />
+                        </>
                       )}
                     </>
                   )}
@@ -1699,7 +1991,7 @@ export function PosPage() {
             </div>
           )}
 
-          {step === 5 && completedSale && (
+          {step === 6 && completedSale && (
             <div className="mx-auto max-w-md space-y-4">
               <div className="flex flex-col items-center gap-1 rounded-lg bg-success/10 p-4 text-center text-success">
                 <CheckCircle2 className="h-7 w-7" />
@@ -1787,7 +2079,20 @@ export function PosPage() {
                       <div className="flex justify-between gap-4">
                         <span className="shrink-0 text-muted-foreground">{t('Labour')}</span>
                         <span className="text-right font-medium">
-                          {completedSale.labour.map((l) => l.name).join(', ')}
+                          {/* One entry per (labour, service) — group back by name so
+                              a labourer doing several services shows once, with all
+                              their services listed together. */}
+                          {Object.entries(
+                            completedSale.labour.reduce<Record<string, string[]>>((acc, l) => {
+                              (acc[l.name] ??= []).push(l.serviceName || '');
+                              return acc;
+                            }, {}),
+                          )
+                            .map(([name, services]) => {
+                              const named = services.filter(Boolean);
+                              return named.length ? `${name} (${named.join(', ')})` : name;
+                            })
+                            .join(', ')}
                         </span>
                       </div>
                     )}
@@ -1811,7 +2116,7 @@ export function PosPage() {
                 variant="outline"
                 onClick={() =>
                   openSaleInvoicePopup(completedSale).catch(() =>
-                    toast.error('Enable popups to view the printable invoice'),
+                    toast.error('Could not prepare the invoice'),
                   )
                 }
               >
@@ -1869,12 +2174,12 @@ export function PosPage() {
         <div className="flex items-center justify-between border-t pt-4">
           <div className="flex items-center gap-2">
             <Button
-              disabled={step === 1 || step === 5 || completeSale.isPending}
+              disabled={step === 1 || step === 6 || completeSale.isPending}
               onClick={() => setStep((s) => (s - 1) as Step)}
             >
               <ArrowLeft className="h-4 w-4" /> {t('Back')}
             </Button>
-            {step > 1 && step < 5 && (
+            {step > 1 && step < 6 && (
               <Button
                 variant="destructive"
                 disabled={!customer || autosaveDraft.isPending}
@@ -1901,22 +2206,37 @@ export function PosPage() {
           )}
           {step === 2 && (
             <Button
-              disabled={cart.length === 0 || cart.some((l) => !l.qty || l.qty <= 0)}
-              onClick={() => setStep(3)}
+              disabled={
+                cart.length === 0 ||
+                cart.some((l) => !l.qty || l.qty <= 0) ||
+                checkStockAndContinue.isPending
+              }
+              onClick={() => checkStockAndContinue.mutate()}
             >
+              {checkStockAndContinue.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
               {t('Next')} <ArrowRight className="h-4 w-4" />
             </Button>
           )}
           {step === 3 && (
-            <Button disabled={!canStep3} onClick={() => setStep(4)}>
+            <Button onClick={() => setStep(4)}>
               {t('Next')} <ArrowRight className="h-4 w-4" />
             </Button>
           )}
           {step === 4 && (
+            <Button onClick={() => setStep(5)}>
+              {t('Next')} <ArrowRight className="h-4 w-4" />
+            </Button>
+          )}
+          {step === 5 && (
             <Button
               disabled={completeSale.isPending || !hasSpecificStore}
-              onClick={() => {
-                if (window.confirm(t('Are you sure you want to complete this sale?'))) {
+              onClick={async () => {
+                if (
+                  await confirm({
+                    title: t('Complete this sale?'),
+                    confirmLabel: t('Complete Sale'),
+                  })
+                ) {
                   completeSale.mutate();
                 }
               }}
@@ -1925,7 +2245,7 @@ export function PosPage() {
               {t('Complete Sale')}
             </Button>
           )}
-          {step === 5 && (
+          {step === 6 && (
             <Button
               onClick={() => {
                 resetAll();
