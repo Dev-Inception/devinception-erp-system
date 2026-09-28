@@ -22,7 +22,7 @@ const catalogService = require('../services/catalogService');
 const productService = require('../services/productService');
 const supplierService = require('../services/supplierService');
 const stockReceiptService = require('../services/stockReceiptService');
-const env = require('../config/env');
+const SUPER_ADMIN = require('./_superAdmin');
 
 const STORE_NAME = 'Pak interiors';
 const WAREHOUSE_NAME = 'Bedian warehouse';
@@ -74,7 +74,7 @@ async function seed() {
   if (!store) throw new Error(`Store not found: ${STORE_NAME}`);
   const warehouse = await Warehouse.findOne({ where: { name: WAREHOUSE_NAME } });
   if (!warehouse) throw new Error(`Warehouse not found: ${WAREHOUSE_NAME}`);
-  const actor = await User.findOne({ where: { email: env.superAdmin.email } });
+  const actor = await User.findOne({ where: { email: SUPER_ADMIN.email } });
 
   for (const name of CATEGORIES) {
     await catalogService.createEntry('category', actor, { name, store: store.id });

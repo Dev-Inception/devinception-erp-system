@@ -46,12 +46,6 @@ const env = {
     address: process.env.COMPANY_ADDRESS || '',
     phone: process.env.COMPANY_PHONE || '',
   },
-
-  superAdmin: {
-    name: process.env.SUPER_ADMIN_NAME || 'Super Admin',
-    email: process.env.SUPER_ADMIN_EMAIL,
-    password: process.env.SUPER_ADMIN_PASSWORD,
-  },
 };
 
 module.exports = env;

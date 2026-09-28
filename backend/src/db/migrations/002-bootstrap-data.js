@@ -4,6 +4,7 @@ const { createId } = require('../id');
 const { ROLES } = require('../../utils/constants');
 const { PERMISSIONS, WILDCARD } = require('../../utils/permissions');
 const env = require('../../config/env');
+const SUPER_ADMIN = require('../../scripts/_superAdmin');
 
 // Mirrors services/roleService.js's SYSTEM_ROLES exactly, since that service
 // module isn't reachable from a migration (it depends on the Sequelize
@@ -179,26 +180,22 @@ async function insertCatalog(db, transaction) {
 }
 
 async function insertSuperAdmin(db, transaction) {
-  if (!env.superAdmin.email || !env.superAdmin.password) {
-    throw new Error('Set SUPER_ADMIN_EMAIL and SUPER_ADMIN_PASSWORD before running migrations');
-  }
-
   const existing = await db.query(`SELECT id FROM users WHERE LOWER(email) = LOWER(:email)`, {
-    replacements: { email: env.superAdmin.email },
+    replacements: { email: SUPER_ADMIN.email },
     transaction,
     type: QueryTypes.SELECT,
   });
   if (existing.length) return;
 
-  const hashed = await bcrypt.hash(env.superAdmin.password, 10);
+  const hashed = await bcrypt.hash(SUPER_ADMIN.password, 10);
   await db.query(
     `INSERT INTO users (id, name, email, password, role)
      VALUES (:id, :name, :email, :password, :role)`,
     {
       replacements: {
         id: createId(),
-        name: env.superAdmin.name,
-        email: env.superAdmin.email,
+        name: SUPER_ADMIN.name,
+        email: SUPER_ADMIN.email,
         password: hashed,
         role: ROLES.SUPER_ADMIN,
       },
@@ -210,12 +207,10 @@ async function insertSuperAdmin(db, transaction) {
   // case-insensitive check above due to a race with another migration run.
   const recheck = await db.query(
     `SELECT COUNT(*)::int AS count FROM users WHERE LOWER(email) = LOWER(:email)`,
-    { replacements: { email: env.superAdmin.email }, transaction, type: QueryTypes.SELECT },
+    { replacements: { email: SUPER_ADMIN.email }, transaction, type: QueryTypes.SELECT },
   );
   if (recheck[0].count !== 1) {
-    throw new Error(
-      `Super admin email ${env.superAdmin.email} already exists with different casing`,
-    );
+    throw new Error(`Super admin email ${SUPER_ADMIN.email} already exists with different casing`);
   }
 }
 
