@@ -45,8 +45,8 @@ interface SaleForSend {
   paymentMethod: string;
 }
 
-/** Sends the same invoice "Print Invoice" would produce (or, over WhatsApp, a
- * plain-text summary of it — see sendSaleInvoiceWhatsApp) to the customer on
+/** Sends the same invoice "Print Invoice" would produce (as HTML by email, as
+ * a PDF over WhatsApp — see sendSaleInvoiceWhatsApp) to the customer on
  * file, defaulting to their saved email/phone but editable in case this sale
  * needs to go somewhere else just this once. */
 export function SendInvoiceDialog({

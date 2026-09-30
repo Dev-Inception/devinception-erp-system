@@ -7,8 +7,8 @@ const ApiError = require('../utils/ApiError');
 
 /**
  * Generic "send this document" endpoints — the frontend renders the actual
- * content (the same INVOICE_A4 HTML used for printing, or a plain-text
- * summary for WhatsApp) and posts it here, so the message a customer
+ * content (the same INVOICE_A4 HTML used for printing — as HTML for email,
+ * rendered to a PDF for WhatsApp) and posts it here, so the message a customer
  * receives always matches what staff would have printed. See
  * frontend/src/lib/invoicePopup.ts (buildInvoiceHtml) and
  * frontend/src/pages/sales.tsx (SendInvoiceDialog).
@@ -31,14 +31,21 @@ const sendEmail = asyncHandler(async (req, res) => {
 });
 
 const sendWhatsApp = asyncHandler(async (req, res) => {
-  const { store, to, message } = req.body;
+  const { store, to, message, templateParams } = req.body;
   const settings = await settingsService.getSettings({ store, actor: req.user });
   await whatsappService.sendWhatsAppMessage({
-    accountSid: settings.twilioAccountSid,
-    authToken: settings.twilioAuthToken,
-    from: settings.twilioWhatsAppFrom,
+    phoneNumberId: settings.whatsappPhoneNumberId,
+    accessToken: settings.whatsappAccessToken,
+    templateName: settings.whatsappTemplateName,
+    templateLanguage: settings.whatsappTemplateLanguage,
     to,
     body: message,
+    templateParams,
+    // The invoice PDF (multipart `document`) when the frontend attached one.
+    document: req.file && {
+      buffer: req.file.buffer,
+      filename: req.file.originalname || 'invoice.pdf',
+    },
   });
   return sendSuccess(res, 200, 'WhatsApp message sent');
 });

@@ -1,4 +1,5 @@
 const settingsService = require('../services/settingsService');
+const emailService = require('../services/emailService');
 const asyncHandler = require('../utils/asyncHandler');
 const { sendSuccess } = require('../utils/ApiResponse');
 
@@ -31,10 +32,16 @@ function serialize(settings) {
     // the form can show "configured" without ever displaying/re-sending the
     // actual credential (see settingsService.updateSettings for the write side).
     smtpPassSet: !!s.smtpPass,
-    twilioAccountSid: s.twilioAccountSid || '',
-    twilioAuthTokenSet: !!s.twilioAuthToken,
-    twilioWhatsAppFrom: s.twilioWhatsAppFrom || '',
+    whatsappPhoneNumberId: s.whatsappPhoneNumberId || '',
+    whatsappAccessTokenSet: !!s.whatsappAccessToken,
+    whatsappTemplateName: s.whatsappTemplateName || '',
+    whatsappTemplateLanguage: s.whatsappTemplateLanguage || '',
     labourPricingMode: s.labourPricingMode === 'PENDING' ? 'PENDING' : 'DIRECT',
+    // Whether sending an invoice would actually work for this store — the
+    // same checks POST /notifications/{email,whatsapp} apply, so the Sales
+    // list only offers the channels that are set up.
+    emailConfigured: emailService.isEmailConfiguredAs(s),
+    whatsappConfigured: !!(s.whatsappPhoneNumberId && s.whatsappAccessToken),
   };
 }
 

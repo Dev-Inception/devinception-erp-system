@@ -5,6 +5,7 @@ import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { api } from '@/lib/api';
 import { useAuthStore } from '@/store/auth';
+import { useStorefrontFilter } from '@/store/storefront';
 import { MODULES, SECTION_ORDER, canSeeModule } from '@/lib/modules';
 
 const STORAGE_KEY = 'devinception-sidebar-collapsed';
@@ -29,13 +30,18 @@ export function SidebarNav({
   const canSeePendingEntities = groups.some((g) =>
     g.items.some((m) => m.key === 'pending-entities'),
   );
+  const storefront = useStorefrontFilter();
   // Unpriced entities need a super admin's action — a red dot flags that
   // without making anyone open the page just to check.
   const { data: pendingEntitiesCount = 0 } = useQuery({
-    queryKey: ['pending-entities-count'],
+    // Counts the selected store's queue, matching the Pending Entities page.
+    queryKey: ['pending-entities-count', storefront.store],
     queryFn: async () =>
-      (await api.get('/pending-entities', { params: { status: 'PENDING', limit: 1 } })).data
-        .total ?? 0,
+      (
+        await api.get('/pending-entities', {
+          params: { status: 'PENDING', limit: 1, ...storefront },
+        })
+      ).data.total ?? 0,
     enabled: canSeePendingEntities,
     refetchInterval: 60_000,
   });

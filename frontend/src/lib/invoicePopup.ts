@@ -1,4 +1,5 @@
 import { renderTemplate } from './printing';
+import { htmlToPdfBlob } from './htmlToPdf';
 import { api } from './api';
 import { formatCurrency } from './utils';
 import { usePrintPreviewStore } from '@/store/printPreview';
@@ -252,16 +253,34 @@ function saleWhatsAppMessage(sale: SaleForInvoice) {
   return lines.join('\n');
 }
 
-/** Sends a sale invoice summary over WhatsApp (Twilio — Settings >
- * Notifications; no fallback, since a WhatsApp sender number can't be
- * shared the way SMTP can). Throws (with the backend's message, e.g.
- * "not configured") if sending fails. */
+// Values for an approved Meta template's {{1}}…{{4}} placeholders — invoice
+// number, date, total, balance due — used instead of `message` when the
+// store has a template configured (see Settings > Notifications).
+function saleWhatsAppTemplateParams(sale: SaleForInvoice) {
+  return [
+    sale.saleNumber,
+    new Date(sale.date).toLocaleDateString(),
+    formatCurrency(Number(sale.grandTotal)),
+    formatCurrency(Number(sale.balanceDue ?? 0)),
+  ];
+}
+
+/** Sends a sale invoice over WhatsApp (Meta Cloud API — Settings >
+ * Notifications) as a PDF of the same INVOICE_A4 document staff print, with
+ * the plain-text summary as its caption (or the template's placeholders,
+ * when the store uses one). No fallback, since a WhatsApp sender number
+ * can't be shared the way SMTP can. Throws (with the backend's message,
+ * e.g. "not configured") if sending fails. */
 export async function sendSaleInvoiceWhatsApp(sale: SaleForInvoice, to: string) {
-  await api.post('/notifications/whatsapp', {
-    store: sale.storeId,
-    to,
-    message: saleWhatsAppMessage(sale),
-  });
+  const html = await buildInvoiceHtml(sale);
+  const pdf = await htmlToPdfBlob(html);
+  const form = new FormData();
+  if (sale.storeId) form.append('store', sale.storeId);
+  form.append('to', to);
+  form.append('message', saleWhatsAppMessage(sale));
+  form.append('templateParams', JSON.stringify(saleWhatsAppTemplateParams(sale)));
+  form.append('document', pdf, `Invoice-${sale.saleNumber}.pdf`);
+  await api.post('/notifications/whatsapp', form);
 }
 
 /** A GRN-style supplier invoice for a stock receipt — same INVOICE_A4

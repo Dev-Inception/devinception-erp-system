@@ -1,57 +1,154 @@
 const ApiError = require('../utils/ApiError');
 
 /**
- * WhatsApp sending over Twilio's WhatsApp API (see docs/INTEGRATIONS.md).
- * Credentials are per-store (Settings.twilioAccountSid/twilioAuthToken/
- * twilioWhatsAppFrom, with a fallback to the super-admin's global row — see
- * settingsService.getSettings), unlike email, which also has a global env
- * fallback: WhatsApp has no such fallback, since Twilio numbers can't be
- * shared the way a from-address can — an unconfigured store simply can't
- * send until it (or the platform) sets up Twilio.
+ * WhatsApp sending over Meta's WhatsApp Cloud API (see docs/INTEGRATIONS.md).
+ * Credentials are per-store (Settings.whatsappPhoneNumberId/
+ * whatsappAccessToken, plus an optional approved template), with a fallback
+ * to the super-admin's global row — see settingsService.getSettings. Unlike
+ * email there's no env fallback: a sender number belongs to one business, so
+ * an unconfigured store simply can't send until it (or the platform) sets
+ * one up.
+ *
+ * Meta only delivers free-form text inside the 24h window after a customer
+ * last messaged the business. Outside it, the API still answers 200 and the
+ * message is silently dropped — so for real invoices a store should set an
+ * approved template, and when one is set every send uses it.
+ *
+ * An attached PDF (the rendered invoice) is first uploaded to Meta's media
+ * store, then sent by its media id — as a document message with the text as
+ * its caption, or as the template's DOCUMENT header when a template is set.
  */
 
-// A WhatsApp number must be in the `whatsapp:+<countrycode><number>` form
-// Twilio expects — accepts a bare +E.164 number too and prefixes it.
-function toWhatsAppAddress(raw) {
-  const trimmed = String(raw || '').trim();
-  if (!trimmed) return '';
-  return trimmed.startsWith('whatsapp:') ? trimmed : `whatsapp:${trimmed}`;
-}
+// Pinned Graph API version. Meta supports each version for about two years —
+// bump this when it nears end of life.
+const GRAPH_VERSION = 'v23.0';
 
-async function sendWhatsAppMessage({ accountSid, authToken, from, to, body }) {
-  if (!accountSid || !authToken || !from) {
+// Meta wants the international number as bare digits (country code, no `+`).
+// A local number starting with 0 can't be resolved to a country, so it's
+// refused with a hint rather than sent somewhere wrong.
+function toRecipient(raw) {
+  let digits = String(raw || '').replace(/\D/g, '');
+  if (digits.startsWith('00')) digits = digits.slice(2);
+  if (!digits) throw ApiError.badRequest('A recipient phone number is required');
+  if (digits.startsWith('0')) {
     throw ApiError.badRequest(
-      'WhatsApp is not configured for this store yet — add Twilio credentials in Settings.',
+      'Enter the WhatsApp number with its country code (e.g. 923001234567 instead of 03001234567).',
     );
   }
-  if (!to) throw ApiError.badRequest('A recipient phone number is required');
+  return digits;
+}
 
-  const url = `https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(accountSid)}/Messages.json`;
-  const params = new URLSearchParams({
-    From: toWhatsAppAddress(from),
-    To: toWhatsAppAddress(to),
-    Body: body,
-  });
+// Template parameters can't contain newlines, tabs or more than four
+// consecutive spaces — Meta rejects the whole send if they do.
+function toTemplateText(value) {
+  return String(value ?? '')
+    .replace(/[\r\n\t]+/g, ' ')
+    .replace(/ {4,}/g, '   ')
+    .trim();
+}
 
+function buildPayload({ to, body, templateName, templateLanguage, templateParams, media }) {
+  const base = { messaging_product: 'whatsapp', recipient_type: 'individual', to };
+  if (!templateName) {
+    if (media) {
+      // Document captions are capped at 1024 characters.
+      const document = { id: media.id, filename: media.filename, caption: body.slice(0, 1024) };
+      return { ...base, type: 'document', document };
+    }
+    return { ...base, type: 'text', text: { preview_url: false, body } };
+  }
+  const params = (templateParams || []).map(toTemplateText);
+  const components = [];
+  if (media) {
+    components.push({
+      type: 'header',
+      parameters: [{ type: 'document', document: { id: media.id, filename: media.filename } }],
+    });
+  }
+  if (params.length) {
+    components.push({ type: 'body', parameters: params.map((text) => ({ type: 'text', text })) });
+  }
+  return {
+    ...base,
+    type: 'template',
+    template: {
+      name: templateName,
+      language: { code: templateLanguage || 'en' },
+      ...(components.length && { components }),
+    },
+  };
+}
+
+async function metaError(res) {
+  let message = `Meta request failed (${res.status})`;
+  try {
+    const { error } = await res.json();
+    // `error_data.details` is usually the most specific explanation (e.g.
+    // which template parameter was wrong); `message` is the fallback.
+    if (error?.error_data?.details || error?.message) {
+      message = error.error_data?.details || error.message;
+    }
+  } catch {
+    // Meta's error body wasn't JSON — keep the generic message above.
+  }
+  return ApiError.badRequest(`Could not send WhatsApp message: ${message}`);
+}
+
+// Uploads a PDF to Meta's media store and returns its id. Media lives there
+// for 30 days, well past the moment it's delivered.
+async function uploadDocument({ phoneNumberId, accessToken, document }) {
+  const form = new FormData();
+  form.append('messaging_product', 'whatsapp');
+  form.append('type', 'application/pdf');
+  form.append('file', new Blob([document.buffer], { type: 'application/pdf' }), document.filename);
+  const res = await fetch(
+    `https://graph.facebook.com/${GRAPH_VERSION}/${encodeURIComponent(phoneNumberId)}/media`,
+    { method: 'POST', headers: { Authorization: `Bearer ${accessToken}` }, body: form },
+  );
+  if (!res.ok) throw await metaError(res);
+  const { id } = await res.json();
+  return { id, filename: document.filename };
+}
+
+async function sendWhatsAppMessage({
+  phoneNumberId,
+  accessToken,
+  templateName,
+  templateLanguage,
+  to,
+  body,
+  templateParams,
+  document,
+}) {
+  if (!phoneNumberId || !accessToken) {
+    throw ApiError.badRequest(
+      'WhatsApp is not configured for this store yet — add the Meta WhatsApp details in Settings.',
+    );
+  }
+
+  const recipient = toRecipient(to);
+  const media = document && (await uploadDocument({ phoneNumberId, accessToken, document }));
+
+  const url = `https://graph.facebook.com/${GRAPH_VERSION}/${encodeURIComponent(phoneNumberId)}/messages`;
   const res = await fetch(url, {
     method: 'POST',
     headers: {
-      'Content-Type': 'application/x-www-form-urlencoded',
-      Authorization: `Basic ${Buffer.from(`${accountSid}:${authToken}`).toString('base64')}`,
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${accessToken}`,
     },
-    body: params,
+    body: JSON.stringify(
+      buildPayload({
+        to: recipient,
+        body,
+        templateName,
+        templateLanguage,
+        templateParams,
+        media,
+      }),
+    ),
   });
 
-  if (!res.ok) {
-    let message = `Twilio request failed (${res.status})`;
-    try {
-      const errBody = await res.json();
-      if (errBody?.message) message = errBody.message;
-    } catch {
-      // Twilio's error body wasn't JSON — keep the generic message above.
-    }
-    throw ApiError.badRequest(`Could not send WhatsApp message: ${message}`);
-  }
+  if (!res.ok) throw await metaError(res);
 }
 
 module.exports = { sendWhatsAppMessage };

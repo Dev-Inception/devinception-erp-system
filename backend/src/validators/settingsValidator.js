@@ -44,15 +44,26 @@ const updateSettingsValidator = [
     .withMessage('Invalid website URL')
     .isLength({ max: 300 }),
   body('store').optional({ values: 'falsy' }).isMongoId().withMessage('Invalid store'),
-  // Notification config (SMTP + Twilio WhatsApp) — see docs/INTEGRATIONS.md.
+  // Notification config (SMTP + Meta WhatsApp) — see docs/INTEGRATIONS.md.
   body('smtpHost').optional({ values: 'falsy' }).trim().isLength({ max: 200 }),
   body('smtpPort').optional({ values: 'falsy' }).isInt({ min: 1, max: 65535 }).toInt(),
   body('smtpUser').optional({ values: 'falsy' }).trim().isLength({ max: 200 }),
   body('smtpPass').optional({ values: 'falsy' }).isLength({ max: 300 }),
   body('smtpFrom').optional({ values: 'falsy' }).trim().isLength({ max: 200 }),
-  body('twilioAccountSid').optional({ values: 'falsy' }).trim().isLength({ max: 120 }),
-  body('twilioAuthToken').optional({ values: 'falsy' }).trim().isLength({ max: 120 }),
-  body('twilioWhatsAppFrom').optional({ values: 'falsy' }).trim().isLength({ max: 40 }),
+  body('whatsappPhoneNumberId')
+    .optional({ values: 'falsy' })
+    .trim()
+    .isNumeric()
+    .withMessage('Phone number ID is the numeric ID from Meta, not the phone number itself')
+    .isLength({ max: 60 }),
+  body('whatsappAccessToken').optional({ values: 'falsy' }).trim().isLength({ max: 1000 }),
+  body('whatsappTemplateName')
+    .optional({ values: 'falsy' })
+    .trim()
+    .matches(/^[a-z0-9_]+$/)
+    .withMessage('Template names are lowercase letters, numbers and underscores')
+    .isLength({ max: 120 }),
+  body('whatsappTemplateLanguage').optional({ values: 'falsy' }).trim().isLength({ max: 20 }),
   body('labourPricingMode')
     .optional({ values: 'falsy' })
     .isIn(['DIRECT', 'PENDING'])

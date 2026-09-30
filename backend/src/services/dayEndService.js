@@ -221,7 +221,7 @@ async function openDay(actor, { store }) {
 }
 
 async function closeDay(actor, { store, handoverAmount }) {
-  const handover = toPaisa(handoverAmount);
+  const handover = toPaisa(handoverAmount || 0);
   if (handover < 0) throw ApiError.badRequest('The amount submitted cannot be negative');
   const { DayEnd } = initializeModels();
   return getPostgres().transaction(async (transaction) => {
