@@ -2,6 +2,7 @@ const app = require('./src/app');
 const connectDB = require('./src/config/db');
 const env = require('./src/config/env');
 const { closePostgres } = require('./src/db/postgres');
+const whatsappLinkService = require('./src/services/whatsappLinkService');
 
 async function start() {
   try {
@@ -10,6 +11,13 @@ async function start() {
     const server = app.listen(env.port, () => {
       // eslint-disable-next-line no-console
       console.log(`Server running on http://localhost:${env.port} (${env.nodeEnv})`);
+    });
+
+    // Reconnect linked WhatsApp numbers in the background — a slow or failed
+    // reconnect must never hold up (or crash) the API.
+    whatsappLinkService.restoreSessions().catch((err) => {
+      // eslint-disable-next-line no-console
+      console.error('Failed to restore WhatsApp sessions:', err);
     });
 
     // Graceful shutdown

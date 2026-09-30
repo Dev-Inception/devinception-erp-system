@@ -53,7 +53,39 @@ disk/S3 and does not return a URL. Company name/address/phone come from env
 The stream lifecycle handles client disconnects (`res.on("close")` destroys the
 doc) and surfaces a clean error only if generation fails before any bytes are sent.
 
-## 3. WhatsApp integration ✅ (Meta WhatsApp Cloud API)
+## 3. WhatsApp integration ✅ (linked number, or Meta WhatsApp Cloud API)
+
+### 3a. Linked number (default)
+
+Each store links its own WhatsApp number — personal or WhatsApp Business app —
+from Settings → Notifications → **Link WhatsApp**, by scanning a QR code with
+the phone (WhatsApp → Settings → Linked devices → Link a device), exactly like
+WhatsApp Web. Invoices then go out from that number as a PDF with the summary
+as caption, and appear in the phone's own chats.
+
+- [`backend/src/services/whatsappLinkService.js`](../backend/src/services/whatsappLinkService.js)
+  drives the session with **Baileys** (unofficial WhatsApp Web client,
+  pinned to `7.0.0-rc14`; ESM, loaded with `import()`).
+- Routes (`settings:manage`): `GET /whatsapp-link` (status + QR data URL),
+  `POST /whatsapp-link/connect`, `POST /whatsapp-link/unlink`, all taking
+  `?store=` like Settings. A super admin with no store selected links the
+  **global** number, which stores without their own link fall back to.
+- `POST /notifications/whatsapp` uses the store's linked number if connected,
+  else the global one, else Meta (§3b). The recipient is checked with
+  `onWhatsApp` first, so an unregistered number fails with a clear message.
+- Sessions are saved to `WHATSAPP_SESSIONS_DIR` (default
+  `backend/storage/whatsapp-sessions`, git-ignored) and reconnected at server
+  start. They are credentials — keep the folder private and outside the
+  deploy folder so a redeploy doesn't unlink everyone.
+- Sockets live in the backend process: run **one** backend instance. A second
+  process on the same session kicks the first off (`connectionReplaced`).
+- Logging out from the phone (Linked devices → Log out), or the phone being
+  offline for ~14 days, ends the link; Settings then shows "Link WhatsApp" again.
+- Risk: this is not Meta's official API. WhatsApp may ban numbers that look
+  automated — especially bulk messages to people who haven't saved the
+  number — and protocol changes can break sending until Baileys is updated.
+
+### 3b. Meta WhatsApp Cloud API (optional fallback)
 
 `POST /notifications/whatsapp` (multipart: `store?`, `to`, `message`,
 `templateParams?` as a JSON array, and `document?` — a PDF; gated by

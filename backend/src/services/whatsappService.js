@@ -122,7 +122,7 @@ async function sendWhatsAppMessage({
 }) {
   if (!phoneNumberId || !accessToken) {
     throw ApiError.badRequest(
-      'WhatsApp is not configured for this store yet — add the Meta WhatsApp details in Settings.',
+      'WhatsApp is not set up for this store yet — link a WhatsApp number (or add Meta API details) in Settings.',
     );
   }
 
@@ -151,4 +151,4 @@ async function sendWhatsAppMessage({
   if (!res.ok) throw await metaError(res);
 }
 
-module.exports = { sendWhatsAppMessage };
+module.exports = { sendWhatsAppMessage, toRecipient };

@@ -1,5 +1,6 @@
 const settingsService = require('../services/settingsService');
 const emailService = require('../services/emailService');
+const whatsappLinkService = require('../services/whatsappLinkService');
 const asyncHandler = require('../utils/asyncHandler');
 const { sendSuccess } = require('../utils/ApiResponse');
 
@@ -41,7 +42,9 @@ function serialize(settings) {
     // same checks POST /notifications/{email,whatsapp} apply, so the Sales
     // list only offers the channels that are set up.
     emailConfigured: emailService.isEmailConfiguredAs(s),
-    whatsappConfigured: !!(s.whatsappPhoneNumberId && s.whatsappAccessToken),
+    whatsappConfigured:
+      !!whatsappLinkService.senderFor(s.store) ||
+      !!(s.whatsappPhoneNumberId && s.whatsappAccessToken),
   };
 }
 

@@ -1,6 +1,7 @@
 const settingsService = require('../services/settingsService');
 const emailService = require('../services/emailService');
 const whatsappService = require('../services/whatsappService');
+const whatsappLinkService = require('../services/whatsappLinkService');
 const asyncHandler = require('../utils/asyncHandler');
 const { sendSuccess } = require('../utils/ApiResponse');
 const ApiError = require('../utils/ApiError');
@@ -33,6 +34,24 @@ const sendEmail = asyncHandler(async (req, res) => {
 const sendWhatsApp = asyncHandler(async (req, res) => {
   const { store, to, message, templateParams } = req.body;
   const settings = await settingsService.getSettings({ store, actor: req.user });
+  // The invoice PDF (multipart `document`) when the frontend attached one.
+  const document = req.file && {
+    buffer: req.file.buffer,
+    filename: req.file.originalname || 'invoice.pdf',
+  };
+
+  // A linked number (the store's own, else the super admin's) takes
+  // priority; Meta's Cloud API is the fallback.
+  const linked = whatsappLinkService.senderFor(settings.store);
+  if (linked) {
+    await whatsappLinkService.send(linked, {
+      to: whatsappService.toRecipient(to),
+      text: message,
+      document,
+    });
+    return sendSuccess(res, 200, 'WhatsApp message sent');
+  }
+
   await whatsappService.sendWhatsAppMessage({
     phoneNumberId: settings.whatsappPhoneNumberId,
     accessToken: settings.whatsappAccessToken,
@@ -41,11 +60,7 @@ const sendWhatsApp = asyncHandler(async (req, res) => {
     to,
     body: message,
     templateParams,
-    // The invoice PDF (multipart `document`) when the frontend attached one.
-    document: req.file && {
-      buffer: req.file.buffer,
-      filename: req.file.originalname || 'invoice.pdf',
-    },
+    document,
   });
   return sendSuccess(res, 200, 'WhatsApp message sent');
 });
