@@ -35,7 +35,7 @@ function defaults() {
 // and left untouched by an update that doesn't actually send a new value (see
 // updateSettings below) — so the UI can't accidentally blank out a saved
 // credential just by re-saving the rest of the form.
-const SECRET_FIELDS = ['smtpPass', 'twilioAuthToken'];
+const SECRET_FIELDS = ['smtpPass', 'whatsappAccessToken'];
 
 async function findOrCreateSettings(targetStore) {
   const { Settings } = initializeModels();
@@ -82,9 +82,10 @@ const FALLBACK_FIELDS = [
   'smtpUser',
   'smtpPass',
   'smtpFrom',
-  'twilioAccountSid',
-  'twilioAuthToken',
-  'twilioWhatsAppFrom',
+  'whatsappPhoneNumberId',
+  'whatsappAccessToken',
+  'whatsappTemplateName',
+  'whatsappTemplateLanguage',
 ];
 
 async function getSettings({ store, actor } = {}) {
@@ -119,8 +120,9 @@ const WRITABLE = [
   'smtpPort',
   'smtpUser',
   'smtpFrom',
-  'twilioAccountSid',
-  'twilioWhatsAppFrom',
+  'whatsappPhoneNumberId',
+  'whatsappTemplateName',
+  'whatsappTemplateLanguage',
   // Per-store operational choice, deliberately not in FALLBACK_FIELDS — a
   // store always has its own value (defaults to DIRECT).
   'labourPricingMode',

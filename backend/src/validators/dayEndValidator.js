@@ -15,7 +15,10 @@ const openDayValidator = [body('store').isMongoId().withMessage('A valid store i
 
 const closeDayValidator = [
   body('store').isMongoId().withMessage('A valid store is required'),
-  body('handoverAmount').isFloat({ min: 0 }).withMessage('A valid amount to submit is required'),
+  body('handoverAmount')
+    .optional({ values: 'falsy' })
+    .isFloat({ min: 0 })
+    .withMessage('The amount submitted must be zero or more'),
 ];
 
 const reopenDayValidator = [body('store').isMongoId().withMessage('A valid store is required')];

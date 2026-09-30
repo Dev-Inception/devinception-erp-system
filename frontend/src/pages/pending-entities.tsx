@@ -17,6 +17,7 @@ import {
 import { cn, formatCurrency } from '@/lib/utils';
 import { api } from '@/lib/api';
 import { useAuthStore } from '@/store/auth';
+import { useStorefrontFilter } from '@/store/storefront';
 import { grantsPermission } from '@/lib/modules';
 import { useLanguage } from '@/components/language-provider';
 
@@ -494,13 +495,17 @@ export function PendingEntitiesPage() {
   const [sourceType, setSourceType] = useState<SourceType | ''>('');
   const [page, setPage] = useState(1);
   const [viewing, setViewing] = useState<PendingInvoice | null>(null);
+  // The header's store switcher — each store has its own queue. The backend
+  // already confines an actor to their own stores; this narrows a multi-store
+  // admin or super admin to the one they've picked ("All Stores" sends none).
+  const storefront = useStorefrontFilter();
 
   useEffect(() => {
     setPage(1);
-  }, [status, search, sourceType]);
+  }, [status, search, sourceType, storefront.store]);
 
   const { data, isLoading } = useQuery({
-    queryKey: ['pending-invoices', status, search, sourceType, page],
+    queryKey: ['pending-invoices', status, search, sourceType, page, storefront.store],
     queryFn: async () =>
       (
         await api.get('/pending-entities/invoices', {
@@ -510,6 +515,7 @@ export function PendingEntitiesPage() {
             sourceType: sourceType || undefined,
             page,
             limit: PAGE_SIZE,
+            ...storefront,
           },
         })
       ).data as { invoices: PendingInvoice[]; total: number },

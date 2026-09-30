@@ -53,28 +53,63 @@ disk/S3 and does not return a URL. Company name/address/phone come from env
 The stream lifecycle handles client disconnects (`res.on("close")` destroys the
 doc) and surfaces a clean error only if generation fails before any bytes are sent.
 
-## 3. WhatsApp integration ✅ (Twilio)
+## 3. WhatsApp integration ✅ (Meta WhatsApp Cloud API)
 
-`POST /notifications/whatsapp` (`{ store?, to, message }`, gated by
-`sales:read`) sends a plain-text message via **Twilio's WhatsApp API**
-([`backend/src/services/whatsappService.js`](../backend/src/services/whatsappService.js)),
-using `Settings.twilioAccountSid` / `twilioAuthToken` / `twilioWhatsAppFrom`
-(per store, with a fallback to the super-admin's global row — see §5). There
-is **no fallback to a shared/platform Twilio number** — an unconfigured store
-gets a clear 400 ("add Twilio credentials in Settings") rather than silently
-using someone else's sender.
+`POST /notifications/whatsapp` (multipart: `store?`, `to`, `message`,
+`templateParams?` as a JSON array, and `document?` — a PDF; gated by
+`sales:read`) sends a message via **Meta's WhatsApp Cloud API**
+(`graph.facebook.com/<version>/<phone-number-id>/messages`,
+[`backend/src/services/whatsappService.js`](../backend/src/services/whatsappService.js)),
+using `Settings.whatsappPhoneNumberId` / `whatsappAccessToken` and the optional
+`whatsappTemplateName` / `whatsappTemplateLanguage` (per store, with a fallback
+to the super-admin's global row — see §5). There is **no fallback to a
+shared/platform sender** — an unconfigured store gets a clear 400 ("add the
+Meta WhatsApp details in Settings") rather than silently using someone else's
+number.
 
-The frontend builds the message (a short plain-text invoice summary — number,
-date, total, balance due — see `sendSaleInvoiceWhatsApp` in
-[`frontend/src/lib/invoicePopup.ts`](../frontend/src/lib/invoicePopup.ts)) and
-posts it here; there is no rich WhatsApp layout (no PDF/document attachment).
-The Sales list's "Send via WhatsApp" action (`frontend/src/pages/sales.tsx` →
-`SendInvoiceDialog`) defaults the recipient to the customer's phone on file,
-editable per send.
+Two sending modes, picked by whether the store has a template name set:
 
-Setup (per store, in Settings → Notifications): sign up at twilio.com, grab
-the Account SID + Auth Token from the console, and either join the WhatsApp
-Sandbox for testing or apply for a production WhatsApp Sender.
+- **No template:** the PDF goes out as a document message with `message` as
+  its caption (plain text if no PDF is attached). Meta only delivers this
+  inside the 24h window after the customer last messaged the business —
+  outside it the API still answers 200 and the message is dropped, so this is
+  mainly for testing.
+- **Template:** every send uses the approved template — the PDF fills its
+  DOCUMENT header and `templateParams` fill its body placeholders in order.
+  Newlines/tabs in parameters are flattened, since Meta rejects them. The
+  frontend sends `[invoice number, date, total, balance due]`, so the template
+  body should use `{{1}}`–`{{4}}` in that order.
+
+The PDF is uploaded to Meta's media endpoint (`/<phone-number-id>/media`)
+first and sent by media id; the backend holds it in memory only (multer
+memory storage, PDF only, 10 MB cap) and never writes it to disk.
+
+Recipient numbers must include the country code (`923001234567`, `+92 300
+1234567`, or `0092…`); a local `03…` number is refused with a hint.
+
+The frontend builds the PDF, the caption and the template parameters (see
+`sendSaleInvoiceWhatsApp` in
+[`frontend/src/lib/invoicePopup.ts`](../frontend/src/lib/invoicePopup.ts)). The
+PDF is the same INVOICE_A4 HTML staff print, rendered in an offscreen iframe
+and rasterised to A4 pages with html2canvas + jsPDF
+([`frontend/src/lib/htmlToPdf.ts`](../frontend/src/lib/htmlToPdf.ts)), so its
+text isn't selectable. The Sales list's "Send via WhatsApp"
+action (`frontend/src/pages/sales.tsx` → `SendInvoiceDialog`) defaults the
+recipient to the customer's phone on file, editable per send.
+
+Setup (per store, in Settings → Notifications):
+
+1. In Meta for Developers, create a **Business** app and add the WhatsApp
+   product; register the business phone number.
+2. WhatsApp → API Setup shows the **Phone number ID** (not the number itself).
+3. In Business Settings → System Users, create a system user, give it the app
+   and WhatsApp account, and generate a permanent token with
+   `whatsapp_business_messaging` permission. The temporary token on API Setup
+   expires in 24h.
+4. In WhatsApp Manager, create a **Utility** template with a **Document**
+   header and a body such as
+   `Invoice {{1}} dated {{2}}. Total: {{3}}. Balance due: {{4}}. Thank you for shopping with us!`,
+   wait for approval, and enter its name and language code (e.g. `en`).
 
 ## 4. Email integration ✅
 
@@ -104,13 +139,13 @@ and no notification/event emission (no realtime layer) — sending is fire-and-f
 `Settings` (one row per store, plus a `store IS NULL` global row — see
 [`backend/src/services/settingsService.js`](../backend/src/services/settingsService.js))
 persists company identity, invoice note, branding/social links, and
-notification config (SMTP + Twilio WhatsApp). A store row that hasn't set a
+notification config (SMTP + Meta WhatsApp). A store row that hasn't set a
 given field falls back to the super-admin's global row (`FALLBACK_FIELDS`),
 so a store only needs to override what's different for it; `env.company.*`
 only seeds the _global_ row's initial defaults now, it isn't read live.
 
-Secrets (`smtpPass`, `twilioAuthToken`) never round-trip raw over
-`GET /settings` — only a `smtpPassSet`/`twilioAuthTokenSet` boolean — and
+Secrets (`smtpPass`, `whatsappAccessToken`) never round-trip raw over
+`GET /settings` — only a `smtpPassSet`/`whatsappAccessTokenSet` boolean — and
 `PUT /settings` only overwrites one when a non-empty value is actually sent,
 so the Settings UI can't display or accidentally blank out a saved
 credential (see `settingsController.serialize` / `settingsService.updateSettings`).

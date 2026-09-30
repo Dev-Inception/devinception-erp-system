@@ -1380,13 +1380,15 @@ async function realRecordSalePayment(id: string, body: any) {
 }
 
 /* ── Sending a document (invoice) on to a customer — the frontend renders
-   the content (same INVOICE_A4 HTML as printing, or a plain-text summary
-   for WhatsApp) and this just relays it through the store's configured
-   SMTP/Twilio credentials (see Settings > Notifications). ── */
+   the content (same INVOICE_A4 HTML as printing — as HTML for email, as a
+   PDF for WhatsApp) and this just relays it through the store's configured
+   SMTP/Meta WhatsApp credentials (see Settings > Notifications). ── */
 async function realSendEmail(body: { store?: string; to: string; subject: string; html: string }) {
   return (await http.post('/notifications/email', body)).data;
 }
-async function realSendWhatsApp(body: { store?: string; to: string; message: string }) {
+// Multipart: to, message, templateParams (JSON), optional store, and the
+// invoice PDF as `document`. Axios sets the boundary.
+async function realSendWhatsApp(body: FormData) {
   return (await http.post('/notifications/whatsapp', body)).data;
 }
 function mapSaleReturn(r: any) {
@@ -1953,6 +1955,7 @@ async function realListPendingEntities(params: any = {}) {
       supplier: params.supplierId || undefined,
       sourceType: params.sourceType || undefined,
       search: params.search || undefined,
+      store: params.store || undefined,
     },
   });
   return {
@@ -1988,6 +1991,7 @@ async function realListPendingInvoices(params: any = {}) {
       supplier: params.supplierId || undefined,
       sourceType: params.sourceType || undefined,
       search: params.search || undefined,
+      store: params.store || undefined,
     },
   });
   return {
@@ -2678,9 +2682,10 @@ async function realUpdateSettings(body: any, params: any) {
         smtpUser: body.smtpUser,
         smtpPass: body.smtpPass || undefined,
         smtpFrom: body.smtpFrom,
-        twilioAccountSid: body.twilioAccountSid,
-        twilioAuthToken: body.twilioAuthToken || undefined,
-        twilioWhatsAppFrom: body.twilioWhatsAppFrom,
+        whatsappPhoneNumberId: body.whatsappPhoneNumberId,
+        whatsappAccessToken: body.whatsappAccessToken || undefined,
+        whatsappTemplateName: body.whatsappTemplateName,
+        whatsappTemplateLanguage: body.whatsappTemplateLanguage,
         labourPricingMode: body.labourPricingMode || undefined,
       },
       { params },

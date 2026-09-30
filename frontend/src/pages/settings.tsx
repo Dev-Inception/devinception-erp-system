@@ -32,10 +32,11 @@ interface Settings {
   smtpPass?: string;
   smtpPassSet?: boolean;
   smtpFrom?: string;
-  twilioAccountSid?: string;
-  twilioAuthToken?: string;
-  twilioAuthTokenSet?: boolean;
-  twilioWhatsAppFrom?: string;
+  whatsappPhoneNumberId?: string;
+  whatsappAccessToken?: string;
+  whatsappAccessTokenSet?: boolean;
+  whatsappTemplateName?: string;
+  whatsappTemplateLanguage?: string;
   labourPricingMode?: LabourPricingMode;
 }
 
@@ -347,40 +348,49 @@ export function SettingsPage() {
             </div>
 
             <div className="space-y-3 border-t pt-4">
-              <Label className="text-muted-foreground">{t('WhatsApp (Twilio)')}</Label>
+              <Label className="text-muted-foreground">{t('WhatsApp (Meta Cloud API)')}</Label>
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="space-y-1.5">
-                  <Label>{t('Twilio Account SID')}</Label>
+                  <Label>{t('Phone number ID')}</Label>
                   <Input
-                    placeholder="ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-                    value={form.twilioAccountSid ?? ''}
-                    onChange={(e) => field('twilioAccountSid', e.target.value)}
+                    inputMode="numeric"
+                    placeholder="106540352242922"
+                    value={form.whatsappPhoneNumberId ?? ''}
+                    onChange={(e) => field('whatsappPhoneNumberId', e.target.value)}
                   />
                 </div>
                 <div className="space-y-1.5">
-                  <Label>{t('Twilio Auth Token')}</Label>
+                  <Label>{t('Access token')}</Label>
                   <Input
                     type="password"
                     autoComplete="new-password"
                     placeholder={
-                      form.twilioAuthTokenSet ? '••••••••  (saved — leave blank to keep)' : ''
+                      form.whatsappAccessTokenSet ? '••••••••  (saved — leave blank to keep)' : ''
                     }
-                    value={form.twilioAuthToken ?? ''}
-                    onChange={(e) => field('twilioAuthToken', e.target.value)}
+                    value={form.whatsappAccessToken ?? ''}
+                    onChange={(e) => field('whatsappAccessToken', e.target.value)}
                   />
                 </div>
-                <div className="col-span-2 space-y-1.5">
-                  <Label>{t('WhatsApp-enabled number')}</Label>
+                <div className="space-y-1.5">
+                  <Label>{t('Invoice template name')}</Label>
                   <Input
-                    placeholder="whatsapp:+14155238886"
-                    value={form.twilioWhatsAppFrom ?? ''}
-                    onChange={(e) => field('twilioWhatsAppFrom', e.target.value)}
+                    placeholder="sale_invoice"
+                    value={form.whatsappTemplateName ?? ''}
+                    onChange={(e) => field('whatsappTemplateName', e.target.value)}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>{t('Template language')}</Label>
+                  <Input
+                    placeholder="en"
+                    value={form.whatsappTemplateLanguage ?? ''}
+                    onChange={(e) => field('whatsappTemplateLanguage', e.target.value)}
                   />
                 </div>
               </div>
               <p className="text-xs text-muted-foreground">
                 {t(
-                  "Sign up at twilio.com → Console gives you the Account SID and Auth Token right on the dashboard. For testing, join Twilio's WhatsApp Sandbox (Messaging → Try it out → Send a WhatsApp message) and use its sandbox number — free, but customers must first send your sandbox its join code. For real customers, apply for a Twilio WhatsApp Sender with your own business number (takes Meta a few days to approve).",
+                  'In Meta for Developers, create a Business app and add WhatsApp. WhatsApp → API Setup shows the Phone number ID. For the access token, create a System User in Business Settings with a permanent token (the temporary one on API Setup expires in 24 hours). Invoices are sent as a PDF. Without a template, customers only receive them within 24 hours of last messaging you. To reach any customer, create a Utility template in WhatsApp Manager with a Document header and a body like "Invoice {{1}} dated {{2}}. Total: {{3}}. Balance due: {{4}}. Thank you for shopping with us!", wait for approval, then enter its name and language code here.',
                 )}
               </p>
             </div>

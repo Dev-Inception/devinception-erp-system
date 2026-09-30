@@ -94,14 +94,14 @@ export function DayEndCloseDialog({
             </div>
           </div>
           <div className="space-y-1.5">
-            <Label>{t('Amount submitted to admin')} *</Label>
+            <Label>{t('Amount submitted to admin')}</Label>
             <Input
               type="number"
               min={0}
               step="0.01"
               value={handoverAmount || ''}
               onChange={(e) => setHandoverAmount(Number(e.target.value))}
-              required
+              placeholder="0"
               autoFocus
             />
           </div>

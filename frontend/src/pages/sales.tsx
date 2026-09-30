@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQueries, useQuery } from '@tanstack/react-query';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   ShoppingCart,
@@ -141,6 +141,23 @@ export function SalesPage() {
   });
   const sales = data?.sales ?? [];
   const total = data?.total ?? 0;
+  // Which send channels each store on this page has set up (Settings >
+  // Notifications) — the Send via Email/WhatsApp actions only show when
+  // sending would actually work. Shares the Settings page's cache key, so
+  // saving there refreshes these.
+  const saleStoreIds = [...new Set(sales.map((s) => s.storeId ?? ''))];
+  const channelsByStore = useQueries({
+    queries: saleStoreIds.map((storeId) => ({
+      queryKey: ['settings', storeId || undefined],
+      queryFn: async () =>
+        (await api.get('/settings', storeId ? { params: { store: storeId } } : undefined)).data as {
+          emailConfigured?: boolean;
+          whatsappConfigured?: boolean;
+        },
+      staleTime: 60_000,
+    })),
+    combine: (results) => Object.fromEntries(saleStoreIds.map((id, i) => [id, results[i]?.data])),
+  });
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   // Set from a DropdownMenuItem click — either a sale's own gate pass or one
   // of a return's, so a single dialog instance below handles both.
@@ -333,16 +350,20 @@ export function SalesPage() {
                             <DropdownMenuItem onSelect={() => setViewingInvoiceFor(s)}>
                               <FileText className="h-4 w-4" /> View Invoice
                             </DropdownMenuItem>
-                            <DropdownMenuItem
-                              onSelect={() => setSendingInvoice({ sale: s, channel: 'email' })}
-                            >
-                              <Mail className="h-4 w-4" /> {t('Send via Email')}
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                              onSelect={() => setSendingInvoice({ sale: s, channel: 'whatsapp' })}
-                            >
-                              <MessageCircle className="h-4 w-4" /> {t('Send via WhatsApp')}
-                            </DropdownMenuItem>
+                            {channelsByStore[s.storeId ?? '']?.emailConfigured && (
+                              <DropdownMenuItem
+                                onSelect={() => setSendingInvoice({ sale: s, channel: 'email' })}
+                              >
+                                <Mail className="h-4 w-4" /> {t('Send via Email')}
+                              </DropdownMenuItem>
+                            )}
+                            {channelsByStore[s.storeId ?? '']?.whatsappConfigured && (
+                              <DropdownMenuItem
+                                onSelect={() => setSendingInvoice({ sale: s, channel: 'whatsapp' })}
+                              >
+                                <MessageCircle className="h-4 w-4" /> {t('Send via WhatsApp')}
+                              </DropdownMenuItem>
+                            )}
                             {(s.warehouseGatePasses ?? []).map((g) => {
                               const wh = warehouses.find((w) => w.id === g.warehouseId);
                               const multiple = (s.warehouseGatePasses?.length ?? 0) > 1;
