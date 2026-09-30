@@ -11,6 +11,7 @@ import { cn, resizeImageToDataUrl } from '@/lib/utils';
 import { useStorefrontFilter } from '@/store/storefront';
 import { useAuthStore } from '@/store/auth';
 import { useLanguage } from '@/components/language-provider';
+import { WhatsAppLinkPanel } from '@/components/whatsapp-link-panel';
 
 interface Settings {
   companyName: string;
@@ -348,7 +349,19 @@ export function SettingsPage() {
             </div>
 
             <div className="space-y-3 border-t pt-4">
-              <Label className="text-muted-foreground">{t('WhatsApp (Meta Cloud API)')}</Label>
+              <Label className="text-muted-foreground">{t('WhatsApp (linked number)')}</Label>
+              <WhatsAppLinkPanel store={storefront.store} />
+              <p className="text-xs text-muted-foreground">
+                {t(
+                  'Links your own WhatsApp number (personal or WhatsApp Business) the same way WhatsApp Web does. Invoices are then sent from that number as a PDF, and they show up in its chats on the phone. Keep the phone connected to the internet at least once every 14 days, or WhatsApp logs the link out. This uses an unofficial WhatsApp Web connection: sending lots of messages to people who have not saved your number can get the number banned.',
+                )}
+              </p>
+            </div>
+
+            <div className="space-y-3 border-t pt-4">
+              <Label className="text-muted-foreground">
+                {t('WhatsApp (Meta Cloud API) — optional, used only if no number is linked')}
+              </Label>
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="space-y-1.5">
                   <Label>{t('Phone number ID')}</Label>

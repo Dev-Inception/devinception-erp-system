@@ -2655,6 +2655,16 @@ async function realUpload(body: FormData) {
   return { url: res.data.url, name: res.data.name, size: res.data.size };
 }
 
+/* ── Linked WhatsApp number (Settings → Notifications; backend Baileys
+   session per store — see backend/src/services/whatsappLinkService.js) ── */
+async function realWhatsAppLink(action: 'status' | 'connect' | 'unlink', params: any) {
+  const res =
+    action === 'status'
+      ? await http.get('/whatsapp-link', { params })
+      : await http.post(`/whatsapp-link/${action}`, undefined, { params });
+  return res.data;
+}
+
 /* ── Settings (one row per store; backend serializes the exact FE shape) ── */
 async function realSettings(params: any) {
   return (await http.get('/settings', { params })).data;
@@ -2894,6 +2904,7 @@ async function tryReal(
       return wrap(await realPublicGatePass(seg[2]));
     if (seg[0] === 'gate-passes' && seg.length === 2) return wrap(await realGatePassDetail(seg[1]));
     if (url === '/settings') return wrap(await realSettings(params));
+    if (url === '/whatsapp-link') return wrap(await realWhatsAppLink('status', params));
     if (url === '/dashboard/kpis') return wrap(await realDashKpis(params.store as string));
     if (url === '/dashboard/sales-trend') return wrap(await realDashTrend(params.store as string));
     if (url === '/dashboard/top-products') return wrap(await realDashTop(params.store as string));
@@ -2934,6 +2945,8 @@ async function tryReal(
       return wrap(await realRecordSalePayment(seg[1], body));
     if (url === '/notifications/email') return wrap(await realSendEmail(body));
     if (url === '/notifications/whatsapp') return wrap(await realSendWhatsApp(body));
+    if (url === '/whatsapp-link/connect') return wrap(await realWhatsAppLink('connect', params));
+    if (url === '/whatsapp-link/unlink') return wrap(await realWhatsAppLink('unlink', params));
     if (seg[0] === 'sales' && seg[1] && seg[2] === 'returns')
       return wrap(await realCreateSaleReturn(seg[1], body));
     if (url === '/finance/payments/customer') return wrap(await realReceiveCustomerPayment(body));

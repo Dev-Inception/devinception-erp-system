@@ -30,6 +30,7 @@ const gatePassPublicRoutes = require('./gatePassPublicRoutes');
 const dayEndRoutes = require('./dayEndRoutes');
 const subscriptionRoutes = require('./subscriptionRoutes');
 const notificationRoutes = require('./notificationRoutes');
+const whatsappLinkRoutes = require('./whatsappLinkRoutes');
 
 const router = express.Router();
 
@@ -64,6 +65,7 @@ router.use('/pending-entities', pendingEntityRoutes);
 router.use('/day-end', dayEndRoutes);
 router.use('/subscriptions', subscriptionRoutes);
 router.use('/notifications', notificationRoutes);
+router.use('/whatsapp-link', whatsappLinkRoutes);
 // Must be registered before the protected `/gate-passes` mount below —
 // otherwise its `protect` middleware would intercept these paths first.
 router.use('/gate-passes/public', gatePassPublicRoutes);

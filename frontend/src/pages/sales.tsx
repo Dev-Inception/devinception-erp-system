@@ -143,8 +143,9 @@ export function SalesPage() {
   const total = data?.total ?? 0;
   // Which send channels each store on this page has set up (Settings >
   // Notifications) — the Send via Email/WhatsApp actions only show when
-  // sending would actually work. Shares the Settings page's cache key, so
-  // saving there refreshes these.
+  // sending would actually work. Refetched every time the page opens (no
+  // staleTime), since a WhatsApp link can be scanned or logged out from the
+  // phone at any moment; shares the Settings page's cache key too.
   const saleStoreIds = [...new Set(sales.map((s) => s.storeId ?? ''))];
   const channelsByStore = useQueries({
     queries: saleStoreIds.map((storeId) => ({
@@ -154,7 +155,6 @@ export function SalesPage() {
           emailConfigured?: boolean;
           whatsappConfigured?: boolean;
         },
-      staleTime: 60_000,
     })),
     combine: (results) => Object.fromEntries(saleStoreIds.map((id, i) => [id, results[i]?.data])),
   });
