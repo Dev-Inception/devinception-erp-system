@@ -1,19 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { toast } from 'sonner';
-import { useConfirm } from '@/components/confirm-provider';
-import { BookText, ChevronLeft, ChevronRight, Download, Lock, Printer, Unlock } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
+import { BookText, ChevronLeft, ChevronRight, Download, Printer } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { api } from '@/lib/api';
 import { cn, formatCurrency } from '@/lib/utils';
-import { MODULES, canSeeModule } from '@/lib/modules';
 import { useStorefrontFilter, useStorefrontStore } from '@/store/storefront';
-import { useAuthStore } from '@/store/auth';
+import { useHeaderDate, useWorkingDateStore } from '@/store/workingDate';
 import { useLanguage } from '@/components/language-provider';
-import { DayEndCloseDialog } from '@/components/day-end-close-dialog';
 import { DayBookEntryDialog } from '@/components/day-book-entry-dialog';
 
 interface DayEndStatus {
@@ -38,8 +34,6 @@ interface DayEndStatus {
   businessDate?: string;
 }
 
-const DAY_BOOK_MODULE = MODULES.find((m) => m.key === 'day-book');
-
 interface DayBookRow {
   id: string;
   date: string;
@@ -59,6 +53,8 @@ interface CashFlowRow {
   cashIn: number;
   cashOut: number;
   balance: number;
+  // The day's opening cash in hand (from Day Open) — not a journal entry.
+  isOpening?: boolean;
 }
 
 interface BankReconciliationRow {
@@ -85,6 +81,10 @@ interface DayBookSummary {
   bankIn: number;
   bankOut: number;
   netBank: number;
+  // Cash in hand the day was opened with (0 if it wasn't opened that day),
+  // and that plus the day's net cash movement.
+  openingBalance: number;
+  cashOnHand: number;
 }
 
 interface DayBookResult {
@@ -129,22 +129,16 @@ function csvEscape(v: unknown) {
 
 export function DayBookPage() {
   const { t } = useLanguage();
-  const qc = useQueryClient();
   const [date, setDate] = useState(todayStr);
   const [tab, setTab] = useState<'cash-flow' | 'bank-reconciliation'>('cash-flow');
-  const [closeDialogOpen, setCloseDialogOpen] = useState(false);
   const [viewingEntryId, setViewingEntryId] = useState<string | null>(null);
   const today = todayStr();
   const storefront = useStorefrontFilter();
   const currentStoreId = useStorefrontStore((s) => s.currentStoreId);
   const hasSpecificStore = !!currentStoreId && currentStoreId !== 'ALL';
-  const role = useAuthStore((s) => s.user?.role);
-  const permissions = useAuthStore((s) => s.user?.permissions);
-  // Anyone who can see the Day Book at all (same reports:read gate as the
-  // page itself) can open or close the day; reopening a closed day is more
-  // sensitive, so it's reserved for a super admin or this store's own admin.
-  const canOpenClose = !!DAY_BOOK_MODULE && canSeeModule(role, permissions, DAY_BOOK_MODULE);
-  const canReopen = role === 'ADMIN' || role === 'SUPER_ADMIN';
+  // Opening/closing the day lives in the header (DayControl); the Day Book
+  // just follows whichever date is picked there.
+  const workingDate = useWorkingDateStore((s) => s.workingDate);
 
   // The store's live day state (no date): which business day is open right
   // now, even past midnight. Shared cache key with StaleDayGuard.
@@ -154,29 +148,29 @@ export function DayBookPage() {
     enabled: hasSpecificStore,
   });
 
-  // The Date field is only a filter. It starts on the open business day —
-  // so after midnight, a day opened yesterday still shows yesterday — and
-  // after that it only changes when the user changes it.
+  // The Date field is only a filter. It starts on the header's working date,
+  // else the open business day — so after midnight, a day opened yesterday
+  // still shows yesterday — and otherwise only changes when the user (or the
+  // header's date picker) changes it.
   const dateInitialized = useRef(false);
+  const liveBusinessDate = live?.businessDate;
   useEffect(() => {
-    if (dateInitialized.current || !live?.businessDate) return;
+    const initial = workingDate ?? liveBusinessDate;
+    if (dateInitialized.current || !initial) return;
     dateInitialized.current = true;
-    setDate(live.businessDate);
-  }, [live?.businessDate]);
+    setDate(initial);
+  }, [workingDate, liveBusinessDate]);
+  // Picking a date in the header (or going back to the live day) moves the
+  // Day Book with it.
+  const headerDate = useHeaderDate();
+  useEffect(() => {
+    if (dateInitialized.current) setDate(headerDate);
+  }, [headerDate]);
 
-  // The day currently being traded (open or not) — actions only show while
-  // it's the one on screen.
+  // The day currently being traded (open or not).
   const businessDate = live?.businessDate ?? today;
   const isBusinessDay = date === businessDate;
   const liveOpen = !!live?.isOpen && live.state !== 'NONE';
-
-  // Status of the session covering the date on screen (history badge).
-  const { data: dayEnd } = useQuery<DayEndStatus>({
-    queryKey: ['day-end', currentStoreId, date],
-    queryFn: async () =>
-      (await api.get('/day-end', { params: { store: currentStoreId, date } })).data,
-    enabled: hasSpecificStore,
-  });
 
   // One calendar day at a time. Late-night entries are already dated onto
   // the day that was open (11:59 PM), so no multi-day span is needed.
@@ -189,54 +183,6 @@ export function DayBookPage() {
         })
       ).data,
   });
-
-  const invalidateDayEnd = () => {
-    qc.invalidateQueries({ queryKey: ['day-end'] });
-    qc.invalidateQueries({ queryKey: ['day-end-live'] });
-  };
-
-  const openDay = useMutation({
-    mutationFn: async () => (await api.post('/day-end/open', { store: currentStoreId })).data,
-    onSuccess: () => {
-      toast.success('Day opened');
-      // A day always opens on today's date — show it.
-      setDate(todayStr());
-      invalidateDayEnd();
-    },
-    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Could not open the day'),
-  });
-
-  const reopenDay = useMutation({
-    mutationFn: async () => (await api.post('/day-end/reopen', { store: currentStoreId })).data,
-    onSuccess: () => {
-      toast.success('Day reopened');
-      invalidateDayEnd();
-    },
-    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Could not reopen the day'),
-  });
-
-  const confirm = useConfirm();
-  const handleOpenDay = async () => {
-    const carry = live?.remainingBalance;
-    const ok = await confirm({
-      title: 'Open a new day for this store?',
-      description:
-        typeof carry === 'number' && carry !== 0
-          ? `Opening balance will be ${formatCurrency(carry)}, carried forward from the last close.`
-          : undefined,
-      confirmLabel: 'Open Day',
-    });
-    if (ok) openDay.mutate();
-  };
-  const openCloseDialog = () => setCloseDialogOpen(true);
-  const handleReopenDay = async () => {
-    const ok = await confirm({
-      title: 'Reopen the day for this store?',
-      description: "It will accept new sales again until it's closed.",
-      confirmLabel: 'Reopen Day',
-    });
-    if (ok) reopenDay.mutate();
-  };
 
   const summary = data?.summary;
   const cashFlowRows = data?.cashFlowRows ?? [];
@@ -312,19 +258,24 @@ export function DayBookPage() {
       ]
     : [];
 
-  // The report's netCash is just cash movement within the queried range — it
-  // has no concept of a carried-forward opening balance. While the day is
-  // open, the actual drawer balance is openingBalance + movement since open
-  // (already combined server-side in dayEnd.cashOnHand); fall back to the
-  // range's net movement only when there's no live open-session figure to
-  // show (day closed, or viewing history).
+  // While the day is open, the actual drawer balance is openingBalance +
+  // movement since open (combined server-side in dayEnd.cashOnHand, which
+  // also spans midnights). Otherwise use the report's figure: the cash in
+  // hand the day was opened with (if it was opened on this date) plus the
+  // day's net cash movement.
   const cashOnHandValue =
     isBusinessDay && liveOpen && typeof live?.cashOnHand === 'number'
       ? live.cashOnHand
-      : (summary?.netCash ?? 0);
+      : (summary?.cashOnHand ?? summary?.netCash ?? 0);
 
   const cashCards = summary
     ? [
+        {
+          key: 'openingBalance',
+          label: 'Opening Balance',
+          value: summary.openingBalance ?? 0,
+          tone: 'success' as const,
+        },
         {
           key: 'cashIn',
           label: 'Cash Received',
@@ -385,78 +336,6 @@ export function DayBookPage() {
             <Button type="button" variant="outline" onClick={() => setDate(businessDate)}>
               {businessDate === today ? t('Today') : t('Open day')}
             </Button>
-          )}
-          {hasSpecificStore && dayEnd && (
-            <div className="flex flex-wrap items-center gap-2">
-              <span
-                className={cn(
-                  'flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-medium',
-                  dayEnd.isOpen
-                    ? 'bg-success/10 text-success'
-                    : 'bg-destructive/10 text-destructive',
-                )}
-              >
-                {dayEnd.isOpen ? <Unlock className="h-4 w-4" /> : <Lock className="h-4 w-4" />}
-                {dayEnd.isOpen
-                  ? isBusinessDay && live?.state === 'LATE_NIGHT'
-                    ? `${t('Day is open')} — ${t('late night, entries go to')} ${formatDisplayDate(businessDate)}`
-                    : t('Day is open')
-                  : `${t('Closed by')} ${dayEnd.closedByName ?? ''}`.trim()}
-              </span>
-              {dayEnd.openedAt && (
-                <span className="text-xs text-muted-foreground">
-                  {t('Opened')}{' '}
-                  {new Date(dayEnd.openedAt).toLocaleString([], {
-                    day: '2-digit',
-                    month: 'short',
-                    hour: '2-digit',
-                    minute: '2-digit',
-                  })}
-                  {dayEnd.openedByName ? ` ${t('by')} ${dayEnd.openedByName}` : ''}
-                </span>
-              )}
-              {!dayEnd.isOpen && typeof dayEnd.remainingBalance === 'number' && (
-                <span className="text-xs text-muted-foreground">
-                  {t('Submitted')} {formatCurrency(dayEnd.handoverAmount ?? 0)} ·{' '}
-                  {t('Carried forward')} {formatCurrency(dayEnd.remainingBalance)}
-                </span>
-              )}
-              {dayEnd.isOpen && !!dayEnd.openingBalance && (
-                <span className="text-xs text-muted-foreground">
-                  {t('Opening balance')} {formatCurrency(dayEnd.openingBalance)}
-                </span>
-              )}
-              {isBusinessDay && liveOpen && canOpenClose && (
-                <Button type="button" variant="outline" onClick={openCloseDialog}>
-                  <Lock className="h-4 w-4" /> {t('Day End')}
-                </Button>
-              )}
-              {date === today &&
-                (live?.state === 'CLOSED' || live?.state === 'NONE') &&
-                canOpenClose && (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={handleOpenDay}
-                    disabled={openDay.isPending}
-                  >
-                    <Unlock className="h-4 w-4" /> {t('Day Open')}
-                  </Button>
-                )}
-              {isBusinessDay &&
-                live?.state === 'CLOSED' &&
-                live.openDate === today &&
-                canReopen && (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={handleReopenDay}
-                    disabled={reopenDay.isPending}
-                  >
-                    <Unlock className="h-4 w-4" /> {t('Reopen Day')}
-                  </Button>
-                )}
-            </div>
           )}
           <div className="ml-auto flex gap-2">
             <Button variant="outline" onClick={() => window.print()} disabled={!data}>
@@ -575,8 +454,13 @@ export function DayBookPage() {
                     cashFlowRows.map((r) => (
                       <tr
                         key={r.id}
-                        className="cursor-pointer border-b last:border-0 hover:bg-muted/30"
-                        onClick={() => setViewingEntryId(r.id)}
+                        className={cn(
+                          'border-b last:border-0',
+                          r.isOpening
+                            ? 'bg-muted/20 font-medium'
+                            : 'cursor-pointer hover:bg-muted/30',
+                        )}
+                        onClick={r.isOpening ? undefined : () => setViewingEntryId(r.id)}
                       >
                         <td className="px-4 py-2 text-muted-foreground">
                           {formatRowStamp(r.date)}
@@ -677,15 +561,6 @@ export function DayBookPage() {
             </div>
           </CardContent>
         </Card>
-      )}
-
-      {hasSpecificStore && (
-        <DayEndCloseDialog
-          open={closeDialogOpen}
-          onOpenChange={setCloseDialogOpen}
-          storeId={currentStoreId as string}
-          cashOnHand={live?.cashOnHand ?? 0}
-        />
       )}
 
       <DayBookEntryDialog entryId={viewingEntryId} onClose={() => setViewingEntryId(null)} />

@@ -13,6 +13,7 @@ const {
   assertStoreAccess,
 } = require('../utils/storeScope');
 const counterService = require('./counterService');
+const { applyWorkingDate } = require('../utils/workingDate');
 
 // Every transport charge happens at one physical storefront's till — same
 // requirement paymentService.js enforces for its own money movements.
@@ -121,7 +122,7 @@ async function chargeTransport(actor, { transporter, store, amount, date, note }
 
     const amt = toPaisa(amount);
     if (amt <= 0) throw ApiError.badRequest('Amount must be positive');
-    const when = date ? new Date(date) : new Date();
+    const when = applyWorkingDate(date);
     const number = await counterService.nextDocNumber('EXP', when.getFullYear(), 6, transaction);
 
     return journalService.post({

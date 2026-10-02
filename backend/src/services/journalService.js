@@ -3,6 +3,7 @@ const { getPostgres } = require('../db/postgres');
 const { initializeModels } = require('../db/models');
 const ApiError = require('../utils/ApiError');
 const { naturalBalance } = require('../utils/finance');
+const { applyWorkingDate, assertWorkingDateOpen } = require('../utils/workingDate');
 
 /**
  * The ledger engine. Everything that moves money posts through `post()`, and
@@ -53,10 +54,12 @@ async function post({
   // Store-scoped entries follow the late-night rule: posted after midnight
   // while yesterday's day is still open, they belong to that day (see
   // dayEndService.businessTimestamp). Required lazily to keep this core
-  // module free of a load-time dependency on the day-end service.
+  // module free of a load-time dependency on the day-end service. Either
+  // way, an admin's header-picked working date wins (utils/workingDate).
+  await assertWorkingDateOpen(transaction);
   const entryDate = store
     ? await require('./dayEndService').businessTimestamp(store, date || new Date(), transaction)
-    : date || new Date();
+    : applyWorkingDate(date);
 
   const entry = await JournalEntry.create(
     { date: entryDate, description, refType, refId, refNo, warehouse, store, createdBy },

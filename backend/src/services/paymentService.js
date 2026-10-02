@@ -6,6 +6,7 @@ const { ACCOUNT, REF, PAYMENT_METHOD, BANK_METHODS } = require('../utils/finance
 const journalService = require('./journalService');
 const counterService = require('./counterService');
 const { assertStoreAccess } = require('../utils/storeScope');
+const { applyWorkingDate } = require('../utils/workingDate');
 
 /**
  * Money movements that aren't sales or purchases: paying down a vendor's
@@ -58,7 +59,7 @@ async function payVendor(
     if (amt <= 0) throw ApiError.badRequest('Amount must be positive');
 
     const settle = await settlementAccount(method, bankAccount, storeDoc.id, transaction);
-    const when = date ? new Date(date) : new Date();
+    const when = applyWorkingDate(date);
     const number = await counterService.nextDocNumber('PAY', when.getFullYear(), 4, transaction);
 
     return journalService.post({
@@ -92,7 +93,7 @@ async function paySupplier(
     if (amt <= 0) throw ApiError.badRequest('Amount must be positive');
 
     const settle = await settlementAccount(method, bankAccount, storeDoc.id, transaction);
-    const when = date ? new Date(date) : new Date();
+    const when = applyWorkingDate(date);
     const number = await counterService.nextDocNumber('PAY', when.getFullYear(), 4, transaction);
 
     return journalService.post({
@@ -126,7 +127,7 @@ async function payLabour(
     if (amt <= 0) throw ApiError.badRequest('Amount must be positive');
 
     const settle = await settlementAccount(method, bankAccount, storeDoc.id, transaction);
-    const when = date ? new Date(date) : new Date();
+    const when = applyWorkingDate(date);
     const number = await counterService.nextDocNumber('PAY', when.getFullYear(), 4, transaction);
 
     return journalService.post({
@@ -160,7 +161,7 @@ async function payTransport(
     if (amt <= 0) throw ApiError.badRequest('Amount must be positive');
 
     const settle = await settlementAccount(method, bankAccount, storeDoc.id, transaction);
-    const when = date ? new Date(date) : new Date();
+    const when = applyWorkingDate(date);
     const number = await counterService.nextDocNumber('PAY', when.getFullYear(), 4, transaction);
 
     return journalService.post({
@@ -194,7 +195,7 @@ async function receiveFromCustomer(
     if (amt <= 0) throw ApiError.badRequest('Amount must be positive');
 
     const settle = await settlementAccount(method, bankAccount, storeDoc.id, transaction);
-    const when = date ? new Date(date) : new Date();
+    const when = applyWorkingDate(date);
     const number = await counterService.nextDocNumber('RCPT', when.getFullYear(), 4, transaction);
 
     return journalService.post({
@@ -231,7 +232,7 @@ async function receiveFromVendorReceivable(
     if (amt <= 0) throw ApiError.badRequest('Amount must be positive');
 
     const settle = await settlementAccount(method, bankAccount, storeDoc.id, transaction);
-    const when = date ? new Date(date) : new Date();
+    const when = applyWorkingDate(date);
     const number = await counterService.nextDocNumber('RCPT', when.getFullYear(), 4, transaction);
 
     return journalService.post({
@@ -268,7 +269,7 @@ async function refundVendorReceivable(
     if (amt <= 0) throw ApiError.badRequest('Amount must be positive');
 
     const settle = await settlementAccount(method, bankAccount, storeDoc.id, transaction);
-    const when = date ? new Date(date) : new Date();
+    const when = applyWorkingDate(date);
     const number = await counterService.nextDocNumber('PAY', when.getFullYear(), 4, transaction);
 
     return journalService.post({
@@ -299,7 +300,7 @@ async function cashEntry(actor, { direction, store, amount, date, note }) {
       throw ApiError.badRequest('Direction must be IN or OUT');
     }
     const storeDoc = await requireStore(actor, store, transaction);
-    const when = date ? new Date(date) : new Date();
+    const when = applyWorkingDate(date);
 
     const lines =
       direction === 'IN'
@@ -341,7 +342,7 @@ async function recordExpense(
     if (amt <= 0) throw ApiError.badRequest('Amount must be positive');
 
     const settle = await settlementAccount(method, bankAccount, storeDoc.id, transaction);
-    const when = date ? new Date(date) : new Date();
+    const when = applyWorkingDate(date);
     const number = await counterService.nextDocNumber('EXP', when.getFullYear(), 6, transaction);
 
     return journalService.post({

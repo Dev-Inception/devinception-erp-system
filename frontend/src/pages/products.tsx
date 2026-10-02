@@ -90,7 +90,7 @@ function ProductDialog({
     queryKey: ['catalog'],
     queryFn: async () => (await api.get('/catalog')).data,
   });
-  const { warehouses, currentId } = useWarehouses();
+  const { warehouses } = useWarehouses();
   const [form, setForm] = useState(() =>
     editing
       ? {
@@ -106,7 +106,7 @@ function ProductDialog({
           minStock: Number(editing.minStock),
           image: editing.image ?? '',
         }
-      : { ...blank, warehouseId: currentId ?? '' },
+      : blank,
   );
 
   const save = useMutation({
@@ -210,16 +210,13 @@ function ProductDialog({
             </div>
           </div>
           <div className="col-span-2 space-y-1.5">
-            <Label>Warehouse *</Label>
+            <Label>Warehouse</Label>
             <select
-              required
               value={form.warehouseId}
               onChange={(e) => field('warehouseId', e.target.value)}
               className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
             >
-              <option value="" disabled>
-                Select warehouse…
-              </option>
+              <option value="">No warehouse</option>
               {warehouses.map((w) => (
                 <option key={w.id} value={w.id}>
                   {w.name}
@@ -384,6 +381,7 @@ export function ProductsPage() {
     onSuccess: () => {
       toast.success('Product deleted');
       qc.invalidateQueries({ queryKey: ['products'] });
+      qc.invalidateQueries({ queryKey: ['warehouses'] });
       qc.invalidateQueries({ queryKey: ['catalog'] });
     },
     onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Could not delete product'),
@@ -391,7 +389,13 @@ export function ProductsPage() {
 
   const confirmDelete = useConfirmDelete();
   const remove = async (p: Product) => {
-    if (await confirmDelete(`product "${p.name}"`)) del.mutate(p.id);
+    if (
+      await confirmDelete(
+        `product "${p.name}"`,
+        'Any stock it holds will be removed from inventory too. This cannot be undone.',
+      )
+    )
+      del.mutate(p.id);
   };
 
   return (

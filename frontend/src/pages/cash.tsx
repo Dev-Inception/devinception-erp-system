@@ -27,6 +27,7 @@ import { api } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
 import { useStorefrontFilter, useStorefrontStore } from '@/store/storefront';
 import { useLanguage } from '@/components/language-provider';
+import { useHeaderDate } from '@/store/workingDate';
 
 interface CashRow {
   id: string;
@@ -358,9 +359,14 @@ export function CashPage() {
   const { t } = useLanguage();
   const storefront = useStorefrontFilter();
   const [editingAccount, setEditingAccount] = useState<BankAccount | null>(null);
+  // Cash in hand as of the date picked in the header (end of that day), with
+  // the entries up to it — so going back to a past date shows that day's
+  // balance rather than today's.
+  const headerDate = useHeaderDate();
   const { data: cash } = useQuery<{ balance: number; rows: CashRow[] }>({
-    queryKey: ['cash', storefront.store],
-    queryFn: async () => (await api.get('/cash', { params: storefront })).data,
+    queryKey: ['cash', storefront.store, headerDate],
+    queryFn: async () =>
+      (await api.get('/cash', { params: { ...storefront, to: headerDate } })).data,
   });
   const { data: banks = [] } = useQuery<BankAccount[]>({
     queryKey: ['bank-accounts', storefront.store],
@@ -376,6 +382,14 @@ export function CashPage() {
               <Wallet className="h-4 w-4" /> Cash Ledger
             </CardTitle>
             <p className="mt-1 text-2xl font-bold">{formatCurrency(cash?.balance ?? 0)}</p>
+            <p className="text-xs text-muted-foreground">
+              {`As of ${new Date(`${headerDate}T00:00:00`).toLocaleDateString(undefined, {
+                weekday: 'short',
+                day: '2-digit',
+                month: 'short',
+                year: 'numeric',
+              })}`}
+            </p>
           </div>
           <AddCashDialog />
         </CardHeader>

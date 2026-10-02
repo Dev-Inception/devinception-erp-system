@@ -51,6 +51,8 @@ const SUMMARY_MONEY = {
     'bankIn',
     'bankOut',
     'netBank',
+    'openingBalance',
+    'cashOnHand',
   ],
 };
 const CASH_FLOW_MONEY = ['cashIn', 'cashOut', 'balance'];

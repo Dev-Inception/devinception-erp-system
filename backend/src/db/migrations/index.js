@@ -28,4 +28,6 @@ module.exports = [
   require('./027-sale-item-remarks'),
   require('./028-labour-transport-expenses'),
   require('./029-labour-phone-optional'),
+  require('./030-day-end-past-reopen'),
+  require('./031-soft-delete-products-warehouses'),
 ];

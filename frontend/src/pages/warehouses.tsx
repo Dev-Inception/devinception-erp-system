@@ -11,7 +11,7 @@ import {
   Search,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { useConfirmDelete } from '@/components/confirm-provider';
+import { useConfirm } from '@/components/confirm-provider';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -184,6 +184,10 @@ export function WarehousesPage() {
   const perms = useAuthStore((s) => s.user?.permissions);
   // Warehouse create/update/delete all require inventory:manage on the backend.
   const canManage = grantsPermission(perms, 'inventory:manage');
+  // Deleting a warehouse takes its whole inventory with it — admin only
+  // (enforced in warehouseService.deleteWarehouse).
+  const role = useAuthStore((s) => s.user?.role);
+  const canDelete = role === 'SUPER_ADMIN' || role === 'ADMIN';
 
   const storefront = useStorefrontFilter();
   const [search, setSearch] = useState('');
@@ -218,13 +222,26 @@ export function WarehousesPage() {
     onSuccess: () => {
       toast.success('Warehouse deleted');
       qc.invalidateQueries({ queryKey: ['warehouses'] });
+      qc.invalidateQueries({ queryKey: ['products'] });
     },
     onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Could not delete warehouse'),
   });
 
-  const confirmDelete = useConfirmDelete();
+  const confirm = useConfirm();
   const remove = async (w: WarehouseRow) => {
-    if (await confirmDelete(`warehouse "${w.name}"`)) del.mutate(w.id);
+    const ok = await confirm({
+      title: `Delete warehouse "${w.name}"?`,
+      description: [
+        'All inventory will be gone if you delete this warehouse: every product in it and all of its stock will be deleted.',
+        w.isDefault ? 'Another warehouse will become the default.' : '',
+        'This cannot be undone.',
+      ]
+        .filter(Boolean)
+        .join(' '),
+      confirmLabel: 'Yes, delete',
+      variant: 'destructive',
+    });
+    if (ok) del.mutate(w.id);
   };
 
   return (
@@ -320,15 +337,19 @@ export function WarehousesPage() {
                         </Button>
                       }
                     />
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      title={t('Delete')}
-                      disabled={del.isPending || w.isDefault}
-                      onClick={() => remove(w)}
-                    >
-                      <Trash2 className="h-4 w-4 text-destructive" />
-                    </Button>
+                    {canDelete && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        title={t('Delete')}
+                        // The last warehouse can't go — sales and stock
+                        // receiving need one.
+                        disabled={del.isPending || warehouses.length <= 1}
+                        onClick={() => remove(w)}
+                      >
+                        <Trash2 className="h-4 w-4 text-destructive" />
+                      </Button>
+                    )}
                   </div>
                 )}
               </CardContent>

@@ -47,10 +47,11 @@ const optionalFields = [
 const createProductValidator = [
   body('name').trim().notEmpty().withMessage('Name is required').isLength({ max: 160 }),
   body('sku').trim().notEmpty().withMessage('SKU is required').isLength({ max: 60 }),
+  // Optional: a product can be added without a warehouse.
   body('warehouse').custom((value, { req }) => {
     const warehouse = value || req.body.warehouseId;
-    if (!isValidId(warehouse)) {
-      throw new Error('A valid warehouse is required');
+    if (warehouse && !isValidId(warehouse)) {
+      throw new Error('Invalid warehouse');
     }
     return true;
   }),

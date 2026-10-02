@@ -107,57 +107,63 @@ const a4Styles = `
     @page { size: A5; margin: 6mm; }
     * { font-family: Inter, Arial, sans-serif; box-sizing: border-box; }
     html, body { width: 148mm; }
-    body { margin: 0; padding: 4mm; color: #111; font-size: 9.5px; }
+    body { margin: 0; padding: 4mm; color: #111; font-size: 11px; }
     .fill-bg { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
     .sheet { border: 1px solid #d1d5db; border-radius: 6px; padding: 8px 10px; }
-    .section-label { font-size: 8.5px; font-weight: 700; color: ${NAVY}; text-transform: uppercase; letter-spacing: 0.4px; margin: 0 0 3px; }
-    .head { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; padding-bottom: 6px; }
-    .brand { display: flex; align-items: center; gap: 8px; }
-    .logo { width: 30px; height: 30px; min-width: 30px; border-radius: 6px; border: 2px solid ${NAVY}; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700; color: ${NAVY}; overflow: hidden; }
+    .section-label { font-size: 10px; font-weight: 700; color: ${NAVY}; text-transform: uppercase; letter-spacing: 0.4px; margin: 0 0 3px; }
+    /* Letterhead: big logo on the left, the store's name large and centred
+       with its address and contact lines bold underneath (so they read at a
+       glance on a printed copy), and the document title/number on the right. */
+    .head { display: grid; grid-template-columns: 22mm 1fr auto; align-items: center; gap: 10px; padding-bottom: 6px; }
+    .logo { width: 22mm; height: 22mm; border-radius: 8px; border: 2px solid ${NAVY}; display: flex; align-items: center; justify-content: center; font-size: 30px; font-weight: 800; color: ${NAVY}; overflow: hidden; }
+    .logo.has-img { border: none; border-radius: 0; }
     .logo img { width: 100%; height: 100%; object-fit: contain; }
-    h1 { margin: 0; font-size: 13px; color: #111; letter-spacing: 0.2px; }
-    .brand .muted { margin: 1px 0 0; font-size: 8px; color: #555; line-height: 1.3; }
+    .brand { text-align: center; min-width: 0; }
+    h1 { margin: 0; font-size: 22px; font-weight: 800; color: #111; letter-spacing: 0.3px; line-height: 1.15; }
+    .brand .addr { margin: 3px 0 0; font-size: 11.5px; font-weight: 600; color: #222; line-height: 1.35; }
+    .brand .contact { margin: 2px 0 0; font-size: 12px; font-weight: 700; color: #111; }
+    .brand .tax { margin: 1px 0 0; font-size: 10px; color: #444; }
     .doc-title { text-align: right; font-size: 20px; font-weight: 800; color: ${NAVY}; letter-spacing: 1px; line-height: 1; }
     .inv-meta { margin-top: 4px; }
-    .inv-meta .row { display: flex; justify-content: flex-end; gap: 8px; font-size: 8px; padding: 1px 0; }
+    .inv-meta .row { display: flex; justify-content: flex-end; gap: 6px; font-size: 9.5px; padding: 1px 0; white-space: nowrap; }
     .inv-meta .label { color: #6b7280; text-transform: uppercase; letter-spacing: 0.3px; }
     .inv-meta .value { font-weight: 700; color: #111; }
     .rule { border: 0; border-top: 2px solid ${NAVY}; margin: 4px 0 8px; }
     .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 8px; }
     .info-grid.single { grid-template-columns: 1fr; }
     .info-box { border: 1px solid #e5e7eb; border-radius: 6px; padding: 6px 8px; }
-    .info-box .info-name { font-weight: 700; font-size: 9.5px; }
-    .info-box .info-line { font-size: 8.5px; color: #333; margin-top: 1px; }
+    .info-box .info-name { font-weight: 700; font-size: 12.5px; }
+    .info-box .info-line { font-size: 11px; color: #222; margin-top: 1px; }
     .info-box .info-line .k { color: #6b7280; }
     table { width: 100%; border-collapse: collapse; margin-top: 4px; page-break-inside: auto; }
     thead { display: table-header-group; }
     tr { page-break-inside: avoid; page-break-after: auto; }
     th { position: relative; padding: 0; text-align: left; }
-    th .th-label { position: relative; z-index: 1; display: block; padding: 4px 5px; color: #fff; font-size: 8px; text-transform: uppercase; letter-spacing: 0.3px; font-weight: 700; }
+    th .th-label { position: relative; z-index: 1; display: block; padding: 4px 5px; color: #fff; font-size: 9.5px; text-transform: uppercase; letter-spacing: 0.3px; font-weight: 700; }
     th.r .th-label { text-align: right; }
     th.c .th-label { text-align: center; }
-    td { padding: 3px 5px; border-bottom: 1px solid #e5e7eb; font-size: 8.8px; }
+    td { padding: 4px 5px; border-bottom: 1px solid #e5e7eb; font-size: 11px; }
     .r { text-align: right; }
     .c { text-align: center; }
     .bottom-grid { display: flex; gap: 12px; margin-top: 10px; align-items: flex-start; }
     .bottom-grid .notes-col { flex: 1; min-width: 0; }
-    .bottom-grid .notes-col .info-line { font-size: 8.3px; color: #444; margin-bottom: 3px; }
-    .totals-col { width: 44%; max-width: 190px; }
-    .totals-col .row { display: flex; justify-content: space-between; padding: 1px 0; font-size: 8.8px; }
-    .totals-col .row.muted { color: #6b7280; }
+    .bottom-grid .notes-col .info-line { font-size: 10px; color: #333; margin-bottom: 3px; }
+    .totals-col { width: 46%; max-width: 210px; }
+    .totals-col .row { display: flex; justify-content: space-between; padding: 1px 0; font-size: 11px; }
+    .totals-col .row.muted { color: #374151; }
     .totals-col .divider { border-top: 1px solid #e5e7eb; margin: 3px 0; }
     .totals-col .grandbar { position: relative; display: flex; justify-content: space-between; align-items: center; margin-top: 4px; padding: 5px 8px; border-radius: 4px; overflow: hidden; }
     .totals-col .grandbar .label, .totals-col .grandbar .value { position: relative; z-index: 1; color: #fff; }
-    .totals-col .grandbar .label { font-size: 8.5px; text-transform: uppercase; letter-spacing: 0.4px; font-weight: 700; }
-    .totals-col .grandbar .value { font-size: 11px; font-weight: 800; }
+    .totals-col .grandbar .label { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.4px; font-weight: 700; }
+    .totals-col .grandbar .value { font-size: 14px; font-weight: 800; }
     .totals-col .account { margin-top: 4px; padding-top: 4px; border-top: 1px solid #e5e7eb; }
-    .totals-col .remaining { font-size: 10px; font-weight: 700; color: ${NAVY}; }
-    .warning { margin-top: 8px; font-size: 8.5px; color: #b91c1c; page-break-inside: avoid; }
-    .footer-note { margin-top: 5px; font-size: 10.5px; font-weight: 700; color: #111; }
-    .footer-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 12px; padding-top: 8px; border-top: 1px solid #e5e7eb; page-break-inside: avoid; }
-    .footer-grid .info-line { font-size: 8px; color: #333; line-height: 1.5; }
-    .sig-line { margin-top: 18px; border-top: 1px solid #9ca3af; width: 90%; font-size: 8px; color: #6b7280; padding-top: 2px; }
-    .thankyou { margin-top: 10px; padding-top: 6px; border-top: 1px solid #e5e7eb; text-align: center; font-size: 8px; color: #555; page-break-inside: avoid; }
+    .totals-col .remaining { font-size: 12px; font-weight: 700; color: ${NAVY}; }
+    .warning { margin-top: 8px; font-size: 10px; color: #b91c1c; page-break-inside: avoid; }
+    .footer-note { margin-top: 5px; font-size: 12px; font-weight: 700; color: #111; }
+    .footer-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-top: 12px; padding-top: 8px; border-top: 1px solid #e5e7eb; page-break-inside: avoid; }
+    .footer-grid .info-line { font-size: 9.5px; color: #333; line-height: 1.5; }
+    .sig-line { margin-top: 18px; border-top: 1px solid #9ca3af; width: 90%; font-size: 9.5px; color: #6b7280; padding-top: 2px; }
+    .thankyou { margin-top: 10px; padding-top: 6px; border-top: 1px solid #e5e7eb; text-align: center; font-size: 10px; color: #555; page-break-inside: avoid; }
     .thankyou strong { color: #111; }
     @media print { .sheet { border: none; padding: 0; } }
   </style>`;
@@ -174,7 +180,7 @@ function rows(items: LineItem[]) {
   return items
     .map(
       (i, idx) =>
-        `<tr><td class="c">${idx + 1}</td><td>${i.name}${i.remarks ? `<div style="font-size:8px;color:#6b7280">${i.remarks}</div>` : ''}</td><td class="r">${i.qty}</td><td class="r">${formatCurrency(i.price)}</td><td class="r">${formatCurrency(i.amount)}</td></tr>`,
+        `<tr><td class="c">${idx + 1}</td><td>${i.name}${i.remarks ? `<div style="font-size:9.5px;color:#4b5563">${i.remarks}</div>` : ''}</td><td class="r">${i.qty}</td><td class="r">${formatCurrency(i.price)}</td><td class="r">${formatCurrency(i.amount)}</td></tr>`,
     )
     .join('');
 }
@@ -307,12 +313,12 @@ export function renderTemplate(type: TemplateType, d: DocData): string {
   return `<!doctype html><html><head>${a4Styles}</head><body>
     <div class="sheet">
       <div class="head">
+        <div class="logo${d.company.logoUrl ? ' has-img' : ''}">${logoHtml}</div>
         <div class="brand">
-          <div class="logo">${logoHtml}</div>
-          <div>
-            <h1>${d.company.name}</h1>
-            <p class="muted">${d.company.address ?? ''}${companyContactLine ? `<br/>${companyContactLine}` : ''}${d.company.taxNumber ? `<br/>NTN/STRN: ${d.company.taxNumber}` : ''}</p>
-          </div>
+          <h1>${d.company.name}</h1>
+          ${d.company.address ? `<p class="addr">${d.company.address}</p>` : ''}
+          ${companyContactLine ? `<p class="contact">${companyContactLine}</p>` : ''}
+          ${d.company.taxNumber ? `<p class="tax">NTN/STRN: ${d.company.taxNumber}</p>` : ''}
         </div>
         <div>
           <div class="doc-title">${d.docTitle ?? 'Invoice'}</div>
@@ -404,10 +410,6 @@ export function renderTemplate(type: TemplateType, d: DocData): string {
         <div>
           <div class="section-label">Payment Details</div>
           ${d.bankNote ? `<div class="info-line">${d.bankNote}</div>` : ''}
-        </div>
-        <div>
-          <div class="section-label">Payment Terms</div>
-          <div class="info-line">Payment is due upon receipt. Please quote the invoice number with any payment.</div>
         </div>
         <div>
           <div class="section-label">Authorized Signature</div>

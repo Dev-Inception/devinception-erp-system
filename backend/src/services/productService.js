@@ -1,4 +1,4 @@
-const { Op, fn, col } = require('sequelize');
+const { Op, QueryTypes, fn, col } = require('sequelize');
 const { getPostgres } = require('../db/postgres');
 const { initializeModels } = require('../db/models');
 const { isValidId } = require('../db/id');
@@ -10,6 +10,7 @@ const { ACCOUNT, REF } = require('../utils/finance');
 const { parsePagination } = require('../utils/query');
 const { normalizeQuantity } = require('../utils/quantity');
 const { resolveWarehouseScope, warehouseWhere } = require('../utils/storeScope');
+const { ROLES } = require('../utils/constants');
 
 /**
  * Product catalog CRUD plus stock visibility. Prices/costs are paisa. Stock
@@ -58,7 +59,7 @@ function presentProduct(instance) {
 async function findProductOrThrow(id, transaction) {
   const { Product } = initializeModels();
   const product = await Product.findByPk(id, { transaction });
-  if (!product) throw ApiError.notFound('Product not found');
+  if (!product || product.deletedAt) throw ApiError.notFound('Product not found');
   return product;
 }
 
@@ -163,7 +164,7 @@ async function listProducts({
   // The inventory list and product pickers have no pagination UI, so this
   // endpoint allows a far larger page size than the default 100-row cap.
   const { page, limit, skip } = parsePagination(query, { defaultLimit: 1000, maxLimit: 100000 });
-  const where = {};
+  const where = { deletedAt: null };
   // Hide deactivated products from the catalog unless explicitly requested.
   if (!includeInactive) where.isActive = true;
   if (search) {
@@ -184,9 +185,11 @@ async function listProducts({
   // other than the one shown in its own response (e.g. a stray manual stock
   // adjustment posted to the wrong location), which reads as "the same
   // inventory item is in two warehouses" even though it only has one owner.
+  // Products without a warehouse aren't tied to any location, so they show
+  // under every warehouse/store filter too.
   const { warehouseIds } = await resolveWarehouseScope({ warehouse, store, actor });
   if (warehouseIds) {
-    Object.assign(where, warehouseWhere(warehouseIds));
+    where[Op.and] = [{ [Op.or]: [warehouseWhere(warehouseIds), { warehouse: null }] }];
   }
 
   const [docs, total] = await Promise.all([
@@ -245,19 +248,25 @@ const WRITABLE = [
 
 async function createProduct(actor, data) {
   const { Product } = initializeModels();
-  if (!isValidId(data.warehouse)) {
-    throw ApiError.badRequest('A valid warehouse is required');
+  // The warehouse is optional — a product without one isn't tied to any
+  // location (or store) and shows in every store's inventory.
+  let warehouse = null;
+  if (data.warehouse) {
+    if (!isValidId(data.warehouse)) throw ApiError.badRequest('Invalid warehouse');
+    const warehouseService = require('./warehouseService');
+    warehouse = await warehouseService.getWarehouseById(data.warehouse);
+    if (warehouse.deletedAt) throw ApiError.notFound('Warehouse not found');
+    await warehouseService.assertWarehouseAccess(actor, warehouse.id);
   }
-  const warehouseService = require('./warehouseService');
-  const warehouse = await warehouseService.getWarehouseById(data.warehouse);
-  await warehouseService.assertWarehouseAccess(actor, warehouse.id);
   if (data.sku) {
-    const existing = await Product.findOne({ where: { sku: data.sku.toUpperCase() } });
+    const existing = await Product.findOne({
+      where: { sku: data.sku.toUpperCase(), deletedAt: null },
+    });
     if (existing) throw ApiError.conflict('A product with that SKU already exists');
   }
   const fields = {};
   for (const k of WRITABLE) if (data[k] !== undefined) fields[k] = data[k];
-  fields.warehouse = warehouse.id;
+  fields.warehouse = warehouse ? warehouse.id : null;
   // Resolve category/brand/unit to catalog ids (from an id or a free-text name).
   Object.assign(fields, await catalogService.resolveProductRefs(data, actor));
   const product = await Product.create(fields);
@@ -272,7 +281,9 @@ async function updateProduct(actor, id, data) {
   }
   if (data.sku !== undefined && data.sku && data.sku.toUpperCase() !== product.sku) {
     const { Product } = initializeModels();
-    const existing = await Product.findOne({ where: { sku: data.sku.toUpperCase() } });
+    const existing = await Product.findOne({
+      where: { sku: data.sku.toUpperCase(), deletedAt: null },
+    });
     if (existing) throw ApiError.conflict('A product with that SKU already exists');
   }
   for (const k of WRITABLE) if (data[k] !== undefined) product[k] = data[k];
@@ -282,8 +293,11 @@ async function updateProduct(actor, id, data) {
   // it's labeled/defaulted to — existing StockLevel rows (wherever they are)
   // are untouched, same as a legacy product that already had stock in more
   // than one warehouse.
+  // null clears it (the product no longer belongs to a warehouse).
+  if (data.warehouse === null) product.warehouse = null;
   if (data.warehouse) {
     const warehouse = await warehouseService.getWarehouseById(data.warehouse);
+    if (warehouse.deletedAt) throw ApiError.notFound('Warehouse not found');
     await warehouseService.assertWarehouseAccess(actor, warehouse.id);
     product.warehouse = warehouse.id;
   }
@@ -291,17 +305,110 @@ async function updateProduct(actor, id, data) {
   return getProductById(id);
 }
 
+function isAdminActor(actor) {
+  return !!actor && (actor.role === ROLES.SUPER_ADMIN || actor.role === ROLES.ADMIN);
+}
+
+// Every document that points at a product. While any of these exist the
+// product row has to stay (foreign keys, and old invoices still show it).
+const PRODUCT_DOCUMENT_TABLES = [
+  'sale_items',
+  'sale_return_items',
+  'estimate_items',
+  'gate_pass_items',
+  'pending_entities',
+  'stock_receipt_items',
+  'damaged_stock_return_items',
+  'vendor_sale_items',
+  'vendor_sale_return_items',
+];
+
+async function productHasDocuments(productId, transaction) {
+  const exists = PRODUCT_DOCUMENT_TABLES.map(
+    (table) => `EXISTS (SELECT 1 FROM ${table} WHERE product_id = :id)`,
+  ).join(' OR ');
+  const [row] = await getPostgres().query(`SELECT (${exists}) AS used`, {
+    replacements: { id: productId },
+    type: QueryTypes.SELECT,
+    transaction,
+  });
+  return !!row.used;
+}
+
+/**
+ * Takes all on-hand stock of `product` out of inventory — in one warehouse,
+ * or all of them — as a write-off: the stock is issued at its average cost
+ * and the value posted Dr Equity / Cr Inventory, so the books still match
+ * what's on the shelves.
+ */
+async function writeOffStock(product, { warehouse, actor, reason }, transaction) {
+  const { StockLevel } = initializeModels();
+  const where = { product: product.id };
+  if (warehouse) where.warehouse = warehouse;
+  const levels = await StockLevel.findAll({ where, transaction });
+  for (const level of levels) {
+    const qty = normalizeQuantity(level.quantity);
+    if (qty <= 0) continue;
+    const valueDelta = await stockService.adjustStock(
+      product.id,
+      level.warehouse,
+      -qty,
+      0,
+      { refType: 'ADJUST', refNo: `DEL-${product.sku || product.id}` },
+      transaction,
+    );
+    if (valueDelta !== 0) {
+      await journalService.post({
+        refType: REF.OPENING,
+        description: `Stock written off: ${product.name} (${reason})`,
+        lines: [
+          journalService.line(ACCOUNT.EQUITY, { debit: -valueDelta }),
+          journalService.line(ACCOUNT.INVENTORY, { credit: -valueDelta }),
+        ],
+        createdBy: actor ? actor.id : null,
+        transaction,
+      });
+    }
+  }
+}
+
+/**
+ * Removes a product together with its stock (written off, see above). A
+ * product no document references is erased outright, stock history and
+ * all; one that sales/receipts/etc. still point at is soft-deleted instead
+ * so those keep resolving. Runs inside the caller's transaction.
+ */
+async function removeProduct(actor, product, reason, transaction) {
+  const { Product, StockLevel, StockMovement } = initializeModels();
+  await writeOffStock(product, { actor, reason }, transaction);
+  if (await productHasDocuments(product.id, transaction)) {
+    product.deletedAt = new Date();
+    product.isActive = false;
+    await product.save({ transaction });
+    return;
+  }
+  await StockMovement.destroy({ where: { product: product.id }, transaction });
+  await StockLevel.destroy({ where: { product: product.id }, transaction });
+  await Product.destroy({ where: { id: product.id }, transaction });
+}
+
+// A super admin or store admin can delete a product that still holds stock
+// (it's written off); anyone else has to bring it to zero first.
 async function deleteProduct(actor, id) {
-  const { Product, StockLevel } = initializeModels();
+  const { StockLevel } = initializeModels();
   const product = await findProductOrThrow(id);
   if (product.warehouse) {
     await require('./warehouseService').assertWarehouseAccess(actor, product.warehouse);
   }
-  const hasStock = await StockLevel.count({ where: { product: id, quantity: { [Op.ne]: 0 } } });
-  if (hasStock) throw ApiError.badRequest('Product still has stock and cannot be deleted');
-  // Remove the leftover zero-quantity stock rows so no orphans linger.
-  await StockLevel.destroy({ where: { product: id } });
-  await Product.destroy({ where: { id } });
+  if (!isAdminActor(actor)) {
+    const hasStock = await StockLevel.count({
+      where: { product: id, quantity: { [Op.ne]: 0 } },
+    });
+    if (hasStock) throw ApiError.badRequest('Product still has stock and cannot be deleted');
+  }
+  await getPostgres().transaction((transaction) =>
+    removeProduct(actor, product, 'product deleted', transaction),
+  );
 }
 
 // Current on-hand quantity for a product at a warehouse (summed across all
@@ -436,5 +543,8 @@ module.exports = {
   createProduct,
   updateProduct,
   deleteProduct,
+  removeProduct,
+  writeOffStock,
+  isAdminActor,
   adjustStock,
 };

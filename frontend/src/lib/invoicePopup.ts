@@ -59,7 +59,9 @@ export interface SaleForInvoice {
   }[];
 }
 
-const COMPANY = { name: 'DevInception Retail', address: 'HQ, Lahore', phone: '+92 300 1234567' };
+// Only the name has a fallback — a made-up address or phone must never be
+// printed on a real invoice, so empty fields are simply left off.
+const COMPANY = { name: 'DevInception Retail' };
 
 interface CompanyInfo {
   name: string;
@@ -86,14 +88,14 @@ async function companyInfo(storeId?: string): Promise<CompanyInfo> {
       .data;
     return {
       name: s?.companyName || COMPANY.name,
-      address: s?.address || COMPANY.address,
-      phone: s?.phone || COMPANY.phone,
+      address: s?.address || undefined,
+      phone: s?.phone || undefined,
       email: s?.email || undefined,
       taxNumber: s?.taxNumber || undefined,
       logoUrl: s?.logoUrl || undefined,
     };
   } catch {
-    return { name: COMPANY.name, address: COMPANY.address, phone: COMPANY.phone };
+    return { name: COMPANY.name };
   }
 }
 

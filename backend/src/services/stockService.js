@@ -9,6 +9,7 @@ const {
   requireNonZeroQuantity,
 } = require('../utils/quantity');
 const { warehouseWhere } = require('../utils/storeScope');
+const { applyWorkingDate } = require('../utils/workingDate');
 
 /**
  * Inventory mechanics: moving-average costing. Receiving stock blends the new
@@ -116,7 +117,7 @@ async function receiveStock(
       totalCost: inValue,
       refType: ref.refType || '',
       refNo: ref.refNo || '',
-      date: ref.date || new Date(),
+      date: applyWorkingDate(ref.date),
     },
     { transaction },
   );
@@ -161,7 +162,7 @@ async function issueStock(product, warehouse, qty, ref = {}, transaction) {
       totalCost: cogs,
       refType: ref.refType || '',
       refNo: ref.refNo || '',
-      date: ref.date || new Date(),
+      date: applyWorkingDate(ref.date),
     },
     { transaction },
   );

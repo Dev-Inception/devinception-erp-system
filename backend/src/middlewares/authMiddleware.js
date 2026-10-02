@@ -2,6 +2,7 @@ const { initializeModels } = require('../db/models');
 const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
 const tokenService = require('../services/tokenService');
+const { workingDateContext } = require('../utils/workingDate');
 
 /**
  * Authenticate the request. Reads a Bearer access token, verifies it,
@@ -46,7 +47,9 @@ const protect = asyncHandler(async (req, _res, next) => {
   }
 
   req.user = user;
-  next();
+  // Carries an admin's header-picked working date through the rest of the
+  // request (see utils/workingDate).
+  workingDateContext(req, _res, next);
 });
 
 module.exports = { protect };

@@ -759,15 +759,15 @@ async function realProductsList(params: any) {
 function productPayload(body: any) {
   // FE → backend field mapping. Catalog refs are real catalog ids, so send them
   // as *Id fields (the backend resolves refs by id); taxRate→taxPercent.
-  // warehouseId is required on create (a product belongs to one warehouse) and
-  // unused on update, so it's simply omitted there (undefined).
+  // warehouseId is optional: '' means "no warehouse" — omitted on create,
+  // sent as null on update to clear it.
   return {
     name: body.name,
     sku: body.sku,
     barcode: body.barcode,
     categoryId: body.categoryId || undefined,
     unitId: body.unitId || undefined,
-    warehouseId: body.warehouseId || undefined,
+    warehouseId: body.warehouseId === '' ? null : body.warehouseId,
     purchasePrice: body.purchasePrice,
     salePrice: body.salePrice,
     taxPercent: body.taxRate,
@@ -776,7 +776,10 @@ function productPayload(body: any) {
   };
 }
 async function realCreateProduct(body: any) {
-  const res = await http.post('/products', productPayload(body));
+  const res = await http.post('/products', {
+    ...productPayload(body),
+    warehouseId: body.warehouseId || undefined,
+  });
   return mapProduct(res.data.product);
 }
 async function realUpdateProduct(id: string, body: any) {
@@ -2518,6 +2521,7 @@ async function realReport(type: string, params: any) {
         cashIn: r.cashIn,
         cashOut: r.cashOut,
         balance: r.balance,
+        isOpening: !!r.isOpening,
       })),
       bankReconciliationRows: ((report.bankReconciliationRows ?? []) as any[]).map((r) => ({
         id: r.id,
@@ -2553,9 +2557,13 @@ async function realReport(type: string, params: any) {
 }
 
 /* ── Cash book ── */
-async function realCashLedger(store?: string) {
-  const stmt = (await http.get('/finance/cash-ledger', { params: { store: store || undefined } }))
-    .data; // { opening, closing, rows }
+async function realCashLedger(store?: string, to?: string) {
+  // `to` ('YYYY-MM-DD'): the balance as of the end of that day.
+  const stmt = (
+    await http.get('/finance/cash-ledger', {
+      params: { store: store || undefined, to: to || undefined },
+    })
+  ).data; // { opening, closing, rows }
   const rows = (stmt.rows as any[]).map((r, i) => ({
     id: String(i),
     date: r.date,
@@ -2595,7 +2603,15 @@ function mapDayEndStatus(s: any) {
     reopenedByName: s.reopenedByName || undefined,
     reopenedAt: s.reopenedAt || undefined,
     // CURRENT | LATE_NIGHT | STALE | CLOSED | NONE — see dayEndService.sessionState.
-    state: (s.state || 'NONE') as 'CURRENT' | 'LATE_NIGHT' | 'STALE' | 'CLOSED' | 'NONE',
+    // EDITING = a past day an admin reopened (see dayEndService.isEditSession).
+    state: (s.state || 'NONE') as
+      | 'CURRENT'
+      | 'LATE_NIGHT'
+      | 'STALE'
+      | 'CLOSED'
+      | 'NONE'
+      | 'EDITING',
+    editing: !!s.editing,
     businessDate: s.businessDate || undefined,
     rolloverHour: typeof s.rolloverHour === 'number' ? s.rolloverHour : undefined,
   };
@@ -2608,18 +2624,25 @@ async function realDayEndStatus(params: any = {}) {
   return mapDayEndStatus(res.data);
 }
 async function realOpenDay(body: any) {
-  const res = await http.post('/day-end/open', { store: body.store });
+  const res = await http.post('/day-end/open', {
+    store: body.store,
+    date: body.date || undefined,
+  });
   return res.data;
 }
 async function realCloseDay(body: any) {
   const res = await http.post('/day-end/close', {
     store: body.store,
+    date: body.date || undefined,
     handoverAmount: body.handoverAmount,
   });
   return res.data;
 }
 async function realReopenDay(body: any) {
-  const res = await http.post('/day-end/reopen', { store: body.store });
+  const res = await http.post('/day-end/reopen', {
+    store: body.store,
+    date: body.date || undefined,
+  });
   return res.data;
 }
 
@@ -2911,7 +2934,8 @@ async function tryReal(
       return wrap((await http.get(url)).data.payments);
     if (url === '/expenses') return wrap(await realExpenses(params));
     if (url === '/sale-drafts') return wrap(await realListSaleDrafts(params.store as string));
-    if (url === '/cash') return wrap(await realCashLedger(params.store as string));
+    if (url === '/cash')
+      return wrap(await realCashLedger(params.store as string, params.to as string));
     if (url === '/day-end') return wrap(await realDayEndStatus(params));
     if (url === '/bank/accounts') return wrap(await realBankAccounts(params.store as string));
     if (url === '/users') return wrap(await realUsers(params));

@@ -13,6 +13,7 @@ import { ChangePasswordDialog } from '@/components/change-password-dialog';
 import { useTheme } from '@/components/theme-provider';
 import { useAuthStore } from '@/store/auth';
 import { StoreSwitcher } from './store-switcher';
+import { DayControl } from './day-control';
 import { LanguageToggle } from './language-toggle';
 import { MobileSidebar } from './mobile-sidebar';
 
@@ -48,13 +49,21 @@ export function Header() {
   const title = TITLES[pathname] ?? 'DevInception ERP';
 
   return (
-    <header className="flex h-16 items-center justify-between gap-2 border-b bg-background/80 px-3 backdrop-blur md:px-6">
+    // Wraps below `xl`: there isn't room for the business-day control next to
+    // the store switcher and account menu on a tablet/phone, so it drops onto
+    // its own full-width row under them (order-last + basis-full) instead of
+    // overlapping them. From `xl` up everything sits on one row.
+    <header className="flex min-h-16 flex-wrap items-center justify-between gap-x-2 gap-y-2 border-b bg-background/80 px-3 py-2 backdrop-blur md:px-6 xl:flex-nowrap">
       <div className="flex min-w-0 items-center gap-1">
         <MobileSidebar />
         <div className="min-w-0">
           <h1 className="truncate text-lg font-semibold tracking-tight">{title}</h1>
           <p className="hidden text-xs text-muted-foreground sm:block">Home / {title}</p>
         </div>
+      </div>
+
+      <div className="order-last flex min-w-0 basis-full items-center empty:hidden xl:order-none xl:ml-auto xl:basis-auto">
+        <DayControl />
       </div>
 
       <div className="flex min-w-0 items-center gap-2">

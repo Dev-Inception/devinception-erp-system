@@ -1,5 +1,5 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { MutationCache, QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Toaster } from 'sonner';
 import { PwaInstallPrompt } from '@/components/pwa-install-prompt';
 import { ThemeProvider } from '@/components/theme-provider';
@@ -48,8 +48,20 @@ import { GatePassesPage } from '@/pages/gate-passes';
 import { RolePage } from '@/pages/roles';
 import { SubscriptionsPage } from '@/pages/subscriptions';
 
-const queryClient = new QueryClient({
+// Day-level figures — the header's day status, the Day Book and the cash
+// ledger — are derived from every sale, payment, expense and cash entry, so
+// whatever page a change is saved on, they're refreshed after it. Without
+// this they'd keep showing figures from before the change until reloaded.
+const DAY_FIGURES = ['day-end', 'day-end-live', 'day-book', 'cash', 'bank-accounts'];
+
+const queryClient: QueryClient = new QueryClient({
   defaultOptions: { queries: { refetchOnWindowFocus: false, retry: 1 } },
+  mutationCache: new MutationCache({
+    onSuccess: (_data, _variables, _context, mutation) => {
+      if (mutation.meta?.skipDayRefresh) return;
+      for (const key of DAY_FIGURES) queryClient.invalidateQueries({ queryKey: [key] });
+    },
+  }),
 });
 
 /**

@@ -676,6 +676,9 @@ export function PosPage() {
   // doesn't interrupt the cashier. Backend PATCHes the same draft once one
   // exists; otherwise a new one is created and its id remembered.
   const autosaveDraft = useMutation({
+    // Saving a draft cart doesn't move any money — skip the app-wide
+    // day-figures refresh (see App.tsx).
+    meta: { skipDayRefresh: true },
     mutationFn: async () => {
       const payload = {
         storeId: hasSpecificStore ? currentStoreId : undefined,

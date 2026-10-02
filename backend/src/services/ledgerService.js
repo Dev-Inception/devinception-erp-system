@@ -1,5 +1,6 @@
 const { initializeModels } = require('../db/models');
 const ApiError = require('../utils/ApiError');
+const { isCalendarDate, parseReportDate } = require('../utils/reportDate');
 const { ACCOUNT } = require('../utils/finance');
 const journalService = require('./journalService');
 const { resolveStoreScope, storeWhere, assertStoreAccess } = require('../utils/storeScope');
@@ -14,10 +15,17 @@ const { resolveStoreScope, storeWhere, assertStoreAccess } = require('../utils/s
  * same as customers — every list below is scoped to the actor's own store(s).
  */
 
+// A plain 'YYYY-MM-DD' covers that whole business day (start of `from`,
+// end of `to`, on the business clock — see utils/reportDate); a full
+// timestamp is used as-is.
 function parseRange({ from, to } = {}) {
   return {
-    from: from ? new Date(from) : undefined,
-    to: to ? new Date(to) : undefined,
+    from: !from ? undefined : isCalendarDate(from) ? parseReportDate(from, 'from') : new Date(from),
+    to: !to
+      ? undefined
+      : isCalendarDate(to)
+        ? parseReportDate(to, 'to', { endOfDay: true })
+        : new Date(to),
   };
 }
 

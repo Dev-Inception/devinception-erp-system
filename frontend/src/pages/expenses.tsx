@@ -24,6 +24,7 @@ import { useStorefrontFilter, useStorefrontStore } from '@/store/storefront';
 import { useBankAccounts } from '@/lib/bankAccounts';
 import { useLanguage } from '@/components/language-provider';
 import { Combobox } from '@/components/product-combobox';
+import { useEntryDate } from '@/store/workingDate';
 
 type ExpenseMethod = 'CASH' | 'CARD' | 'BANK_TRANSFER' | 'ONLINE';
 type ExpenseStatus = 'PENDING' | 'APPROVED' | 'REJECTED';
@@ -156,9 +157,9 @@ function ExpenseDialog({
   const [amount, setAmount] = useState(Number(expense?.amount ?? 0));
   const [method, setMethod] = useState<ExpenseMethod>(expense?.method ?? 'CASH');
   const [bankAccountId, setBankAccountId] = useState(expense?.bankAccountId ?? '');
-  const [date, setDate] = useState(
-    expense ? expense.date.slice(0, 10) : new Date().toISOString().slice(0, 10),
-  );
+  // New expenses default to the header's working date (see store/workingDate).
+  const entryDate = useEntryDate();
+  const [date, setDate] = useState(expense ? expense.date.slice(0, 10) : entryDate);
   // Tracks whether the user actually picked a date — the <input type="date">
   // only ever carries a date, never a time, so submitting it unconditionally
   // would collapse a fresh/unedited expense's timestamp to midnight UTC (shows

@@ -47,6 +47,7 @@ import { useWarehouses } from '@/components/layout/warehouse-switcher';
 import { useStorefrontFilter, useStorefrontStore } from '@/store/storefront';
 import { useBankAccounts } from '@/lib/bankAccounts';
 import { useLanguage } from '@/components/language-provider';
+import { useEntryDate } from '@/store/workingDate';
 
 interface Supplier {
   id: string;
@@ -151,9 +152,8 @@ function ReceiptDialog({ receipt, onClose }: { receipt?: StockReceipt; onClose: 
   const hasSpecificStore = !!currentStoreId && currentStoreId !== 'ALL';
   const [supplierId, setSupplierId] = useState(receipt?.supplierId ?? '');
   const [warehouseId, setWarehouseId] = useState(receipt?.warehouseId ?? '');
-  const [date, setDate] = useState(
-    () => receipt?.date.slice(0, 10) ?? new Date().toISOString().slice(0, 10),
-  );
+  const entryDate = useEntryDate();
+  const [date, setDate] = useState(() => receipt?.date.slice(0, 10) ?? entryDate);
   // Fixed at creation (see the model) — only offered when creating, never
   // shown/changeable on edit.
   const [isOpeningStock, setIsOpeningStock] = useState(receipt?.isOpeningStock ?? false);

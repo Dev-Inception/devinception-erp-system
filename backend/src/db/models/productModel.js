@@ -36,6 +36,9 @@ module.exports = function defineProduct(db) {
       },
       minStock: quantity({ validate: { min: 0 } }),
       isActive: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: true },
+      // Set when the product/warehouse was deleted but documents still
+      // reference it (migration 031) — hidden everywhere it's listed.
+      deletedAt: { type: DataTypes.DATE, field: 'deleted_at' },
       // A base64 data URL (small, client-resized thumbnail) — stored on the
       // row itself rather than as a separate file, so it lives and dies with
       // the product (no orphaned files to clean up if a warehouse/store is

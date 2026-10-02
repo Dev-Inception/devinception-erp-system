@@ -359,7 +359,7 @@ function isSettledInCashOrBank(entry) {
  * total operating expenses.
  */
 async function dayBookReport({ from, to, warehouseIds, store }) {
-  const { JournalEntry, JournalLine, Warehouse, BankAccount } = initializeModels();
+  const { JournalEntry, JournalLine, Warehouse, BankAccount, DayEnd } = initializeModels();
   const range = resolveDayRange({ from, to });
   const where = { date: { [Op.gte]: range.from, [Op.lte]: range.to } };
   if (store) {
@@ -423,12 +423,37 @@ async function dayBookReport({ from, to, warehouseIds, store }) {
   summary.netCash = summary.cashIn - summary.cashOut;
   summary.netBank = summary.bankIn - summary.bankOut;
 
+  // A single store's single day that was opened via Day Open starts from the
+  // cash in hand entered there (dayEndService.openDay) — the first session
+  // opened on that date, if it was opened more than once. Any other day or
+  // range starts at 0, as before.
+  let opening = null;
+  if (store && from === to) {
+    opening = await DayEnd.findOne({
+      where: { store, date: from },
+      order: [['createdAt', 'ASC']],
+    });
+  }
+  summary.openingBalance = opening ? opening.openingBalance : 0;
+  summary.cashOnHand = summary.openingBalance + summary.netCash;
+
   // Cash Flow: one row per entry that moved the (single, storewide) cash
-  // drawer, with a running balance across the day — starts at 0 rather than
-  // the drawer's real historical balance, same day-scoped convention as the
-  // "Cash On Hand" summary card above.
-  let cashRunning = 0;
+  // drawer, with a running balance across the day — starting from the day's
+  // opening cash in hand when there is one (see above), otherwise from 0.
+  let cashRunning = summary.openingBalance;
   const cashFlowRows = [];
+  if (opening) {
+    cashFlowRows.push({
+      id: `opening-${opening.id}`,
+      date: opening.openedAt,
+      voucherNo: '',
+      description: 'Opening balance (cash in hand)',
+      cashIn: 0,
+      cashOut: 0,
+      balance: cashRunning,
+      isOpening: true,
+    });
+  }
   for (const e of entries) {
     const cashLine = e.lines.find((l) => l.account === ACCOUNT.CASH);
     if (!cashLine) continue;

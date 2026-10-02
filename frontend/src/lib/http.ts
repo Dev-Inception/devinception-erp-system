@@ -47,10 +47,22 @@ type RetryConfig = InternalAxiosRequestConfig & {
   _retry?: boolean;
 };
 
-/* ── request: attach bearer token ── */
+/* ── working date: an admin's header-picked business date ── */
+let getWorkingDate: () => { date: string; store: string } | null = () => null;
+
+export function configureWorkingDate(getter: () => { date: string; store: string } | null) {
+  getWorkingDate = getter;
+}
+
+/* ── request: attach bearer token (+ the working date, see store/workingDate) ── */
 http.interceptors.request.use((config) => {
   const token = getToken();
   if (token) config.headers.Authorization = `Bearer ${token}`;
+  const workingDate = getWorkingDate();
+  if (workingDate) {
+    config.headers['X-Business-Date'] = workingDate.date;
+    config.headers['X-Store-Id'] = workingDate.store;
+  }
   return config;
 });
 
