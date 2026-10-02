@@ -1,4 +1,12 @@
-const { Op, QueryTypes, fn, col, where: sqlWhere, UniqueConstraintError } = require('sequelize');
+const {
+  Op,
+  QueryTypes,
+  fn,
+  col,
+  literal,
+  where: sqlWhere,
+  UniqueConstraintError,
+} = require('sequelize');
 const { getPostgres } = require('../db/postgres');
 const { initializeModels } = require('../db/models');
 const { isValidId } = require('../db/id');
@@ -33,9 +41,17 @@ const AUTO_APPROVE_THRESHOLD_RUPEES = 1000;
  * and reported by category — a bare journal entry can't do any of that.
  */
 
+// The two built-in categories that pay labour / transport out against a
+// sale invoice (db/migrations/028-labour-transport-expenses.js). They always
+// exist and are listed first; any other category is user-created.
+const SYSTEM_KEY = { LABOUR: 'LABOUR', TRANSPORT: 'TRANSPORT' };
+
 async function listCategories() {
   const { ExpenseCategory } = initializeModels();
-  return ExpenseCategory.findAll({ where: { isActive: true }, order: [['name', 'ASC']] });
+  return ExpenseCategory.findAll({
+    where: { [Op.or]: [{ isActive: true }, { systemKey: { [Op.ne]: null } }] },
+    order: [literal('system_key IS NULL'), ['name', 'ASC']],
+  });
 }
 
 // Case-insensitive find-or-create by name. Expense categories aren't
@@ -79,12 +95,72 @@ async function resolveCategory({ category, categoryName }) {
   throw ApiError.badRequest('A category is required');
 }
 
+// For a Labour/Transport expense: the sale invoice it pays for and who was
+// paid, both checked to belong to the expense's store. Any other category
+// carries none of these.
+async function resolvePayout(categoryDoc, input, storeId, transaction) {
+  const none = { sale: null, saleNo: '', labour: null, transporter: null, payeeName: '' };
+  const key = categoryDoc.systemKey;
+  if (key !== SYSTEM_KEY.LABOUR && key !== SYSTEM_KEY.TRANSPORT) return none;
+
+  const { Sale, Labour, Transporter } = initializeModels();
+  if (!input.sale || !isValidId(input.sale)) {
+    throw ApiError.badRequest('Select the invoice this payment is for');
+  }
+  const sale = await Sale.findByPk(input.sale, { transaction });
+  if (!sale || String(sale.store) !== String(storeId)) {
+    throw ApiError.badRequest('Invoice not found in this store');
+  }
+
+  if (key === SYSTEM_KEY.LABOUR) {
+    if (!input.labour || !isValidId(input.labour)) {
+      throw ApiError.badRequest('Select the labourer being paid');
+    }
+    const labour = await Labour.findByPk(input.labour, { transaction });
+    if (!labour || String(labour.store) !== String(storeId)) {
+      throw ApiError.badRequest('Labourer not found in this store');
+    }
+    return {
+      ...none,
+      sale: sale.id,
+      saleNo: sale.number,
+      labour: labour.id,
+      payeeName: labour.name,
+    };
+  }
+
+  if (!input.transporter || !isValidId(input.transporter)) {
+    throw ApiError.badRequest('Select the transporter being paid');
+  }
+  const transporter = await Transporter.findByPk(input.transporter, { transaction });
+  if (!transporter || String(transporter.store) !== String(storeId)) {
+    throw ApiError.badRequest('Transporter not found in this store');
+  }
+  return {
+    ...none,
+    sale: sale.id,
+    saleNo: sale.number,
+    transporter: transporter.id,
+    payeeName: transporter.name,
+  };
+}
+
 async function requireStore(actor, store, transaction) {
   const { Store } = initializeModels();
   const storeId = requireWriteStore(actor, store);
   const storeDoc = await Store.findByPk(storeId, { transaction });
   if (!storeDoc) throw ApiError.badRequest('Store not found');
   return storeDoc;
+}
+
+// What the expense reads as in the Day Book. A labour/transport payout names
+// who was paid and for which invoice, plus any note.
+function expenseDescription(expense) {
+  if (expense.payeeName) {
+    const base = `${expense.categoryName} paid to ${expense.payeeName} for sale ${expense.saleNo}`;
+    return expense.note ? `${base} — ${expense.note}` : base;
+  }
+  return expense.note || `${expense.categoryName} expense ${expense.number}`;
 }
 
 // Dr Operating Expense / Cr Cash|Bank — the ledger effect of an expense
@@ -98,7 +174,7 @@ async function postExpenseJournal(expense, actor, transaction) {
   );
   const entry = await journalService.post({
     date: expense.date,
-    description: expense.note || `${expense.categoryName} expense ${expense.number}`,
+    description: expenseDescription(expense),
     refType: REF.EXPENSE,
     refId: expense.id,
     refNo: expense.number,
@@ -173,8 +249,10 @@ async function createExpense(actor, input) {
       transaction,
     );
     const number = await counterService.nextDocNumber('EXP', when.getFullYear(), 6, transaction);
+    const payout = await resolvePayout(categoryDoc, input, storeDoc.id, transaction);
 
     const expense = Expense.build({
+      ...payout,
       number,
       category: categoryDoc.id,
       categoryName: categoryDoc.name,
@@ -188,12 +266,16 @@ async function createExpense(actor, input) {
       createdBy: actor ? actor.id : null,
     });
 
-    // A super admin's own entry needs no one else's sign-off, and small
-    // day-to-day spend (at or under the auto-approve threshold) doesn't
-    // either. Anything else stays PENDING — no journal effect — until
+    // A super admin's own entry needs no one else's sign-off, and neither
+    // do labour/transport payouts or small day-to-day spend (at or under the
+    // auto-approve threshold). Anything else stays PENDING — no journal effect — until
     // someone with expenses:approve signs off (see approveExpense below).
+    // Labour / Transport payouts against a sale invoice are always
+    // auto-approved, whatever the amount.
     const autoApprove =
-      (actor && actor.role === ROLES.SUPER_ADMIN) || amt <= toPaisa(AUTO_APPROVE_THRESHOLD_RUPEES);
+      (actor && actor.role === ROLES.SUPER_ADMIN) ||
+      Boolean(categoryDoc.systemKey) ||
+      amt <= toPaisa(AUTO_APPROVE_THRESHOLD_RUPEES);
     if (autoApprove) {
       expense.status = EXPENSE_STATUS.APPROVED;
       expense.approvedBy = actor ? actor.id : null;
@@ -238,6 +320,8 @@ async function updateExpense(actor, id, input) {
     const amt = amount !== undefined ? toPaisa(amount) : expense.amount;
     if (amt <= 0) throw ApiError.badRequest('Amount must be positive');
 
+    const payout = await resolvePayout(categoryDoc, input, expense.store, transaction);
+    Object.assign(expense, payout);
     expense.category = categoryDoc.id;
     expense.categoryName = categoryDoc.name;
     expense.amount = amt;
@@ -346,6 +430,8 @@ async function listExpenses({ category, store, from, to, search, status, actor, 
       { number: { [Op.iLike]: term } },
       { categoryName: { [Op.iLike]: term } },
       { note: { [Op.iLike]: term } },
+      { saleNo: { [Op.iLike]: term } },
+      { payeeName: { [Op.iLike]: term } },
     ];
   }
 
@@ -407,7 +493,125 @@ async function categoryTotals({ store, from, to, actor } = {}) {
   );
 }
 
+// Invoice # search for a Labour/Transport expense: this store's sales that
+// charged the customer for labour (or transport), newest first, each with
+// what was charged and what has already been paid out against it (any
+// non-rejected expense of that kind). Labour sales also list their services.
+async function listPayableSales({ actor, store, kind, search }) {
+  const { Sale, SaleLabour, Expense, ExpenseCategory } = initializeModels();
+  const { storeIds } = await resolveStoreScope({ store, actor });
+  const where = { ...storeWhere(storeIds) };
+  if (kind === SYSTEM_KEY.LABOUR) where.labourRent = { [Op.gt]: 0 };
+  else if (kind === SYSTEM_KEY.TRANSPORT) where.transportFare = { [Op.gt]: 0 };
+  else throw ApiError.badRequest('Invalid payout kind');
+  if (search) where.number = { [Op.iLike]: `%${escapeLike(search)}%` };
+
+  const sales = await Sale.findAll({
+    where,
+    attributes: ['id', 'number', 'date', 'customerName', 'labourRent', 'transportFare'],
+    order: [['date', 'DESC']],
+    limit: 20,
+  });
+  if (sales.length === 0) return [];
+  const saleIds = sales.map((s) => s.id);
+
+  const paidRows = await Expense.findAll({
+    where: { sale: { [Op.in]: saleIds }, status: { [Op.ne]: EXPENSE_STATUS.REJECTED } },
+    include: [
+      {
+        model: ExpenseCategory,
+        as: 'categoryInfo',
+        attributes: [],
+        where: { systemKey: kind },
+      },
+    ],
+    attributes: ['sale', [fn('SUM', col('amount')), 'paid']],
+    group: ['Expense.sale_id'],
+    raw: true,
+  });
+  const paidBySale = new Map(paidRows.map((r) => [String(r.sale), Number(r.paid) || 0]));
+
+  const servicesBySale = new Map();
+  if (kind === SYSTEM_KEY.LABOUR) {
+    const lines = await SaleLabour.findAll({
+      where: { saleId: { [Op.in]: saleIds } },
+      order: [['position', 'ASC']],
+    });
+    for (const l of lines) {
+      const key = String(l.saleId);
+      if (!servicesBySale.has(key)) servicesBySale.set(key, []);
+      servicesBySale.get(key).push({ serviceName: l.serviceName, name: l.name, rent: l.rent });
+    }
+  }
+
+  return sales.map((s) =>
+    view(
+      {
+        id: s.id,
+        number: s.number,
+        date: s.date,
+        customerName: s.customerName,
+        charged: kind === SYSTEM_KEY.LABOUR ? s.labourRent : s.transportFare,
+        paid: paidBySale.get(String(s.id)) || 0,
+        services: (servicesBySale.get(String(s.id)) || []).map((l) => view(l, ['rent'])),
+      },
+      ['charged', 'paid'],
+    ),
+  );
+}
+
+// Every labour/transport payout (non-rejected expense) made to one labourer
+// or transporter — "which jobs did they do, and what did we pay" on their
+// detail page. Newest first. Amounts in rupees.
+async function listPayeePayments({ actor, labour, transporter }) {
+  const { Expense, Sale } = initializeModels();
+  const { storeIds } = await resolveStoreScope({ actor });
+  const where = { ...storeWhere(storeIds), status: { [Op.ne]: EXPENSE_STATUS.REJECTED } };
+  if (labour) where.labour = labour;
+  else if (transporter) where.transporter = transporter;
+  else throw ApiError.badRequest('A labourer or transporter is required');
+
+  const rows = await Expense.findAll({
+    where,
+    order: [
+      ['date', 'DESC'],
+      ['createdAt', 'DESC'],
+    ],
+  });
+  const saleIds = Array.from(new Set(rows.map((r) => r.sale).filter(Boolean)));
+  const sales = saleIds.length
+    ? await Sale.findAll({
+        where: { id: { [Op.in]: saleIds } },
+        attributes: ['id', 'date', 'customerName'],
+      })
+    : [];
+  const saleById = new Map(sales.map((s) => [String(s.id), s]));
+
+  return rows.map((r) => {
+    const sale = r.sale ? saleById.get(String(r.sale)) : null;
+    return view(
+      {
+        id: r.id,
+        number: r.number,
+        paidOn: r.date,
+        saleId: r.sale,
+        saleNo: r.saleNo,
+        saleDate: sale ? sale.date : null,
+        customerName: sale ? sale.customerName : '',
+        amount: r.amount,
+        method: r.method,
+        status: r.status,
+        note: r.note,
+      },
+      ['amount'],
+    );
+  });
+}
+
 module.exports = {
+  SYSTEM_KEY,
+  listPayableSales,
+  listPayeePayments,
   listCategories,
   createCategory,
   createExpense,

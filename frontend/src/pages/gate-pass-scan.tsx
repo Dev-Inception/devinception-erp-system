@@ -199,7 +199,15 @@ export function GatePassScanPage() {
                   Captured at Point of Sale
                 </p>
                 {data.labour && data.labour.length > 0 && (
-                  <Row label="Labour" value={data.labour.map((l) => l.name).join(', ')} />
+                  <Row
+                    label="Labour"
+                    value={
+                      data.labour
+                        .map((l) => l.name)
+                        .filter(Boolean)
+                        .join(', ') || '—'
+                    }
+                  />
                 )}
                 {data.saleTransport?.driverName && (
                   <Row label="Driver" value={data.saleTransport.driverName} />

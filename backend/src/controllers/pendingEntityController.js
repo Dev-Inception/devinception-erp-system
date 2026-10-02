@@ -78,8 +78,8 @@ const listInvoices = asyncHandler(async (req, res) => {
 });
 
 const getInvoiceItems = asyncHandler(async (req, res) => {
-  const { sourceType, sourceNo } = req.query;
-  const items = await pendingEntityService.listInvoiceItems(req.user, sourceType, sourceNo);
+  const { kind, sourceId } = req.query;
+  const items = await pendingEntityService.listInvoiceItems(req.user, kind, sourceId);
   return sendSuccess(res, 200, 'Invoice items fetched', { items: items.map(out) });
 });
 

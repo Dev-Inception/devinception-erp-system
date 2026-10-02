@@ -48,3 +48,14 @@ export function resizeImageToDataUrl(
     reader.readAsDataURL(file);
   });
 }
+
+// A short, unique SKU for a product created straight from a picker (POS
+// row, stock receipt) by name alone.
+export const autoSku = (name: string) =>
+  `${
+    name
+      .toUpperCase()
+      .replace(/[^A-Z0-9]+/g, '-')
+      .replace(/^-|-$/g, '')
+      .slice(0, 20) || 'ITEM'
+  }-${Date.now().toString(36).toUpperCase().slice(-5)}`;

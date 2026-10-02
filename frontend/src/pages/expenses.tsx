@@ -23,14 +23,37 @@ import { grantsPermission } from '@/lib/modules';
 import { useStorefrontFilter, useStorefrontStore } from '@/store/storefront';
 import { useBankAccounts } from '@/lib/bankAccounts';
 import { useLanguage } from '@/components/language-provider';
+import { Combobox } from '@/components/product-combobox';
 
 type ExpenseMethod = 'CASH' | 'CARD' | 'BANK_TRANSFER' | 'ONLINE';
 type ExpenseStatus = 'PENDING' | 'APPROVED' | 'REJECTED';
+
+type PayoutKind = 'LABOUR' | 'TRANSPORT';
 
 interface ExpenseCategory {
   id: string;
   name: string;
   description: string;
+  /** Built-in Labour / Transport categories pay out against a sale invoice. */
+  systemKey: PayoutKind | null;
+}
+
+/** A sale that charged the customer for labour/transport — what can be paid
+ * out against (GET /expenses/payable-sales). */
+interface PayableSale {
+  id: string;
+  number: string;
+  date: string;
+  customerName: string;
+  charged: number;
+  paid: number;
+  services: { serviceName: string; rent: number }[];
+}
+interface PayeeLite {
+  id: string;
+  name: string;
+  phoneNumber?: string;
+  phone?: string;
 }
 
 interface Expense {
@@ -47,6 +70,11 @@ interface Expense {
   note: string;
   status: ExpenseStatus;
   rejectionReason: string;
+  saleId?: string;
+  saleNo?: string;
+  labourId?: string;
+  transporterId?: string;
+  payeeName?: string;
 }
 
 const PAGE_SIZE = 20;
@@ -139,6 +167,51 @@ function ExpenseDialog({
   const [dateTouched, setDateTouched] = useState(false);
   const [note, setNote] = useState(expense?.note ?? '');
 
+  // Labour / Transport: which invoice is being paid for, and who is paid.
+  const payoutKind = categories.find((c) => c.id === categoryId)?.systemKey ?? null;
+  const expenseStoreId = expense?.storeId ?? (hasSpecificStore ? currentStoreId : undefined);
+  const [sale, setSale] = useState<{ id: string; number: string } | null>(
+    expense?.saleId ? { id: expense.saleId, number: expense.saleNo ?? '' } : null,
+  );
+  const [payee, setPayee] = useState<{ id: string; name: string } | null>(
+    expense?.labourId || expense?.transporterId
+      ? { id: (expense.labourId || expense.transporterId)!, name: expense.payeeName ?? '' }
+      : null,
+  );
+  const [saleSearch, setSaleSearch] = useState('');
+  const { data: payableSales = [] } = useQuery<PayableSale[]>({
+    queryKey: ['expense-payable-sales', payoutKind, expenseStoreId, saleSearch],
+    queryFn: async () =>
+      (
+        await api.get('/expenses/payable-sales', {
+          params: { kind: payoutKind, store: expenseStoreId, search: saleSearch || undefined },
+        })
+      ).data,
+    enabled: open && !!payoutKind,
+  });
+  const selectedSale = sale ? payableSales.find((s) => s.id === sale.id) : undefined;
+  const payeePath = payoutKind === 'TRANSPORT' ? '/transporters' : '/labour';
+  const { data: payees = [] } = useQuery<PayeeLite[]>({
+    queryKey: [payoutKind === 'TRANSPORT' ? 'transporters' : 'labour', expenseStoreId ?? null],
+    queryFn: async () => (await api.get(payeePath, { params: { store: expenseStoreId } })).data,
+    enabled: open && !!payoutKind,
+  });
+  const canCreatePayee = grantsPermission(
+    authUser?.permissions,
+    payoutKind === 'TRANSPORT' ? 'transporters:create' : 'labour:create',
+  );
+  // New labourer / transporter straight from the dropdown — name only.
+  const createPayee = useMutation({
+    mutationFn: async (name: string) =>
+      (await api.post(payeePath, { name, store: expenseStoreId })).data as PayeeLite,
+    onSuccess: (p) => {
+      toast.success(`${payoutKind === 'TRANSPORT' ? 'Transporter' : 'Labourer'} added — ${p.name}`);
+      qc.invalidateQueries({ queryKey: [payoutKind === 'TRANSPORT' ? 'transporters' : 'labour'] });
+      setPayee({ id: p.id, name: p.name });
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Could not add'),
+  });
+
   const addCategory = useMutation({
     mutationFn: async (name: string) => (await api.post('/expenses/categories', { name })).data,
     onSuccess: (category: ExpenseCategory) => {
@@ -154,6 +227,9 @@ function ExpenseDialog({
     mutationFn: async () => {
       const payload = {
         categoryId,
+        saleId: payoutKind ? sale?.id : undefined,
+        labourId: payoutKind === 'LABOUR' ? payee?.id : undefined,
+        transporterId: payoutKind === 'TRANSPORT' ? payee?.id : undefined,
         amount,
         method,
         bankAccountId: BANK_METHODS.has(method) ? bankAccountId : undefined,
@@ -168,6 +244,8 @@ function ExpenseDialog({
     onSuccess: () => {
       toast.success(editing ? 'Expense updated' : 'Expense recorded');
       qc.invalidateQueries({ queryKey: ['expenses'] });
+      qc.invalidateQueries({ queryKey: ['expense-payable-sales'] });
+      qc.invalidateQueries({ queryKey: ['payee-payments'] });
       onOpenChange(false);
     },
     onError: (e: any) =>
@@ -176,6 +254,7 @@ function ExpenseDialog({
 
   const canSubmit =
     !!categoryId &&
+    (!payoutKind || (!!sale && !!payee)) &&
     amount > 0 &&
     (!BANK_METHODS.has(method) || !!bankAccountId) &&
     (editing || hasSpecificStore) &&
@@ -183,7 +262,7 @@ function ExpenseDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="max-h-[85vh] max-w-md overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{editing ? 'Edit Expense' : 'Record Expense'}</DialogTitle>
           <DialogDescription>
@@ -207,7 +286,11 @@ function ExpenseDialog({
           )}
           {!editing &&
             !isSuperAdmin &&
-            (amount > AUTO_APPROVE_THRESHOLD ? (
+            (payoutKind ? (
+              <p className="rounded-md border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-600">
+                {t('Labour and transport payments are auto-approved.')}
+              </p>
+            ) : amount > AUTO_APPROVE_THRESHOLD ? (
               <p className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-600">
                 {`Over ${formatCurrency(AUTO_APPROVE_THRESHOLD)} needs approval before it affects the books.`}
               </p>
@@ -243,7 +326,13 @@ function ExpenseDialog({
               <div className="flex gap-2">
                 <select
                   value={categoryId}
-                  onChange={(e) => setCategoryId(e.target.value)}
+                  onChange={(e) => {
+                    setCategoryId(e.target.value);
+                    // A different payout kind means a different invoice list
+                    // and a different kind of payee.
+                    setSale(null);
+                    setPayee(null);
+                  }}
                   className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
                 >
                   <option value="" disabled>
@@ -275,6 +364,108 @@ function ExpenseDialog({
               </div>
             )}
           </div>
+
+          {payoutKind && (
+            <>
+              <div className="space-y-1.5">
+                <Label>{t('Invoice #')}</Label>
+                <Combobox<PayableSale>
+                  options={payableSales}
+                  getKey={(s) => s.id}
+                  getLabel={(s) => s.number}
+                  matches={(s, q) => s.customerName.toLowerCase().includes(q)}
+                  onQueryChange={setSaleSearch}
+                  renderOption={(s) => (
+                    <>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate font-medium">{s.number}</p>
+                        <p className="truncate text-xs text-muted-foreground">
+                          {s.customerName} · {new Date(s.date).toLocaleDateString()}
+                        </p>
+                      </div>
+                      <span className="shrink-0 text-right text-xs text-muted-foreground">
+                        {formatCurrency(s.charged)}
+                        {s.paid > 0 && (
+                          <span className="block">
+                            {t('Paid')} {formatCurrency(s.paid)}
+                          </span>
+                        )}
+                      </span>
+                    </>
+                  )}
+                  selectedLabel={sale?.number ?? ''}
+                  onSelect={(s) => setSale({ id: s.id, number: s.number })}
+                  placeholder={t('Type invoice # to search…')}
+                  emptyText={
+                    payoutKind === 'LABOUR'
+                      ? t('No invoices with labour charges found')
+                      : t('No invoices with transport charges found')
+                  }
+                />
+                {selectedSale && (
+                  <div className="space-y-1 rounded-md border bg-muted/30 px-3 py-2 text-xs">
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">{t('Customer')}</span>
+                      <span>{selectedSale.customerName}</span>
+                    </div>
+                    {selectedSale.services.map((sv, i) => (
+                      <div key={i} className="flex justify-between">
+                        <span className="text-muted-foreground">
+                          {sv.serviceName || t('Labour')}
+                        </span>
+                        <span className="tabular-nums">{formatCurrency(sv.rent)}</span>
+                      </div>
+                    ))}
+                    <div className="flex justify-between font-medium">
+                      <span>
+                        {payoutKind === 'LABOUR'
+                          ? t('Labour charged to customer')
+                          : t('Transport charged to customer')}
+                      </span>
+                      <span className="tabular-nums">{formatCurrency(selectedSale.charged)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">{t('Already paid out')}</span>
+                      <span className="tabular-nums">{formatCurrency(selectedSale.paid)}</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="space-y-1.5">
+                <Label>{payoutKind === 'LABOUR' ? t('Labourer') : t('Transporter')}</Label>
+                <Combobox<PayeeLite>
+                  options={payees}
+                  getKey={(p) => p.id}
+                  getLabel={(p) => p.name}
+                  matches={(p, q) => (p.phoneNumber || p.phone || '').includes(q)}
+                  renderOption={(p) => (
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate font-medium">{p.name}</p>
+                      {(p.phoneNumber || p.phone) && (
+                        <p className="truncate text-xs text-muted-foreground">
+                          {p.phoneNumber || p.phone}
+                        </p>
+                      )}
+                    </div>
+                  )}
+                  selectedLabel={payee?.name ?? ''}
+                  onSelect={(p) => setPayee({ id: p.id, name: p.name })}
+                  onCreate={canCreatePayee ? (name) => createPayee.mutate(name) : undefined}
+                  createNoun={payoutKind === 'LABOUR' ? t('labourer') : t('transporter')}
+                  creating={createPayee.isPending}
+                  placeholder={
+                    payoutKind === 'LABOUR'
+                      ? t('Search or add a labourer…')
+                      : t('Search or add a transporter…')
+                  }
+                  emptyText={
+                    payoutKind === 'LABOUR' ? t('No labour found') : t('No transporters found')
+                  }
+                />
+              </div>
+            </>
+          )}
 
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-1.5">
@@ -622,6 +813,11 @@ export function ExpensesPage() {
                       <span className="inline-flex items-center rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium">
                         {e.categoryName}
                       </span>
+                      {e.payeeName && (
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {e.payeeName} · {e.saleNo}
+                        </p>
+                      )}
                     </td>
                     <td className="max-w-xs truncate px-4 py-3 text-muted-foreground">
                       {e.note || '—'}

@@ -28,7 +28,6 @@ import {
   CreditCard,
   HandCoins,
   Wrench,
-  ArrowRightLeft,
 } from 'lucide-react';
 import type { Role } from '@/store/auth';
 
@@ -190,14 +189,8 @@ export const MODULES: ModuleDef[] = [
     icon: BookOpenCheck,
     defaultRoles: ['ACCOUNTANT', 'MANAGER', 'ADMIN'],
   },
-  {
-    key: 'labour-cash-flow',
-    to: '/labour-cash-flow',
-    label: 'Labour Cash Flow',
-    section: 'Finance',
-    icon: ArrowRightLeft,
-    defaultRoles: ['ACCOUNTANT', 'MANAGER', 'ADMIN'],
-  },
+  // 'labour-cash-flow' (Labour Cash Flow) is hidden for now along with the
+  // labour/transporter ledgers — labour is paid from Expenses instead.
   { key: 'reports', to: '/reports', label: 'Reports', section: 'Finance', icon: BarChart3 },
   {
     key: 'expenses',

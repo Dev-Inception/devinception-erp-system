@@ -284,11 +284,6 @@ async function createReceipt(
     }
     const warehouseDoc = await Warehouse.findByPk(warehouse, { transaction });
     if (!warehouseDoc) throw ApiError.notFound('Warehouse not found');
-    // Opening-stock entries (already-in-warehouse stock, no truck) skip the
-    // truck requirement entirely — see isOpeningStock on the model.
-    if (!isOpeningStock && (!truck || !truck.vehicleNumber)) {
-      throw ApiError.badRequest('Truck vehicle number is required');
-    }
     if (!Array.isArray(items) || items.length === 0) {
       throw ApiError.badRequest('At least one product line is required');
     }
@@ -572,9 +567,6 @@ async function updateReceipt(
     // model) — an edit can't flip it, so this is read from the existing
     // row rather than the request body.
     const isOpeningStock = receipt.isOpeningStock;
-    if (!isOpeningStock && (!truck || !truck.vehicleNumber)) {
-      throw ApiError.badRequest('Truck vehicle number is required');
-    }
     if (!Array.isArray(items) || items.length === 0) {
       throw ApiError.badRequest('At least one product line is required');
     }

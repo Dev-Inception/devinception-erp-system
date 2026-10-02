@@ -20,7 +20,6 @@ import {
   DialogClose,
 } from '@/components/ui/dialog';
 import { api } from '@/lib/api';
-import { formatCurrency } from '@/lib/utils';
 import { useAuthStore } from '@/store/auth';
 import { grantsPermission } from '@/lib/modules';
 import { useStorefrontFilter, useStorefrontStore } from '@/store/storefront';
@@ -205,7 +204,7 @@ export function TransportersPage() {
     if (await confirmDelete(`transporter "${tr.name}"`)) del.mutate(tr.id);
   };
 
-  const colSpan = showActions ? 5 : 4;
+  const colSpan = showActions ? 4 : 3;
 
   return (
     <div className="space-y-4">
@@ -239,7 +238,6 @@ export function TransportersPage() {
                 <th className="px-4 py-3 font-medium">{t('Transporter')}</th>
                 <th className="px-4 py-3 font-medium">{t('Phone')}</th>
                 <th className="px-4 py-3 font-medium">{t('Vehicle Number')}</th>
-                <th className="px-4 py-3 text-right font-medium">{t('Outstanding')}</th>
                 {showActions && (
                   <th className="px-4 py-3 text-right font-medium">{t('Actions')}</th>
                 )}
@@ -263,9 +261,6 @@ export function TransportersPage() {
                     <td className="px-4 py-3 font-medium">{tr.name}</td>
                     <td className="px-4 py-3 text-muted-foreground">{tr.phone ?? '—'}</td>
                     <td className="px-4 py-3 text-muted-foreground">{tr.vehicleNumber ?? '—'}</td>
-                    <td className="px-4 py-3 text-right font-medium">
-                      {formatCurrency(tr.outstanding)}
-                    </td>
                     {showActions && (
                       <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
                         <div className="flex justify-end gap-1">

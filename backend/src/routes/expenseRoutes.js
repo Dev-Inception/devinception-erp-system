@@ -11,6 +11,7 @@ const {
   listExpensesValidator,
   idParamValidator,
   rejectExpenseValidator,
+  payableSalesValidator,
 } = require('../validators/expenseValidator');
 
 const router = express.Router();
@@ -29,6 +30,13 @@ router.post(
   createCategoryValidator,
   validate,
   expenseController.createCategory,
+);
+router.get(
+  '/payable-sales',
+  requirePermission(PERMISSIONS.EXPENSES_MANAGE),
+  payableSalesValidator,
+  validate,
+  expenseController.listPayableSales,
 );
 router.get(
   '/totals',

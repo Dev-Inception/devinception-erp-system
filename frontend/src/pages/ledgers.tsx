@@ -10,7 +10,9 @@ import { useStorefrontFilter } from '@/store/storefront';
 import { useLanguage } from '@/components/language-provider';
 
 type Kind = 'customers' | 'vendors' | 'suppliers' | 'labour' | 'transporters';
-const KIND_ORDER: Kind[] = ['customers', 'vendors', 'suppliers', 'labour', 'transporters'];
+// Labour and transporter ledgers are hidden for now — they're paid from
+// Expenses against the sale invoice, and their detail pages show jobs/payouts.
+const KIND_ORDER: Kind[] = ['customers', 'vendors', 'suppliers'];
 const SINGULAR: Record<Kind, string> = {
   customers: 'customer',
   vendors: 'vendor',

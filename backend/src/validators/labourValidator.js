@@ -11,10 +11,10 @@ const createLabourValidator = [
     .withMessage('Name must be a string')
     .isLength({ min: 2, max: 100 })
     .withMessage('Name must be between 2 and 100 characters'),
+  // Optional — a labourer can be added with just a name.
   body('phoneNumber')
+    .optional({ values: 'falsy' })
     .trim()
-    .notEmpty()
-    .withMessage('Phone number is required')
     .isString()
     .withMessage('Phone number must be a string')
     .matches(/^[0-9+\-\s()]{10,15}$/)

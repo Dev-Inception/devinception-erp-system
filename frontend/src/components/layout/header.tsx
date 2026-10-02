@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Bell, KeyRound, LogOut, Moon, Sun } from 'lucide-react';
+import { KeyRound, LogOut, Moon, Sun } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -71,11 +71,6 @@ export function Header() {
           <Button variant="ghost" size="icon" onClick={toggle} aria-label="Toggle theme">
             <Sun className="h-4 w-4 dark:hidden" />
             <Moon className="hidden h-4 w-4 dark:block" />
-          </Button>
-
-          <Button variant="ghost" size="icon" aria-label="Notifications" className="relative">
-            <Bell className="h-4 w-4" />
-            <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-destructive" />
           </Button>
         </div>
 

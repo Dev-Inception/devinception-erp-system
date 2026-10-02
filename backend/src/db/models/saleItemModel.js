@@ -24,6 +24,8 @@ module.exports = function defineSaleItem(db) {
       warehouse: { type: DataTypes.STRING(24), field: 'warehouse_id' },
       vendor: { type: DataTypes.STRING(24), field: 'vendor_id' },
       vendorName: { type: DataTypes.STRING(120), allowNull: false, defaultValue: '' },
+      // Free-text note for this line, entered on the POS.
+      remarks: { type: DataTypes.STRING(255), allowNull: false, defaultValue: '' },
     },
     { tableName: 'sale_items', timestamps: false },
   );

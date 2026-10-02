@@ -9,7 +9,10 @@ module.exports = function defineSaleLabour(db) {
       id: { type: DataTypes.BIGINT, primaryKey: true, autoIncrement: true },
       saleId: { type: DataTypes.STRING(24), allowNull: false, field: 'sale_id' },
       position: { type: DataTypes.INTEGER, allowNull: false },
-      labour: { type: DataTypes.STRING(24), allowNull: false, field: 'labour_id' },
+      // Null when the sale charged for a service without naming who does it
+      // (see db/migrations/026-unassigned-sale-labour.js); `name` is '' and
+      // `phoneNumber` is whatever contact number the POS entered.
+      labour: { type: DataTypes.STRING(24), field: 'labour_id' },
       name: { type: DataTypes.STRING(100), allowNull: false },
       phoneNumber: { type: DataTypes.STRING(20), allowNull: false, defaultValue: '' },
       // Which billable service (from labour_services) this line's rent pays

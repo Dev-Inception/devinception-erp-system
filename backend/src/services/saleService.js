@@ -23,7 +23,6 @@ const pendingEntityService = require('./pendingEntityService');
 const paymentService = require('./paymentService');
 const labourService = require('./labourService');
 const dayEndService = require('./dayEndService');
-const settingsService = require('./settingsService');
 
 /**
  * POS sale flow. Resolves how the sale is settled (cash / bank / on account),
@@ -111,6 +110,7 @@ async function resolveSaleLineItems(
       warehouse: lineWarehouse ? lineWarehouse.id : null,
       vendor: vendorDoc ? vendorDoc.id : null,
       vendorName: vendorDoc ? vendorDoc.name : '',
+      remarks: typeof it.remarks === 'string' ? it.remarks.trim().slice(0, 255) : '',
     });
   }
 
@@ -377,11 +377,16 @@ async function createSale(actor, input) {
       ? await warehouseService.getWarehouseById(warehouse, transaction)
       : await stockService.ensureDefaultWarehouse(transaction);
 
-    const saleLabour = await labourService.resolveLabourLines(labour, storeDoc.id, transaction);
+    const saleLabour = await labourService.resolveLabourLines(labour, storeDoc.id, transaction, {
+      allowUnassigned: true,
+    });
     const labourRentPaisa = saleLabour.reduce((s, l) => s + l.rent, 0);
     // Snapshotted onto the sale so an edit books its labour the same way,
     // even if the store switches modes in between.
-    const labourPricingMode = await settingsService.getLabourPricingMode(storeDoc.id, transaction);
+    // Labour is never queued in Pending Entities any more — new sales are
+    // always booked DIRECT (the snapshot still matters for editing older
+    // PENDING-mode sales).
+    const labourPricingMode = 'DIRECT';
 
     // Build line items (paisa) and pre-check stock so we never half-sell. A
     // sale can mix lines from several warehouses — each WAREHOUSE-sourced
@@ -587,24 +592,21 @@ async function createSale(actor, input) {
     }
 
     // Labour payable: the rent charged to the customer was already booked as
-    // SALES revenue above. In DIRECT mode this books the matching
-    // expense/liability to the labourer right away — Dr Operating Expense /
-    // Cr AP_LABOUR per labourer with rent, in one balanced entry. In PENDING
-    // mode nothing is owed yet: each labour line goes to Pending Entities,
-    // and only becomes payable once the agreed payout is entered there.
-    if (labourPricingMode === 'PENDING') {
-      await pendingEntityService.recordSaleLabourItems(sale, saleLabour, actor, transaction);
-    } else {
-      await labourService.postLabourPayable(saleLabour, {
-        when,
-        refType: REF.SALE,
-        refNo: number,
-        store: storeDoc.id,
-        actor,
-        label: 'sale',
-        transaction,
-      });
-    }
+    // SALES revenue above. A line naming a labourer books the matching
+    // expense/liability to them right away — Dr Operating Expense /
+    // Cr AP_LABOUR per labourer with rent, in one balanced entry. Lines sold
+    // without a labourer (the POS default) owe nobody yet and post nothing
+    // here — postLabourPayable skips them; their payout is recorded
+    // separately.
+    await labourService.postLabourPayable(saleLabour, {
+      when,
+      refType: REF.SALE,
+      refNo: number,
+      store: storeDoc.id,
+      actor,
+      label: 'sale',
+      transaction,
+    });
 
     // Transporter payable: same idea as labour above, but only when a
     // registered transporter is attached.
@@ -700,7 +702,9 @@ async function updateSale(actor, saleId, input) {
     let saleLabour = originalLabour;
     let labourRentPaisa = sale.labourRent;
     if (labour !== undefined) {
-      saleLabour = await labourService.resolveLabourLines(labour, sale.store, transaction);
+      saleLabour = await labourService.resolveLabourLines(labour, sale.store, transaction, {
+        allowUnassigned: true,
+      });
       labourRentPaisa = saleLabour.reduce((s, l) => s + l.rent, 0);
     }
 
@@ -854,7 +858,16 @@ async function updateSale(actor, saleId, input) {
     sale.lastEditedBy = actor ? actor.id : null;
     await sale.save({ transaction });
 
-    if (!pendingLabour) {
+    if (pendingLabour && labour !== undefined) {
+      // An older PENDING-mode sale whose labour was replaced: its old pending
+      // payouts (if already entered) are reversed and dropped, and the new
+      // lines are booked DIRECT like any new sale — labour no longer goes
+      // through Pending Entities.
+      await pendingEntityService.removeSaleLabourItems(sale, actor, transaction);
+      sale.labourPricingMode = 'DIRECT';
+      await sale.save({ transaction });
+    }
+    if (sale.labourPricingMode === 'DIRECT') {
       await labourService.postLabourPayable(saleLabour, {
         when,
         refType: REF.SALE,
@@ -864,12 +877,6 @@ async function updateSale(actor, saleId, input) {
         label: 'sale',
         transaction,
       });
-    } else if (labour !== undefined) {
-      // Labour was replaced — the old lines' payouts (if already entered)
-      // no longer apply, so they're reversed and re-queued for pricing.
-      // Leaving `labour` out keeps the existing pending entities untouched.
-      await pendingEntityService.removeSaleLabourItems(sale, actor, transaction);
-      await pendingEntityService.recordSaleLabourItems(sale, saleLabour, actor, transaction);
     }
     await postTransportFareExpense(sale, transportFareResolved, actor, transaction);
 

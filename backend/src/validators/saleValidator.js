@@ -33,12 +33,32 @@ const itemsAndTermsValidator = [
     .optional({ values: 'falsy' })
     .isMongoId()
     .withMessage('Invalid item warehouse'),
+  body('items.*.remarks')
+    .optional({ values: 'falsy' })
+    .isString()
+    .trim()
+    .isLength({ max: 255 })
+    .withMessage('Item remarks must be at most 255 characters'),
   body('labour').optional({ values: 'falsy' }).isArray().withMessage('Labour must be an array'),
-  body('labour.*.labour').isMongoId().withMessage('Each labour entry must be a valid labour id'),
+  // A line names either a labourer, or just the service being charged for
+  // (the POS no longer picks a labourer).
+  body('labour.*.labour')
+    .optional({ values: 'falsy' })
+    .isMongoId()
+    .withMessage('Each labour entry must be a valid labour id'),
   body('labour.*.service')
     .optional({ values: 'falsy' })
     .isMongoId()
     .withMessage('Invalid labour service'),
+  body('labour.*')
+    .custom((l) => Boolean(l && (l.labour || l.service)))
+    .withMessage('Each labour entry needs a labourer or a service'),
+  body('labour.*.phoneNumber')
+    .optional({ values: 'falsy' })
+    .isString()
+    .trim()
+    .isLength({ max: 20 })
+    .withMessage('Labour phone number is too long'),
   body('labour.*.rent')
     .optional({ values: 'falsy' })
     .isFloat({ min: 0 })

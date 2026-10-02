@@ -100,9 +100,8 @@ function LabourDialog({
             />
           </div>
           <div className="space-y-1.5">
-            <Label>Phone Number *</Label>
+            <Label>Phone Number (optional)</Label>
             <Input
-              required
               value={form.phoneNumber}
               onChange={(e) => setForm({ ...form, phoneNumber: e.target.value })}
               placeholder="e.g. 0300-1234567"
@@ -252,7 +251,7 @@ export function LabourPage() {
                         {l.name}
                       </div>
                     </td>
-                    <td className="px-4 py-3 text-muted-foreground">{l.phoneNumber}</td>
+                    <td className="px-4 py-3 text-muted-foreground">{l.phoneNumber || '—'}</td>
                     {showActions && (
                       <td className="px-4 py-3 text-right" onClick={(e) => e.stopPropagation()}>
                         <div className="flex justify-end gap-1">

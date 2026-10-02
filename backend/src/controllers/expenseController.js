@@ -74,7 +74,34 @@ const getCategoryTotals = asyncHandler(async (req, res) => {
   return sendSuccess(res, 200, 'Expense totals fetched', { categories: totals });
 });
 
+// Invoice # search for a Labour/Transport expense.
+const listPayableSales = asyncHandler(async (req, res) => {
+  const { kind, store, search } = req.query;
+  const sales = await expenseService.listPayableSales({ actor: req.user, kind, store, search });
+  return sendSuccess(res, 200, 'Payable sales fetched', { sales });
+});
+
+// A labourer's / transporter's payouts — mounted under /labour/:id and
+// /transporters/:id (their own read permissions), not /expenses.
+const listLabourPayments = asyncHandler(async (req, res) => {
+  const payments = await expenseService.listPayeePayments({
+    actor: req.user,
+    labour: req.params.id,
+  });
+  return sendSuccess(res, 200, 'Labour payments fetched', { payments });
+});
+const listTransporterPayments = asyncHandler(async (req, res) => {
+  const payments = await expenseService.listPayeePayments({
+    actor: req.user,
+    transporter: req.params.id,
+  });
+  return sendSuccess(res, 200, 'Transporter payments fetched', { payments });
+});
+
 module.exports = {
+  listPayableSales,
+  listLabourPayments,
+  listTransporterPayments,
   listCategories,
   createCategory,
   createExpense,

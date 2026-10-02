@@ -4,6 +4,7 @@ const { protect } = require('../middlewares/authMiddleware');
 const { requirePermission } = require('../middlewares/roleMiddleware');
 const { validate } = require('../middlewares/validateMiddleware');
 const { PERMISSIONS } = require('../utils/permissions');
+const expenseController = require('../controllers/expenseController');
 const {
   createLabourValidator,
   updateLabourValidator,
@@ -60,6 +61,16 @@ router.delete(
   idParamValidator,
   validate,
   labourController.deleteLabour,
+);
+
+// Jobs + payouts: Labour/Transport expenses paid to this party against a
+// sale invoice (see expenseService.listPayeePayments).
+router.get(
+  '/:id/payments',
+  requirePermission(PERMISSIONS.LABOUR_READ),
+  idParamValidator,
+  validate,
+  expenseController.listLabourPayments,
 );
 
 module.exports = router;

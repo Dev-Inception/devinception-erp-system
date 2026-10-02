@@ -37,8 +37,9 @@ import {
 import { Pagination } from '@/components/ui/pagination';
 import { GatePassDialog } from '@/components/gate-pass-dialog';
 import { RecordSupplierPaymentDialog } from '@/components/record-supplier-payment-dialog';
+import { Combobox } from '@/components/product-combobox';
 import { api } from '@/lib/api';
-import { formatCurrency } from '@/lib/utils';
+import { autoSku, formatCurrency } from '@/lib/utils';
 import { openStockReceiptInvoicePopup } from '@/lib/invoicePopup';
 import { useAuthStore } from '@/store/auth';
 import { grantsPermission } from '@/lib/modules';
@@ -132,6 +133,11 @@ const PAGE_SIZE = 20;
 const SEARCH_FETCH_LIMIT = 200;
 
 /* ── New/edit truck delivery: supplier, truck details, and per-product received/damaged quantities ── */
+// The "This stock is already in the warehouse" (opening stock) option is
+// hidden on new receipts for now. Existing opening-stock receipts still open
+// and edit as before.
+const SHOW_OPENING_STOCK_OPTION = false;
+
 function ReceiptDialog({ receipt, onClose }: { receipt?: StockReceipt; onClose: () => void }) {
   const qc = useQueryClient();
   const { t } = useLanguage();
@@ -186,14 +192,9 @@ function ReceiptDialog({ receipt, onClose }: { receipt?: StockReceipt; onClose: 
   const [creatingLabour, setCreatingLabour] = useState(false);
   const [newLabour, setNewLabour] = useState({ name: '', phoneNumber: '' });
   const [productSearch, setProductSearch] = useState('');
-  const [productPickerOpen, setProductPickerOpen] = useState(false);
-  const productSearchRef = useRef<HTMLInputElement>(null);
-  const [creatingProduct, setCreatingProduct] = useState(false);
-  const [newProduct, setNewProduct] = useState({
-    name: '',
-    sku: '',
-    purchasePrice: 0,
-  });
+  const authPermissions = useAuthStore((s) => s.user?.permissions);
+  const canCreateSupplier = grantsPermission(authPermissions, 'suppliers:create');
+  const canCreateProduct = grantsPermission(authPermissions, 'inventory:manage');
 
   useEffect(() => {
     if (!editing && !warehouseId && defaultWarehouseId) setWarehouseId(defaultWarehouseId);
@@ -247,8 +248,6 @@ function ReceiptDialog({ receipt, onClose }: { receipt?: StockReceipt; onClose: 
 
   const addItem = (p: ProductOption) => {
     setProductSearch('');
-    setProductPickerOpen(false);
-    productSearchRef.current?.blur();
     setItems((rows) => {
       if (rows.some((r) => r.productId === p.id)) return rows;
       return [
@@ -276,17 +275,14 @@ function ReceiptDialog({ receipt, onClose }: { receipt?: StockReceipt; onClose: 
   const labourRentTotal = labourRows.reduce((s, r) => s + (r.rent || 0), 0);
 
   // Quick-add a product straight from the receipt when it isn't in the
-  // catalog yet, instead of forcing a trip to the Products page and back.
-  // Owned by the receiving warehouse — purchase price matters here since
-  // that's the cost this receipt's stock-in gets valued at (see
-  // stockReceiptService, which uses the product's own purchasePrice).
+  // catalog yet — name only, like the POS: SKU is generated, owned by the
+  // receiving warehouse, and its cost is priced later in Pending Entities.
   const createProduct = useMutation({
-    mutationFn: async () =>
+    mutationFn: async (name: string) =>
       (
         await api.post('/products', {
-          name: newProduct.name,
-          sku: newProduct.sku,
-          purchasePrice: newProduct.purchasePrice,
+          name,
+          sku: autoSku(name),
           warehouseId,
         })
       ).data,
@@ -296,12 +292,30 @@ function ReceiptDialog({ receipt, onClose }: { receipt?: StockReceipt; onClose: 
       // So it shows up on the Inventory page immediately too, not just here.
       qc.invalidateQueries({ queryKey: ['products'] });
       addItem(p);
-      setCreatingProduct(false);
-      setNewProduct({ name: '', sku: '', purchasePrice: 0 });
     },
     onError: (e: any) =>
       toast.error(
         e?.response?.data?.message?.[0] ?? e?.response?.data?.message ?? 'Could not add product',
+      ),
+  });
+  // A supplier not on the list yet is created right here, name only.
+  const createSupplier = useMutation({
+    mutationFn: async (name: string) =>
+      (
+        await api.post('/suppliers', {
+          name,
+          store: hasSpecificStore ? currentStoreId : undefined,
+        })
+      ).data as Supplier,
+    onSuccess: (s) => {
+      toast.success(`Supplier added — ${s.name}`);
+      qc.invalidateQueries({ queryKey: ['suppliers-select'] });
+      qc.invalidateQueries({ queryKey: ['suppliers'] });
+      setSupplierId(s.id);
+    },
+    onError: (e: any) =>
+      toast.error(
+        e?.response?.data?.message?.[0] ?? e?.response?.data?.message ?? 'Could not add supplier',
       ),
   });
   const removeItem = (productId: string) =>
@@ -394,7 +408,6 @@ function ReceiptDialog({ receipt, onClose }: { receipt?: StockReceipt; onClose: 
     (editing || hasSpecificStore) &&
     supplierId &&
     warehouseId &&
-    (isOpeningStock || vehicleNumber.trim()) &&
     items.length > 0 &&
     items.every((r) => r.receivedQuantity > 0 || r.damagedQuantity > 0) &&
     (isOpeningStock || !needsTruckFareBank || truckFareBankAccountId);
@@ -437,7 +450,7 @@ function ReceiptDialog({ receipt, onClose }: { receipt?: StockReceipt; onClose: 
               can't be recorded on a delivery.
             </div>
           )}
-          {!editing && (
+          {SHOW_OPENING_STOCK_OPTION && !editing && (
             <label className="flex items-start gap-2 rounded-md border bg-muted/20 px-3 py-2 text-sm">
               <input
                 type="checkbox"
@@ -457,19 +470,20 @@ function ReceiptDialog({ receipt, onClose }: { receipt?: StockReceipt; onClose: 
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-1.5">
               <Label>Supplier *</Label>
-              <select
-                required
-                value={supplierId}
-                onChange={(e) => setSupplierId(e.target.value)}
-                className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
-              >
-                <option value="">Select supplier…</option>
-                {suppliers.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.name}
-                  </option>
-                ))}
-              </select>
+              <Combobox<Supplier>
+                options={suppliers}
+                getKey={(s) => s.id}
+                getLabel={(s) => s.name}
+                selectedLabel={
+                  suppliers.find((s) => s.id === supplierId)?.name ?? receipt?.supplierName ?? ''
+                }
+                onSelect={(s) => setSupplierId(s.id)}
+                onCreate={canCreateSupplier ? (name) => createSupplier.mutate(name) : undefined}
+                createNoun="supplier"
+                creating={createSupplier.isPending}
+                placeholder="Search or add a supplier…"
+                emptyText="No suppliers found"
+              />
             </div>
             <div className="space-y-1.5">
               <Label>Receiving Warehouse *</Label>
@@ -494,9 +508,8 @@ function ReceiptDialog({ receipt, onClose }: { receipt?: StockReceipt; onClose: 
             {!isOpeningStock && (
               <>
                 <div className="space-y-1.5">
-                  <Label>Truck / Vehicle Number *</Label>
+                  <Label>Truck / Vehicle Number</Label>
                   <Input
-                    required
                     value={vehicleNumber}
                     onChange={(e) => setVehicleNumber(e.target.value)}
                     placeholder="e.g. LEA-1234"
@@ -779,126 +792,29 @@ function ReceiptDialog({ receipt, onClose }: { receipt?: StockReceipt; onClose: 
 
           <div className="space-y-1.5">
             <Label>Products</Label>
-            <div className="relative">
-              <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                ref={productSearchRef}
-                value={productSearch}
-                onChange={(e) => setProductSearch(e.target.value)}
-                onFocus={() => setProductPickerOpen(true)}
-                onBlur={() => setTimeout(() => setProductPickerOpen(false), 150)}
-                placeholder="Click to browse, or type to search products…"
-                className="pl-8"
-              />
-              {productPickerOpen && (
-                <div className="absolute z-10 mt-1 max-h-56 w-full overflow-y-auto rounded-md border bg-popover shadow-md">
-                  {products.length === 0 ? (
-                    <p className="px-3 py-3 text-sm text-muted-foreground">
-                      No products found{productSearch ? ` for "${productSearch}"` : ''}.
-                    </p>
-                  ) : (
-                    products.map((p) => (
-                      <button
-                        key={p.id}
-                        type="button"
-                        onMouseDown={(e) => e.preventDefault()}
-                        onClick={() => addItem(p)}
-                        className="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-accent"
-                      >
-                        <span>{p.name}</span>
-                        <span className="text-xs text-muted-foreground">{p.sku}</span>
-                      </button>
-                    ))
-                  )}
-                  <button
-                    type="button"
-                    onMouseDown={(e) => e.preventDefault()}
-                    disabled={!warehouseId}
-                    title={!warehouseId ? t('Select a receiving warehouse first') : undefined}
-                    onClick={() => {
-                      setNewProduct((f) => ({ ...f, name: productSearch.trim() }));
-                      setCreatingProduct(true);
-                      setProductPickerOpen(false);
-                    }}
-                    className="flex w-full items-center gap-2 border-t px-3 py-2 text-left text-sm font-medium text-primary hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    <Plus className="h-4 w-4" /> {t('Add new product')}
-                    {productSearch.trim() ? ` "${productSearch.trim()}"` : ''}
-                  </button>
-                </div>
+            <Combobox<ProductOption>
+              options={products.filter((p) => !items.some((r) => r.productId === p.id))}
+              getKey={(p) => p.id}
+              getLabel={(p) => p.name}
+              matches={(p, q) => p.sku.toLowerCase().includes(q)}
+              onQueryChange={setProductSearch}
+              renderOption={(p) => (
+                <>
+                  <span className="min-w-0 flex-1 truncate font-medium">{p.name}</span>
+                  <span className="shrink-0 text-xs text-muted-foreground">{p.sku}</span>
+                </>
               )}
-            </div>
-
-            {creatingProduct && (
-              // A plain div, not a <form> — see the same note on the labour
-              // quick-create block above for why nesting forms here breaks
-              // the receipt dialog.
-              <div className="space-y-2 rounded-md border bg-muted/20 p-3">
-                <div
-                  className="grid gap-2 sm:grid-cols-2"
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      e.preventDefault();
-                      if (newProduct.name && newProduct.sku) createProduct.mutate();
-                    }
-                  }}
-                >
-                  <div className="space-y-1">
-                    <Label className="text-xs">{t('Name *')}</Label>
-                    <Input
-                      required
-                      autoFocus
-                      value={newProduct.name}
-                      onChange={(e) => setNewProduct((f) => ({ ...f, name: e.target.value }))}
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <Label className="text-xs">{t('SKU *')}</Label>
-                    <Input
-                      required
-                      value={newProduct.sku}
-                      onChange={(e) => setNewProduct((f) => ({ ...f, sku: e.target.value }))}
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <Label className="text-xs">{t('Purchase Price')}</Label>
-                    <Input
-                      type="number"
-                      min={0}
-                      step="0.01"
-                      value={newProduct.purchasePrice || ''}
-                      onChange={(e) =>
-                        setNewProduct((f) => ({
-                          ...f,
-                          purchasePrice: Math.max(0, Number(e.target.value)),
-                        }))
-                      }
-                    />
-                  </div>
-                </div>
-                <div className="flex gap-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="flex-1"
-                    onClick={() => setCreatingProduct(false)}
-                  >
-                    {t('Cancel')}
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    className="flex-1"
-                    disabled={createProduct.isPending || !newProduct.name || !newProduct.sku}
-                    onClick={() => createProduct.mutate()}
-                  >
-                    {createProduct.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
-                    {t('Add')}
-                  </Button>
-                </div>
-              </div>
-            )}
+              // An "add to the list below" picker — it never holds a value.
+              selectedLabel=""
+              onSelect={addItem}
+              onCreate={
+                canCreateProduct && warehouseId ? (name) => createProduct.mutate(name) : undefined
+              }
+              createNoun="product"
+              creating={createProduct.isPending}
+              placeholder="Search or add a product…"
+              emptyText="No products found"
+            />
 
             {items.length > 0 && (
               <div className="overflow-x-auto rounded-md border">
@@ -1054,7 +970,7 @@ function ReceiptDetailDialog({
             <>
               <div>
                 <span className="text-muted-foreground">{t('Vehicle #')}: </span>
-                {receipt.truck.vehicleNumber}
+                {receipt.truck.vehicleNumber || '—'}
               </div>
               <div>
                 <span className="text-muted-foreground">{t('Driver')}: </span>

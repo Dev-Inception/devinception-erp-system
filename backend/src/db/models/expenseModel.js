@@ -35,6 +35,18 @@ function defineExpense(db) {
       warehouse: { type: DataTypes.STRING(24), field: 'warehouse_id' },
       date: { type: DataTypes.DATE, allowNull: false, defaultValue: DataTypes.NOW },
       note: { type: DataTypes.STRING(500), allowNull: false, defaultValue: '' },
+      // Labour/Transport payouts only: the sale invoice paid against and who
+      // was paid (one of labour/transporter), with names snapshotted.
+      sale: { type: DataTypes.STRING(24), field: 'sale_id' },
+      saleNo: { type: DataTypes.STRING(40), allowNull: false, defaultValue: '', field: 'sale_no' },
+      labour: { type: DataTypes.STRING(24), field: 'labour_id' },
+      transporter: { type: DataTypes.STRING(24), field: 'transporter_id' },
+      payeeName: {
+        type: DataTypes.STRING(120),
+        allowNull: false,
+        defaultValue: '',
+        field: 'payee_name',
+      },
       status: {
         type: DataTypes.STRING(10),
         allowNull: false,

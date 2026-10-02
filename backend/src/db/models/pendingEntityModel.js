@@ -25,7 +25,9 @@ module.exports = function definePendingEntity(db) {
       productName: { type: DataTypes.STRING(160), allowNull: false, defaultValue: '' },
       // SALE_LABOUR only: which labourer/service the line is for, and what
       // the customer was charged for it (paisa). `purchasePrice`/`lineTotal`
-      // hold the payout the labourer is actually owed once priced.
+      // hold the payout the labourer is actually owed once priced. Legacy:
+      // labour is no longer queued here (see pendingEntityService), but
+      // older rows keep these columns.
       labour: { type: DataTypes.STRING(24), field: 'labour_id' },
       labourName: { type: DataTypes.STRING(100), allowNull: false, defaultValue: '' },
       serviceName: { type: DataTypes.STRING(80), allowNull: false, defaultValue: '' },

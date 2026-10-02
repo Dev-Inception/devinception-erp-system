@@ -20,14 +20,8 @@ const receiptFieldsValidator = [
   body('warehouse').isMongoId().withMessage('A valid warehouse is required'),
   body('date').optional({ values: 'falsy' }).isISO8601().withMessage('Invalid date'),
   body('isOpeningStock').optional({ values: 'falsy' }).isBoolean().toBoolean(),
-  // Only a real truck delivery needs a vehicle number — an opening-stock
-  // entry (already-in-warehouse stock, no truck) skips this.
-  body('truck.vehicleNumber')
-    .if((_value, { req }) => !req.body.isOpeningStock)
-    .trim()
-    .notEmpty()
-    .withMessage('Vehicle number is required')
-    .isLength({ max: 80 }),
+  // Optional — a delivery can be recorded without the truck's number.
+  body('truck.vehicleNumber').optional({ values: 'falsy' }).trim().isLength({ max: 80 }),
   body('truck.driverName').optional({ values: 'falsy' }).trim().isLength({ max: 120 }),
   body('truck.driverPhone').optional({ values: 'falsy' }).trim().isLength({ max: 40 }),
   body('items').isArray({ min: 1 }).withMessage('At least one product line is required'),

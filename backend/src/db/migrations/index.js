@@ -24,4 +24,8 @@ module.exports = [
   require('./023-day-end-sessions'),
   require('./024-labour-pricing-mode'),
   require('./025-meta-whatsapp'),
+  require('./026-unassigned-sale-labour'),
+  require('./027-sale-item-remarks'),
+  require('./028-labour-transport-expenses'),
+  require('./029-labour-phone-optional'),
 ];

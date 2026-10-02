@@ -17,7 +17,6 @@ import {
   NotepadTextDashed,
   AlertTriangle,
   X,
-  ChevronDown,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useConfirm, useConfirmDelete } from '@/components/confirm-provider';
@@ -25,20 +24,15 @@ import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import {
-  DropdownMenu,
-  DropdownMenuTrigger,
-  DropdownMenuContent,
-  DropdownMenuItem,
-} from '@/components/ui/dropdown-menu';
 import { api } from '@/lib/api';
-import { formatCurrency, cn } from '@/lib/utils';
+import { autoSku, formatCurrency, cn } from '@/lib/utils';
 import { useWarehouseStore } from '@/store/warehouse';
 import { useStorefrontStore } from '@/store/storefront';
 import { useAuthStore } from '@/store/auth';
 import { grantsPermission } from '@/lib/modules';
 import { openSaleInvoicePopup, type SaleForInvoice } from '@/lib/invoicePopup';
 import { GatePassDialog } from '@/components/gate-pass-dialog';
+import { Combobox, ProductCombobox } from '@/components/product-combobox';
 import { useBankAccounts } from '@/lib/bankAccounts';
 import { useLanguage } from '@/components/language-provider';
 
@@ -54,22 +48,27 @@ interface Product {
 }
 type CartSource = 'WAREHOUSE' | 'VENDOR';
 interface CartLine {
-  /** Stable row id (sku or name, lowercased) — shared by every warehouse
-   * variant of the same product, so switching variants stays the same row. */
+  /** Stable, unique row id — rows are added empty ("Add Row") and the same
+   * product may appear on more than one row. */
   key: string;
   /** All warehouse-specific stock records for this product (from search). */
   variants: Product[];
   /** Currently selected variant — id/name/sku/stock. Stays pointed at
    * wherever this product is actually stocked even if `desiredWarehouseId`
-   * (below) picks a warehouse with no stock record for it yet. */
-  product: Product;
+   * (below) picks a warehouse with no stock record for it yet. Null until a
+   * product is picked on the row. */
+  product: Product | null;
   /** Warehouse chosen in the dropdown — every warehouse is selectable, not
    * just the ones this product already has stock in. */
   desiredWarehouseId: string | undefined;
-  /** Selected vendor (Vendor dropdown), if buying this line specially
-   * instead of pulling it from the warehouse above. Independent choice. */
+  /** Where this line comes from. New rows default to VENDOR. */
+  source: CartSource;
+  /** Selected vendor (Vendor dropdown) when source is VENDOR — null until
+   * one is picked. */
   vendorId: string | null;
   vendorName: string;
+  /** Free-text note for this line (sent as the sale item's remarks). */
+  remarks: string;
   /** Editable unit sale price — defaults to the variant's catalog price. */
   price: number;
   qty: number;
@@ -82,14 +81,11 @@ interface VendorLite {
   id: string;
   name: string;
 }
-interface TransporterLite {
-  id: string;
-  name: string;
-  phone?: string;
-  vehicleNumber?: string;
-}
 const groupKey = (p: Product) => (p.sku || p.name).trim().toLowerCase();
-const lineSource = (l: CartLine): CartSource => (l.vendorId ? 'VENDOR' : 'WAREHOUSE');
+const lineSource = (l: CartLine): CartSource => l.source;
+type FilledLine = CartLine & { product: Product };
+const isFilled = (l: CartLine): l is FilledLine => l.product !== null;
+const newRowKey = () => `row-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 
 interface CustomerLite {
   id: string;
@@ -107,15 +103,16 @@ interface LabourServiceLite {
   id: string;
   name: string;
 }
-/** One billable service a selected labourer is doing on this sale, and what
- * they're being paid for it specifically. */
+/** One billable labour service charged on this sale, and its amount. */
 interface SelectedLabourService {
   serviceId: string;
   serviceName: string;
   amount: number;
 }
-/** A labourer picked for this sale, with the service(s) they're being paid
- * for — a labourer can do more than one service on the same sale. */
+/** Draft shape for the sale's labour. The POS no longer picks a labourer
+ * (the crew often changes after the sale), so new drafts hold a single entry
+ * with id '' — just the optional contact number and the services. Older
+ * drafts may still carry named labourers; they're flattened on resume. */
 interface SelectedLabour extends LabourLite {
   services: SelectedLabourService[];
 }
@@ -196,10 +193,7 @@ export function PosPage() {
   const [customerSearch, setCustomerSearch] = useState('');
   const [customerPickerOpen, setCustomerPickerOpen] = useState(false);
 
-  // Step 2 — products (list)
-  const [search, setSearch] = useState('');
-  const [productPickerOpen, setProductPickerOpen] = useState(false);
-  const productSearchRef = useRef<HTMLInputElement>(null);
+  // Step 2 — products (rows added with "Add Row", product picked per row)
   const [cart, setCart] = useState<CartLine[]>([]);
 
   // Pull the estimate's customer + items in once, on arrival — a registered
@@ -242,25 +236,20 @@ export function PosPage() {
     })();
   }, [estimateId]);
 
-  // Step 3 — labour & transport
-  const [labourSearch, setLabourSearch] = useState('');
-  const [labourPickerOpen, setLabourPickerOpen] = useState(false);
-  // The picker (search + dropdown) only appears once "Add Labour" is
-  // clicked, so the section opens on a clear, prominent action rather than
-  // an always-visible search box.
+  // Step 3 — labour & transport. Labour is just the services charged and
+  // their amounts, plus an optional contact number — who actually does the
+  // job is settled later, in Pending Entities.
   const [addingLabour, setAddingLabour] = useState(false);
-  const labourSearchRef = useRef<HTMLInputElement>(null);
-  const [selectedLabour, setSelectedLabour] = useState<SelectedLabour[]>([]);
+  const [labourPhone, setLabourPhone] = useState('');
+  const [labourServices, setLabourServices] = useState<SelectedLabourService[]>([]);
+  // Transport is only the fare now — no transporter/driver is picked at
+  // the POS. Kept (always empty) for the draft payload's shape.
   const [driver, setDriver] = useState({
     name: '',
     phone: '',
     vehicleNumber: '',
   });
   const [transportFare, setTransportFare] = useState<number>(0);
-  const [transporterId, setTransporterId] = useState<string | null>(null);
-  const [payTransportNow, setPayTransportNow] = useState(false);
-  const [transportFareMethod, setTransportFareMethod] = useState('CASH');
-  const [transportFareBankAccountId, setTransportFareBankAccountId] = useState('');
 
   // Step 4 — payment
   const [discountValue, setDiscountValue] = useState<number>(0);
@@ -320,13 +309,13 @@ export function PosPage() {
     enabled: step === 1 && !customer && customerSearchTerm.length > 0,
   });
 
+  // The whole catalog, searched locally by each row's product picker. One
+  // row per warehouse actually stocking the product, not one row totalled
+  // across all of them — the per-line warehouse picker needs real
+  // per-warehouse availability.
   const { data: products = [] } = useQuery<Product[]>({
-    queryKey: ['pos-products', search],
-    // One row per warehouse actually stocking the product, not one row
-    // totalled across all of them — the per-line warehouse picker needs real
-    // per-warehouse availability.
-    queryFn: async () =>
-      (await api.get('/products', { params: { search, perWarehouse: true } })).data,
+    queryKey: ['pos-products'],
+    queryFn: async () => (await api.get('/products', { params: { perWarehouse: true } })).data,
     enabled: step === 2,
   });
   const { data: warehouses = [] } = useQuery<WarehouseLite[]>({
@@ -344,24 +333,6 @@ export function PosPage() {
       ).data,
     enabled: step === 2,
   });
-  const { data: transporters = [] } = useQuery<TransporterLite[]>({
-    queryKey: ['transporters', hasSpecificStore ? currentStoreId : null],
-    queryFn: async () =>
-      (
-        await api.get('/transporters', {
-          params: { store: hasSpecificStore ? currentStoreId : undefined },
-        })
-      ).data,
-    enabled: step === 4,
-  });
-  const needsTransportFareBank =
-    payTransportNow &&
-    (transportFareMethod === 'BANK_TRANSFER' || transportFareMethod === 'ONLINE');
-  const { data: transportBankAccountsRaw = [] } = useBankAccounts(
-    hasSpecificStore ? currentStoreId : undefined,
-    step === 4 && needsTransportFareBank,
-  );
-  const transportBankAccounts = transportBankAccountsRaw.filter((b) => b.isActive);
   const needsAdvanceBank = advanceMethod === 'BANK_TRANSFER';
   const { data: advanceBankAccountsRaw = [] } = useBankAccounts(
     hasSpecificStore ? currentStoreId : undefined,
@@ -369,9 +340,9 @@ export function PosPage() {
   );
   const advanceBankAccounts = advanceBankAccountsRaw.filter((b) => b.isActive);
 
-  // Search results grouped by product identity (sku/name) — the same
-  // product stocked at several warehouses shows as one suggestion with a
-  // warehouse picker inside its row, instead of duplicate rows.
+  // Catalog grouped by product identity (sku/name) — the same product
+  // stocked at several warehouses shows as one option with a warehouse
+  // picker inside its row, instead of duplicate options.
   const groupedMatches = (() => {
     const map = new Map<string, Product[]>();
     for (const p of products) {
@@ -383,9 +354,15 @@ export function PosPage() {
     return Array.from(map.values());
   })();
 
+  // Prefer the default warehouse's stock, then any stocked warehouse.
+  const preferredVariant = (variants: Product[]) =>
+    variants.find((v) => v.warehouseId === defaultWarehouseId && v.currentStock > 0) ||
+    variants.find((v) => v.currentStock > 0) ||
+    variants[0];
+
   // Once the estimate's items are known (previous effect) and the product
   // catalog has loaded, turn each one into a real cart line at the same
-  // warehouse-picking logic addRow below uses — but at the estimate's
+  // warehouse-picking logic setLineProduct below uses — but at the estimate's
   // quantity/price, not defaulted to 1 and the catalog price.
   useEffect(() => {
     if (!pendingEstimateItems || products.length === 0) return;
@@ -398,17 +375,16 @@ export function PosPage() {
         continue;
       }
       const key = groupKey(variants[0]);
-      const preferred =
-        variants.find((v) => v.warehouseId === defaultWarehouseId && v.currentStock > 0) ||
-        variants.find((v) => v.currentStock > 0) ||
-        variants[0];
+      const preferred = preferredVariant(variants);
       newLines.push({
-        key,
+        key: `${key}-${newLines.length}`,
         variants,
         product: preferred,
         desiredWarehouseId: preferred.warehouseId,
+        source: 'WAREHOUSE',
         vendorId: null,
         vendorName: '',
+        remarks: '',
         price: item.unitPrice,
         qty: item.quantity,
       });
@@ -421,34 +397,94 @@ export function PosPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingEstimateItems, products]);
 
-  const addRow = (variants: Product[]) => {
-    const key = groupKey(variants[0]);
-    setCart((c) => {
-      if (c.some((l) => l.key === key)) {
-        return c.map((l) => (l.key === key ? { ...l, qty: l.qty + 1 } : l));
-      }
-      const preferred =
-        variants.find((v) => v.warehouseId === defaultWarehouseId && v.currentStock > 0) ||
-        variants.find((v) => v.currentStock > 0) ||
-        variants[0];
-      return [
-        ...c,
-        {
-          key,
+  // "Add Row": a blank line, sourced from a vendor by default (auto-picked
+  // when the store only has one).
+  const addRow = () =>
+    setCart((c) => [
+      ...c,
+      {
+        key: newRowKey(),
+        variants: [],
+        product: null,
+        desiredWarehouseId: defaultWarehouseId ?? undefined,
+        source: 'VENDOR',
+        vendorId: vendors.length === 1 ? vendors[0].id : null,
+        vendorName: vendors.length === 1 ? vendors[0].name : '',
+        remarks: '',
+        price: 0,
+        qty: 1,
+      },
+    ]);
+  // Step 2 always opens with a row ready to fill.
+  useEffect(() => {
+    if (step === 2 && cart.length === 0 && !pendingEstimateItems) addRow();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, cart.length, pendingEstimateItems]);
+  // The vendor list can arrive after the first row was added — fill a
+  // single-vendor store's vendor into rows still waiting for one.
+  useEffect(() => {
+    if (vendors.length !== 1) return;
+    setCart((c) =>
+      c.some((l) => l.source === 'VENDOR' && !l.vendorId)
+        ? c.map((l) =>
+            l.source === 'VENDOR' && !l.vendorId
+              ? { ...l, vendorId: vendors[0].id, vendorName: vendors[0].name }
+              : l,
+          )
+        : c,
+    );
+  }, [vendors]);
+
+  // Product picked in a row's dropdown: point the row at the best-stocked
+  // variant and its catalog price. Source/vendor/remarks are kept.
+  const setLineProduct = (key: string, variants: Product[]) =>
+    setCart((c) =>
+      c.map((l) => {
+        if (l.key !== key) return l;
+        const preferred = preferredVariant(variants);
+        return {
+          ...l,
           variants,
           product: preferred,
-          desiredWarehouseId: preferred.warehouseId,
-          vendorId: null,
-          vendorName: '',
-          price: Number(preferred.salePrice),
-          qty: 1,
+          desiredWarehouseId: preferred.warehouseId ?? l.desiredWarehouseId,
+          price: Number(preferred.salePrice) || 0,
+        };
+      }),
+    );
+
+  // A name typed in a row's dropdown that isn't in the catalog becomes a new
+  // product (auto SKU, homed at the default warehouse, price 0 — the cashier
+  // enters the amount on the row). Same permission the backend checks.
+  const canCreateProduct = grantsPermission(authUser?.permissions, 'inventory:manage');
+  const [creatingProductKey, setCreatingProductKey] = useState<string | null>(null);
+  const createProduct = useMutation({
+    mutationFn: async ({ name }: { key: string; name: string }) => {
+      const warehouseId = defaultWarehouseId || warehouses[0]?.id;
+      if (!warehouseId) throw new Error(t('Select a warehouse before adding a product'));
+      return (await api.post('/products', { name, sku: autoSku(name), warehouseId, salePrice: 0 }))
+        .data as Product;
+    },
+    onMutate: ({ key }) => setCreatingProductKey(key),
+    onSuccess: (p, { key }) => {
+      toast.success(`${t('Product added')} — ${p.name}`);
+      qc.invalidateQueries({ queryKey: ['pos-products'] });
+      setLineProduct(key, [
+        {
+          id: p.id,
+          name: p.name,
+          sku: p.sku,
+          salePrice: String(p.salePrice ?? 0),
+          currentStock: 0,
+          taxRate: String(p.taxRate ?? 0),
+          warehouseId: p.warehouseId,
+          image: p.image,
         },
-      ];
-    });
-    setSearch('');
-    setProductPickerOpen(false);
-    productSearchRef.current?.blur();
-  };
+      ]);
+    },
+    onError: (e: any) =>
+      toast.error(e?.response?.data?.message ?? e?.message ?? t('Could not add the product')),
+    onSettled: () => setCreatingProductKey(null),
+  });
 
   // Only updates the quantity — never removes the row, so clearing the input
   // to retype a value (e.g. backspacing "100") doesn't drop the line. Rows
@@ -476,40 +512,52 @@ export function PosPage() {
           : { ...l, desiredWarehouseId: warehouseId };
       }),
     );
-  // Vendor dropdown: independent choice — selecting a vendor means this line
-  // is procured from them instead of pulled from the warehouse above.
-  const setLineVendor = (key: string, vendorId: string) =>
+  const setLineRemarks = (key: string, remarks: string) =>
+    setCart((c) => c.map((l) => (l.key === key ? { ...l, remarks } : l)));
+  // Vendor dropdown: which vendor a VENDOR-sourced line is procured from.
+  const setLineVendor = (key: string, vendor: VendorLite) =>
     setCart((c) =>
-      c.map((l) => {
-        if (l.key !== key) return l;
-        const vendor = vendors.find((v) => v.id === vendorId);
-        return { ...l, vendorId: vendor ? vendor.id : null, vendorName: vendor ? vendor.name : '' };
-      }),
+      c.map((l) => (l.key === key ? { ...l, vendorId: vendor.id, vendorName: vendor.name } : l)),
     );
+
+  // A vendor name typed in a row's dropdown that isn't on the list is
+  // created on the spot (name only — details can be filled in under
+  // Vendors later) and picked for that row. Same permission the backend
+  // checks on POST /vendors.
+  const canCreateVendor = grantsPermission(authUser?.permissions, 'vendors:create');
+  const [creatingVendorKey, setCreatingVendorKey] = useState<string | null>(null);
+  const createVendor = useMutation({
+    mutationFn: async ({ name }: { key: string; name: string }) =>
+      (
+        await api.post('/vendors', {
+          name,
+          store: hasSpecificStore ? currentStoreId : undefined,
+        })
+      ).data as VendorLite,
+    onMutate: ({ key }) => setCreatingVendorKey(key),
+    onSuccess: (v, { key }) => {
+      toast.success(`${t('Vendor added')} — ${v.name}`);
+      qc.invalidateQueries({ queryKey: ['vendors'] });
+      setLineVendor(key, v);
+    },
+    onError: (e: any) =>
+      toast.error(e?.response?.data?.message ?? e?.message ?? t('Could not add the vendor')),
+    onSettled: () => setCreatingVendorKey(null),
+  });
   // Source selector: switching to Warehouse clears any vendor; switching to
-  // Vendor defaults to the first vendor so the row stays in a valid state
-  // until the cashier picks a different one.
+  // Vendor leaves it for the cashier to pick (auto-picked when the store has
+  // only one).
   const setLineSource = (key: string, source: CartSource) =>
     setCart((c) =>
       c.map((l) => {
         if (l.key !== key) return l;
-        if (source === 'WAREHOUSE') return { ...l, vendorId: null, vendorName: '' };
-        const first = vendors[0];
-        return { ...l, vendorId: first ? first.id : null, vendorName: first ? first.name : '' };
+        if (source === 'WAREHOUSE') return { ...l, source, vendorId: null, vendorName: '' };
+        const only = vendors.length === 1 ? vendors[0] : null;
+        return { ...l, source, vendorId: only?.id ?? null, vendorName: only?.name ?? '' };
       }),
     );
   const removeLine = (key: string) => setCart((c) => c.filter((l) => l.key !== key));
 
-  const { data: labourList = [] } = useQuery<LabourLite[]>({
-    queryKey: ['labour', hasSpecificStore ? currentStoreId : null],
-    queryFn: async () =>
-      (
-        await api.get('/labour', {
-          params: { store: hasSpecificStore ? currentStoreId : undefined },
-        })
-      ).data,
-    enabled: step === 3,
-  });
   // Billable service types (Ceiling, Panel, UV Sheet, ...) a selected
   // labourer can be assigned to and paid for individually on this sale.
   const { data: labourServicesList = [] } = useQuery<LabourServiceLite[]>({
@@ -522,86 +570,83 @@ export function PosPage() {
       ).data,
     enabled: step === 3,
   });
-  const filteredLabour = labourList.filter((l) => {
-    const q = labourSearch.trim().toLowerCase();
-    if (!q) return true;
-    return l.name.toLowerCase().includes(q) || l.phoneNumber.includes(q);
-  });
-  const toggleLabour = (l: LabourLite) =>
-    setSelectedLabour((sel) =>
-      sel.some((s) => s.id === l.id)
-        ? sel.filter((s) => s.id !== l.id)
-        : [...sel, { ...l, services: [] }],
+  const addLabourService = (service: LabourServiceLite) =>
+    setLabourServices((svs) =>
+      svs.some((sv) => sv.serviceId === service.id)
+        ? svs
+        : [...svs, { serviceId: service.id, serviceName: service.name, amount: 0 }],
     );
-  const addLabourService = (labourId: string, service: LabourServiceLite) =>
-    setSelectedLabour((sel) =>
-      sel.map((s) =>
-        s.id === labourId && !s.services.some((sv) => sv.serviceId === service.id)
-          ? {
-              ...s,
-              services: [
-                ...s.services,
-                { serviceId: service.id, serviceName: service.name, amount: 0 },
-              ],
-            }
-          : s,
-      ),
+  const removeLabourService = (serviceId: string) =>
+    setLabourServices((svs) => svs.filter((sv) => sv.serviceId !== serviceId));
+  const setLabourServiceAmount = (serviceId: string, amount: number) =>
+    setLabourServices((svs) =>
+      svs.map((sv) => (sv.serviceId === serviceId ? { ...sv, amount: Math.max(0, amount) } : sv)),
     );
-  const removeLabourService = (labourId: string, serviceId: string) =>
-    setSelectedLabour((sel) =>
-      sel.map((s) =>
-        s.id === labourId
-          ? { ...s, services: s.services.filter((sv) => sv.serviceId !== serviceId) }
-          : s,
-      ),
-    );
-  const setLabourServiceAmount = (labourId: string, serviceId: string, amount: number) =>
-    setSelectedLabour((sel) =>
-      sel.map((s) =>
-        s.id === labourId
-          ? {
-              ...s,
-              services: s.services.map((sv) =>
-                sv.serviceId === serviceId ? { ...sv, amount: Math.max(0, amount) } : sv,
-              ),
-            }
-          : s,
-      ),
-    );
+  const clearLabour = () => {
+    setLabourServices([]);
+    setLabourPhone('');
+    setAddingLabour(false);
+    setCreatingService(false);
+    setNewServiceName('');
+  };
 
-  const [labourCreating, setLabourCreating] = useState(false);
-  const [labourForm, setLabourForm] = useState({ name: '', phoneNumber: '' });
-  const createLabour = useMutation({
-    mutationFn: async () =>
+  // A missing service can be created right here instead of leaving the
+  // sale for the Labour Services page. Same permission the backend checks
+  // on POST /labour-services (services are a catalog entity).
+  const canCreateService = grantsPermission(authUser?.permissions, 'inventory:manage');
+  const [creatingService, setCreatingService] = useState(false);
+  const [newServiceName, setNewServiceName] = useState('');
+  const createLabourService = useMutation({
+    mutationFn: async (name: string): Promise<LabourServiceLite> =>
       (
-        await api.post('/labour', {
-          ...labourForm,
+        await api.post('/labour-services', {
+          name,
           store: hasSpecificStore ? currentStoreId : undefined,
         })
       ).data,
-    onSuccess: (l: LabourLite) => {
-      toast.success('Labour added');
-      qc.invalidateQueries({ queryKey: ['labour'] });
-      setSelectedLabour((sel) => [...sel, { ...l, services: [] }]);
-      setLabourCreating(false);
-      setLabourForm({ name: '', phoneNumber: '' });
-      setLabourSearch('');
-      setAddingLabour(false);
+    onSuccess: (svc) => {
+      toast.success(`${t('Service added')} — ${svc.name}`);
+      qc.invalidateQueries({ queryKey: ['labour-services'] });
+      addLabourService(svc);
+      setCreatingService(false);
+      setNewServiceName('');
     },
-    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Could not add labour'),
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? t('Could not add the service')),
   });
+  const submitNewService = () => {
+    const name = newServiceName.trim();
+    if (!name) return;
+    // Typed a name that already exists — just use that one.
+    const existing = labourServicesList.find((s) => s.name.toLowerCase() === name.toLowerCase());
+    if (existing) {
+      addLabourService(existing);
+      setCreatingService(false);
+      setNewServiceName('');
+      return;
+    }
+    createLabourService.mutate(name);
+  };
 
-  const subtotal = cart.reduce((s, l) => s + l.price * l.qty, 0);
+  const filledCart = cart.filter(isFilled);
+  const subtotal = filledCart.reduce((s, l) => s + l.price * l.qty, 0);
+  // Why "Next" on Products is blocked, if it is.
+  const productsBlocker =
+    filledCart.length === 0
+      ? t('Add at least one product')
+      : cart.some((l) => !l.product)
+        ? t('Pick a product on every row, or remove the empty row')
+        : cart.some((l) => l.source === 'VENDOR' && !l.vendorId)
+          ? t('Select a vendor on every vendor row')
+          : cart.some((l) => !l.qty || l.qty <= 0)
+            ? t('Enter a quantity on every row')
+            : null;
   const discountAmount = Math.min(
     subtotal,
     discountType === 'percent' ? (subtotal * discountValue) / 100 : discountValue,
   );
   const taxTotal = ((subtotal - discountAmount) * taxPct) / 100;
   const transportFareAmount = Math.max(0, transportFare);
-  const labourRentTotal = selectedLabour.reduce(
-    (s, l) => s + l.services.reduce((s2, sv) => s2 + (sv.amount || 0), 0),
-    0,
-  );
+  const labourRentTotal = labourServices.reduce((s, sv) => s + (sv.amount || 0), 0);
   const grandTotal = Math.max(
     0,
     subtotal - discountAmount + taxTotal + transportFareAmount + labourRentTotal,
@@ -612,16 +657,10 @@ export function PosPage() {
     setStep(1);
     setCustomer(null);
     setCustomerForm({ name: '', phone: '', address: '' });
-    setSearch('');
     setCart([]);
-    setLabourSearch('');
-    setSelectedLabour([]);
+    clearLabour();
     setDriver({ name: '', phone: '', vehicleNumber: '' });
     setTransportFare(0);
-    setTransporterId(null);
-    setPayTransportNow(false);
-    setTransportFareMethod('CASH');
-    setTransportFareBankAccountId('');
     setDiscountValue(0);
     setDiscountType('amount');
     setTaxPct(0);
@@ -642,8 +681,11 @@ export function PosPage() {
         storeId: hasSpecificStore ? currentStoreId : undefined,
         step,
         customer,
-        cart,
-        selectedLabour,
+        cart: filledCart,
+        selectedLabour:
+          labourServices.length > 0 || labourPhone.trim()
+            ? [{ id: '', name: '', phoneNumber: labourPhone.trim(), services: labourServices }]
+            : [],
         driver,
         transportFare,
         discountValue,
@@ -701,7 +743,17 @@ export function PosPage() {
       );
     }
     setCart(draft.cart);
-    setSelectedLabour(draft.selectedLabour);
+    // Flatten into one services list (older drafts may hold several named
+    // labourers); the first contact number found becomes the labour number.
+    const draftServices: SelectedLabourService[] = [];
+    for (const l of draft.selectedLabour ?? []) {
+      for (const sv of l.services) {
+        if (!draftServices.some((d) => d.serviceId === sv.serviceId)) draftServices.push(sv);
+      }
+    }
+    setLabourServices(draftServices);
+    setLabourPhone(draft.selectedLabour?.find((l) => l.phoneNumber)?.phoneNumber ?? '');
+    setAddingLabour(draftServices.length > 0);
     setDriver(draft.driver);
     setTransportFare(draft.transportFare);
     setDiscountValue(draft.discountValue);
@@ -724,7 +776,8 @@ export function PosPage() {
     if (await confirmDelete('this saved draft')) deleteDraftMutation.mutate(id);
   };
 
-  const saleWarehouseId = cart.find((l) => !l.vendorId)?.desiredWarehouseId ?? defaultWarehouseId;
+  const saleWarehouseId =
+    cart.find((l) => l.source === 'WAREHOUSE')?.desiredWarehouseId ?? defaultWarehouseId;
 
   // Stock shortfalls found by the Products → Next check, keyed by cart line.
   // Cleared whenever the cart changes, so a fixed row stops showing its
@@ -743,7 +796,7 @@ export function PosPage() {
   // Each line is checked against exactly what checkout will send for it.
   const checkStockAndContinue = useMutation({
     mutationFn: async () => {
-      const warehouseLines = cart.filter((l) => !l.vendorId);
+      const warehouseLines = filledCart.filter((l) => l.source === 'WAREHOUSE');
       const issues: Record<string, { available: number; warehouseName: string } | 'NO_WAREHOUSE'> =
         {};
       const toCheck = warehouseLines.flatMap((l) => {
@@ -818,15 +871,13 @@ export function PosPage() {
           warehouseId: saleWarehouseId,
           customerId: customer!.id,
           estimateId,
-          // One line per (labour, service) pair — a labourer doing several
-          // services on this sale gets one row each, billed individually.
-          labour: selectedLabour.flatMap((l) =>
-            l.services.map((sv) => ({
-              labour: l.id,
-              service: sv.serviceId,
-              rent: sv.amount || 0,
-            })),
-          ),
+          // One line per service, with no labourer named — they're assigned
+          // later in Pending Entities. The optional number rides on each line.
+          labour: labourServices.map((sv) => ({
+            service: sv.serviceId,
+            rent: sv.amount || 0,
+            phoneNumber: labourPhone.trim() || undefined,
+          })),
           discountTotal: discountAmount,
           transportFare: transportFareAmount,
           transport: {
@@ -834,11 +885,7 @@ export function PosPage() {
             driverPhone: driver.phone,
             vehicleNumber: driver.vehicleNumber,
           },
-          transporterId: transporterId || undefined,
-          transportFareMethod: transporterId && payTransportNow ? transportFareMethod : undefined,
-          transportFareBankAccountId:
-            transporterId && payTransportNow ? transportFareBankAccountId || undefined : undefined,
-          items: cart.map((l) => {
+          items: filledCart.map((l) => {
             const gross = l.price * l.qty;
             const lineDiscount = subtotal > 0 ? (discountAmount * gross) / subtotal : 0;
             return {
@@ -851,7 +898,8 @@ export function PosPage() {
               vendor: l.vendorId || undefined,
               // Each line keeps its own warehouse — a sale can mix items
               // from several warehouses, each getting its own gate pass.
-              warehouseId: l.vendorId ? undefined : l.desiredWarehouseId,
+              warehouseId: l.source === 'VENDOR' ? undefined : l.desiredWarehouseId,
+              remarks: l.remarks.trim() || undefined,
             };
           }),
         })
@@ -875,14 +923,12 @@ export function PosPage() {
         customer: { name: customer!.name, phone: customer!.phone },
         storeName: currentStore?.name,
         storeAddress: currentStore?.address,
-        labour: selectedLabour.flatMap((l) =>
-          l.services.map((sv) => ({
-            name: l.name,
-            phone: l.phoneNumber,
-            serviceName: sv.serviceName,
-            rent: sv.amount || 0,
-          })),
-        ),
+        labour: labourServices.map((sv) => ({
+          name: '',
+          phone: labourPhone.trim() || undefined,
+          serviceName: sv.serviceName,
+          rent: sv.amount || 0,
+        })),
         labourRentTotal,
         paidAmount: advance,
         balanceDue: Math.max(0, grandTotal - advance),
@@ -1168,72 +1214,15 @@ export function PosPage() {
 
           {step === 2 && (
             <div className="mx-auto max-w-full space-y-3">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  autoFocus
-                  ref={productSearchRef}
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  onFocus={() => setProductPickerOpen(true)}
-                  // delay so a click on a result registers before closing
-                  onBlur={() => setTimeout(() => setProductPickerOpen(false), 150)}
-                  placeholder={t('Scan barcode, click to browse, or search product…')}
-                  className="h-11 pl-9"
-                />
-                {productPickerOpen && (
-                  <div className="absolute z-10 mt-1 max-h-72 w-full overflow-y-auto rounded-lg border bg-popover shadow-lg">
-                    {groupedMatches.length === 0 && (
-                      <p className="p-3 text-center text-sm text-muted-foreground">
-                        {t('No products found')}
-                      </p>
-                    )}
-                    {groupedMatches.map((variants) => {
-                      const p = variants[0];
-                      return (
-                        <button
-                          key={groupKey(p)}
-                          onMouseDown={(e) => e.preventDefault()}
-                          onClick={() => addRow(variants)}
-                          className="flex w-full items-center gap-3 border-b px-3 py-2 text-left text-sm last:border-0 hover:bg-accent"
-                        >
-                          {p.image ? (
-                            <img
-                              src={p.image}
-                              alt=""
-                              className="h-9 w-9 shrink-0 rounded object-cover"
-                            />
-                          ) : (
-                            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded bg-muted text-[10px] font-medium text-muted-foreground">
-                              {p.name.slice(0, 2).toUpperCase()}
-                            </div>
-                          )}
-                          <div className="min-w-0 flex-1">
-                            <p className="truncate font-medium">{p.name}</p>
-                            <p className="text-xs text-muted-foreground">
-                              {p.sku}
-                              {variants.length > 1
-                                ? ` · ${variants.length} ${t('warehouses')}`
-                                : ''}
-                            </p>
-                          </div>
-                          <span className="shrink-0 font-semibold text-primary">
-                            {formatCurrency(Number(p.salePrice))}
-                          </span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-
               <div className="overflow-x-auto rounded-lg border">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b bg-muted/50 text-left text-xs uppercase tracking-wide text-muted-foreground">
+                      <th className="w-10 px-3 py-2 text-center font-medium">#</th>
                       <th className="px-3 py-2 font-medium">{t('Product')}</th>
                       <th className="px-3 py-2 font-medium">{t('Source')}</th>
                       <th className="px-3 py-2 font-medium">{t('Warehouse / Vendor')}</th>
+                      <th className="px-3 py-2 font-medium">{t('Remarks')}</th>
                       <th className="px-3 py-2 text-right font-medium">{t('Qty')}</th>
                       <th className="px-3 py-2 text-right font-medium">{t('Amount')}</th>
                       <th className="px-3 py-2 text-right font-medium">{t('Total')}</th>
@@ -1243,66 +1232,70 @@ export function PosPage() {
                   <tbody>
                     {cart.length === 0 && (
                       <tr>
-                        <td colSpan={7} className="px-3 py-10 text-center text-muted-foreground">
-                          {t('Search and select a product to add it here')}
+                        <td colSpan={9} className="px-3 py-10 text-center text-muted-foreground">
+                          {t('Click "Add Row" to add a product')}
                         </td>
                       </tr>
                     )}
-                    {cart.map((l) => {
+                    {cart.map((l, index) => {
                       const desiredVariant = l.variants.find(
                         (v) => v.warehouseId === l.desiredWarehouseId,
                       );
-                      const notStockedHere = !desiredVariant;
+                      const notStockedHere = !!l.product && !desiredVariant;
                       const stockIssue = stockIssues[l.key];
+                      const isWarehouse = lineSource(l) === 'WAREHOUSE';
                       return (
-                        <tr key={l.key} className="border-b last:border-0">
+                        <tr key={l.key} className="border-b align-top last:border-0">
+                          <td className="px-3 py-3 text-center text-xs text-muted-foreground">
+                            {index + 1}
+                          </td>
                           <td className="px-3 py-2">
-                            <div className="flex items-center gap-2">
-                              {l.product.image ? (
-                                <img
-                                  src={l.product.image}
-                                  alt=""
-                                  className="h-8 w-8 shrink-0 rounded object-cover"
-                                />
+                            <ProductCombobox
+                              groups={groupedMatches}
+                              selected={l.product}
+                              autoFocus={!l.product && index === cart.length - 1 && index > 0}
+                              onSelect={(variants) => setLineProduct(l.key, variants)}
+                              onCreate={
+                                canCreateProduct
+                                  ? (name) => createProduct.mutate({ key: l.key, name })
+                                  : undefined
+                              }
+                              creating={creatingProductKey === l.key}
+                            />
+                            {l.product?.sku && (
+                              <p className="mt-1 text-xs text-muted-foreground">{l.product.sku}</p>
+                            )}
+                            {isWarehouse &&
+                              (stockIssue === 'NO_WAREHOUSE' ? (
+                                <p className="mt-0.5 text-xs text-destructive">
+                                  {t('Pick a warehouse or a vendor')}
+                                </p>
+                              ) : stockIssue ? (
+                                <p className="mt-0.5 text-xs text-destructive">
+                                  {stockIssue.available > 0
+                                    ? `${t('Only')} ${stockIssue.available} ${t('in stock at')} ${stockIssue.warehouseName} — ${t('reduce the quantity or pick a vendor')}`
+                                    : `${t('Out of stock at')} ${stockIssue.warehouseName} — ${t('pick another warehouse or a vendor')}`}
+                                </p>
                               ) : (
-                                <div className="h-8 w-8 shrink-0 rounded bg-muted" />
-                              )}
-                              <div className="min-w-0">
-                                <p className="truncate font-medium">{l.product.name}</p>
-                                <p className="text-xs text-muted-foreground">{l.product.sku}</p>
-                                {stockIssue === 'NO_WAREHOUSE' ? (
+                                notStockedHere && (
                                   <p className="mt-0.5 text-xs text-destructive">
-                                    {t('Pick a warehouse or a vendor')}
+                                    {t('Not stocked here — pick a vendor')}
                                   </p>
-                                ) : stockIssue ? (
-                                  <p className="mt-0.5 text-xs text-destructive">
-                                    {stockIssue.available > 0
-                                      ? `${t('Only')} ${stockIssue.available} ${t('in stock at')} ${stockIssue.warehouseName} — ${t('reduce the quantity or pick a vendor')}`
-                                      : `${t('Out of stock at')} ${stockIssue.warehouseName} — ${t('pick another warehouse or a vendor')}`}
-                                  </p>
-                                ) : (
-                                  notStockedHere &&
-                                  !l.vendorId && (
-                                    <p className="mt-0.5 text-xs text-destructive">
-                                      {t('Not stocked here — pick a vendor')}
-                                    </p>
-                                  )
-                                )}
-                              </div>
-                            </div>
+                                )
+                              ))}
                           </td>
                           <td className="px-3 py-2">
                             <select
-                              className="h-9 w-full min-w-[130px] rounded-md border bg-transparent px-2 text-sm"
+                              className="h-9 w-full min-w-[120px] rounded-md border bg-transparent px-2 text-sm"
                               value={lineSource(l)}
                               onChange={(e) => setLineSource(l.key, e.target.value as CartSource)}
                             >
-                              <option value="WAREHOUSE">{t('Warehouse')}</option>
                               <option value="VENDOR">{t('Vendor')}</option>
+                              <option value="WAREHOUSE">{t('Warehouse')}</option>
                             </select>
                           </td>
                           <td className="px-3 py-2">
-                            {lineSource(l) === 'WAREHOUSE' ? (
+                            {isWarehouse ? (
                               <select
                                 className="h-9 w-full min-w-[180px] rounded-md border bg-transparent px-2 text-sm"
                                 value={l.desiredWarehouseId ?? ''}
@@ -1312,45 +1305,45 @@ export function PosPage() {
                                   const variant = l.variants.find((v) => v.warehouseId === w.id);
                                   return (
                                     <option key={w.id} value={w.id}>
-                                      {w.name} —{' '}
-                                      {variant
-                                        ? `${variant.currentStock} ${t('in stock')}`
-                                        : t('not stocked here')}
+                                      {w.name}
+                                      {l.product &&
+                                        ` — ${
+                                          variant
+                                            ? `${variant.currentStock} ${t('in stock')}`
+                                            : t('not stocked here')
+                                        }`}
                                     </option>
                                   );
                                 })}
                               </select>
                             ) : (
-                              <DropdownMenu>
-                                <DropdownMenuTrigger asChild>
-                                  <button
-                                    type="button"
-                                    className="flex h-9 w-full min-w-[180px] items-center justify-between rounded-md border bg-transparent px-2 text-sm"
-                                  >
-                                    <span className="truncate">
-                                      {l.vendorName || t('Select vendor…')}
-                                    </span>
-                                    <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
-                                  </button>
-                                </DropdownMenuTrigger>
-                                <DropdownMenuContent
-                                  align="start"
-                                  className="max-h-64 w-[var(--radix-dropdown-menu-trigger-width)] overflow-y-auto"
-                                >
-                                  {vendors.map((v) => (
-                                    <DropdownMenuItem
-                                      key={v.id}
-                                      onSelect={() => setLineVendor(l.key, v.id)}
-                                    >
-                                      {v.id === l.vendorId && <Check className="h-4 w-4" />}
-                                      <span className={cn(v.id !== l.vendorId && 'pl-6')}>
-                                        {v.name}
-                                      </span>
-                                    </DropdownMenuItem>
-                                  ))}
-                                </DropdownMenuContent>
-                              </DropdownMenu>
+                              <Combobox<VendorLite>
+                                options={vendors}
+                                getKey={(v) => v.id}
+                                getLabel={(v) => v.name}
+                                selectedLabel={l.vendorName}
+                                onSelect={(v) => setLineVendor(l.key, v)}
+                                onCreate={
+                                  canCreateVendor
+                                    ? (name) => createVendor.mutate({ key: l.key, name })
+                                    : undefined
+                                }
+                                createNoun={t('vendor')}
+                                creating={creatingVendorKey === l.key}
+                                placeholder={t('Search or type a vendor…')}
+                                emptyText={t('No vendors found')}
+                                className="min-w-[180px]"
+                              />
                             )}
+                          </td>
+                          <td className="px-3 py-2">
+                            <Input
+                              maxLength={255}
+                              placeholder={t('Remarks')}
+                              className="h-9 w-full min-w-[160px] text-sm"
+                              value={l.remarks}
+                              onChange={(e) => setLineRemarks(l.key, e.target.value)}
+                            />
                           </td>
                           <td className="px-3 py-2">
                             <Input
@@ -1368,35 +1361,37 @@ export function PosPage() {
                             <Input
                               type="number"
                               min={0}
+                              placeholder="0"
                               className="h-9 w-full min-w-[90px] text-right"
                               value={l.price || ''}
                               onChange={(e) => setLinePrice(l.key, Number(e.target.value))}
                             />
                           </td>
-                          <td className="px-3 py-2 text-right font-medium">
+                          <td className="px-3 py-3 text-right font-medium tabular-nums">
                             {formatCurrency(l.price * l.qty)}
                           </td>
                           <td className="px-3 py-2 text-right">
                             <Button
                               size="icon"
                               variant="ghost"
-                              className="h-7 w-7 text-destructive"
+                              className="h-8 w-8 text-destructive"
+                              aria-label={t('Remove row')}
                               onClick={() => removeLine(l.key)}
                             >
-                              <Trash2 className="h-3.5 w-3.5" />
+                              <Trash2 className="h-4 w-4" />
                             </Button>
                           </td>
                         </tr>
                       );
                     })}
                   </tbody>
-                  {cart.length > 0 && (
+                  {filledCart.length > 0 && (
                     <tfoot>
                       <tr className="border-t bg-muted/30">
-                        <td colSpan={5} className="px-3 py-2 text-right font-semibold">
+                        <td colSpan={7} className="px-3 py-2 text-right font-semibold">
                           {t('Subtotal')}
                         </td>
-                        <td className="px-3 py-2 text-right font-semibold">
+                        <td className="px-3 py-2 text-right font-semibold tabular-nums">
                           {formatCurrency(subtotal)}
                         </td>
                         <td />
@@ -1404,6 +1399,15 @@ export function PosPage() {
                     </tfoot>
                   )}
                 </table>
+              </div>
+
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <Button type="button" variant="outline" onClick={addRow}>
+                  <Plus className="h-4 w-4" /> {t('Add Row')}
+                </Button>
+                {productsBlocker && cart.length > 0 && (
+                  <p className="text-xs text-muted-foreground">{productsBlocker}</p>
+                )}
               </div>
             </div>
           )}
@@ -1415,263 +1419,163 @@ export function PosPage() {
                   <HardHat className="h-4 w-4" /> {t('Labour')}
                 </div>
                 <p className="text-sm text-muted-foreground">
-                  {t('Optionally select who is working on this sale, and which services they did.')}
+                  {t('Optionally add the labour services on this sale and what each one costs.')}
                 </p>
 
-                {/* Top action — opens the picker below. Kept as the single
-                    entry point instead of an always-visible search box, so
-                    it's obvious what to click first. */}
-                {!addingLabour && (
+                {!addingLabour && labourServices.length === 0 && (
                   <Button
                     type="button"
                     size="lg"
                     className="w-full text-base"
-                    onClick={() => {
-                      setAddingLabour(true);
-                      setLabourPickerOpen(true);
-                      setTimeout(() => labourSearchRef.current?.focus(), 0);
-                    }}
+                    onClick={() => setAddingLabour(true)}
                   >
                     <Plus className="h-5 w-5" /> {t('Add Labour')}
                   </Button>
                 )}
 
-                {addingLabour && !labourCreating && (
-                  <div className="relative">
-                    <Search className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground" />
-                    <Input
-                      ref={labourSearchRef}
-                      value={labourSearch}
-                      onChange={(e) => setLabourSearch(e.target.value)}
-                      onFocus={() => setLabourPickerOpen(true)}
-                      // delay so a click on a result registers before closing
-                      onBlur={() => setTimeout(() => setLabourPickerOpen(false), 150)}
-                      placeholder={t('Search labour by name or phone…')}
-                      className="h-11 pl-10 pr-10 text-base"
-                    />
-                    <button
-                      type="button"
-                      aria-label={t('Cancel')}
-                      onClick={() => {
-                        setLabourSearch('');
-                        setLabourPickerOpen(false);
-                        setAddingLabour(false);
-                      }}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                    >
-                      <X className="h-4 w-4" />
-                    </button>
-                    {labourPickerOpen && (
-                      <div className="absolute z-10 mt-1 max-h-64 w-full overflow-y-auto rounded-lg border bg-popover shadow-lg">
-                        {filteredLabour.length === 0 && (
-                          <p className="p-3 text-center text-sm text-muted-foreground">
-                            {t('No labour found')}
-                          </p>
-                        )}
-                        {filteredLabour.map((l) => {
-                          const isSelected = selectedLabour.some((s) => s.id === l.id);
-                          return (
-                            <button
-                              key={l.id}
-                              onMouseDown={(e) => e.preventDefault()}
-                              onClick={() => {
-                                toggleLabour(l);
-                                setLabourSearch('');
-                                setLabourPickerOpen(false);
-                                setAddingLabour(false);
-                              }}
-                              className="flex w-full items-center justify-between gap-2 border-b px-3 py-2.5 text-left text-sm last:border-0 hover:bg-accent"
-                            >
-                              <span className="flex items-center gap-2 truncate">
-                                <HardHat className="h-4 w-4 shrink-0 text-muted-foreground" />
-                                <span className="truncate">{l.name}</span>
-                              </span>
-                              <span className="flex items-center gap-2 text-xs text-muted-foreground">
-                                {l.phoneNumber}
-                                {isSelected && <Check className="h-4 w-4 text-primary" />}
-                              </span>
-                            </button>
-                          );
-                        })}
-                        <button
-                          type="button"
-                          onMouseDown={(e) => e.preventDefault()}
-                          onClick={() => {
-                            setLabourForm({ name: labourSearch.trim(), phoneNumber: '' });
-                            setLabourCreating(true);
-                            setLabourPickerOpen(false);
-                          }}
-                          className="flex w-full items-center gap-2 border-t px-3 py-2.5 text-left text-sm font-medium text-primary hover:bg-accent"
-                        >
-                          <Plus className="h-4 w-4" /> {t('Add new labourer')}
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {labourCreating && (
-                  <form
-                    className="space-y-2 rounded-lg border bg-muted/20 p-3"
-                    onSubmit={(e) => {
-                      e.preventDefault();
-                      createLabour.mutate();
-                    }}
-                  >
-                    <div className="space-y-1">
-                      <Label className="text-xs">{t('Name *')}</Label>
-                      <Input
-                        required
-                        autoFocus
-                        value={labourForm.name}
-                        onChange={(e) => setLabourForm({ ...labourForm, name: e.target.value })}
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs">{t('Phone *')}</Label>
-                      <Input
-                        required
-                        value={labourForm.phoneNumber}
-                        onChange={(e) =>
-                          setLabourForm({ ...labourForm, phoneNumber: e.target.value })
-                        }
-                      />
-                    </div>
-                    <div className="flex gap-2">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        className="flex-1"
-                        onClick={() => {
-                          setLabourCreating(false);
-                          setLabourPickerOpen(true);
-                        }}
-                      >
-                        {t('Cancel')}
-                      </Button>
-                      <Button
-                        type="submit"
-                        size="sm"
-                        className="flex-1"
-                        disabled={createLabour.isPending}
-                      >
-                        {createLabour.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
-                        {t('Add')}
-                      </Button>
-                    </div>
-                  </form>
-                )}
-
-                {selectedLabour.length > 0 ? (
+                {(addingLabour || labourServices.length > 0) && (
                   <div className="space-y-3 rounded-lg border p-4">
                     <div className="flex items-center justify-between">
                       <p className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-                        {t('Assigned')} ({selectedLabour.length})
+                        {t('Labour services')}
                       </p>
-                      {labourRentTotal > 0 && (
-                        <p className="text-sm font-semibold text-muted-foreground">
-                          {t('Total')} {formatCurrency(labourRentTotal)}
-                        </p>
-                      )}
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="ghost"
+                        className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                        aria-label={t('Remove labour')}
+                        onClick={clearLabour}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
                     </div>
-                    <div className="space-y-2">
-                      {selectedLabour.map((l) => {
-                        const availableServices = labourServicesList.filter(
-                          (svc) => !l.services.some((sv) => sv.serviceId === svc.id),
-                        );
-                        return (
-                          <div key={l.id} className="space-y-2 rounded-md border bg-card p-3">
-                            <div className="flex items-center gap-3">
-                              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
-                                <HardHat className="h-5 w-5" />
-                              </div>
-                              <div className="min-w-0 flex-1">
-                                <p className="truncate text-base font-medium">{l.name}</p>
-                                {l.phoneNumber && (
-                                  <p className="truncate text-xs text-muted-foreground">
-                                    {l.phoneNumber}
-                                  </p>
-                                )}
-                              </div>
-                              <Button
-                                type="button"
-                                size="icon"
-                                variant="ghost"
-                                className="h-8 w-8 shrink-0 text-muted-foreground hover:text-destructive"
-                                aria-label={`${t('Remove')} ${l.name}`}
-                                onClick={() => toggleLabour(l)}
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </Button>
-                            </div>
 
-                            {l.services.length > 0 && (
-                              <div className="space-y-1.5 pl-1">
-                                {l.services.map((sv) => (
-                                  <div key={sv.serviceId} className="flex items-center gap-2">
-                                    <span className="min-w-0 flex-1 truncate text-sm">
-                                      {sv.serviceName}
-                                    </span>
-                                    <Input
-                                      type="number"
-                                      min={0}
-                                      placeholder={t('Amount')}
-                                      className="h-9 w-28 text-right text-sm"
-                                      value={sv.amount || ''}
-                                      onChange={(e) =>
-                                        setLabourServiceAmount(
-                                          l.id,
-                                          sv.serviceId,
-                                          Number(e.target.value),
-                                        )
-                                      }
-                                    />
-                                    <Button
-                                      type="button"
-                                      size="icon"
-                                      variant="ghost"
-                                      className="h-7 w-7 shrink-0 text-muted-foreground hover:text-destructive"
-                                      aria-label={`${t('Remove')} ${sv.serviceName}`}
-                                      onClick={() => removeLabourService(l.id, sv.serviceId)}
-                                    >
-                                      <X className="h-3.5 w-3.5" />
-                                    </Button>
-                                  </div>
-                                ))}
-                              </div>
-                            )}
+                    <div className="space-y-1">
+                      <Label className="text-xs">{t('Labour number (optional)')}</Label>
+                      <Input
+                        type="tel"
+                        inputMode="tel"
+                        maxLength={20}
+                        placeholder="03XX-XXXXXXX"
+                        value={labourPhone}
+                        onChange={(e) => setLabourPhone(e.target.value)}
+                      />
+                    </div>
 
-                            {availableServices.length > 0 && (
-                              <select
-                                value=""
-                                onChange={(e) => {
-                                  const svc = labourServicesList.find(
-                                    (s) => s.id === e.target.value,
-                                  );
-                                  if (svc) addLabourService(l.id, svc);
-                                }}
-                                className="flex h-9 w-full rounded-md border border-dashed border-input bg-transparent px-3 text-sm text-muted-foreground"
-                              >
-                                <option value="">{t('+ Add service…')}</option>
-                                {availableServices.map((svc) => (
-                                  <option key={svc.id} value={svc.id}>
-                                    {svc.name}
-                                  </option>
-                                ))}
-                              </select>
-                            )}
+                    {labourServices.length > 0 && (
+                      <div className="space-y-1.5">
+                        {labourServices.map((sv) => (
+                          <div key={sv.serviceId} className="flex items-center gap-2">
+                            <span className="min-w-0 flex-1 truncate text-sm">
+                              {sv.serviceName}
+                            </span>
+                            <Input
+                              type="number"
+                              min={0}
+                              placeholder={t('Amount')}
+                              className="h-9 w-28 text-right text-sm"
+                              value={sv.amount || ''}
+                              onChange={(e) =>
+                                setLabourServiceAmount(sv.serviceId, Number(e.target.value))
+                              }
+                            />
+                            <Button
+                              type="button"
+                              size="icon"
+                              variant="ghost"
+                              className="h-7 w-7 shrink-0 text-muted-foreground hover:text-destructive"
+                              aria-label={`${t('Remove')} ${sv.serviceName}`}
+                              onClick={() => removeLabourService(sv.serviceId)}
+                            >
+                              <X className="h-3.5 w-3.5" />
+                            </Button>
                           </div>
-                        );
-                      })}
-                    </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {creatingService ? (
+                      <form
+                        className="flex items-center gap-2"
+                        onSubmit={(e) => {
+                          e.preventDefault();
+                          submitNewService();
+                        }}
+                      >
+                        <Input
+                          autoFocus
+                          maxLength={80}
+                          placeholder={t('New service name, e.g. Ceiling')}
+                          value={newServiceName}
+                          onChange={(e) => setNewServiceName(e.target.value)}
+                          className="h-9 flex-1 text-sm"
+                        />
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            setCreatingService(false);
+                            setNewServiceName('');
+                          }}
+                        >
+                          {t('Cancel')}
+                        </Button>
+                        <Button
+                          type="submit"
+                          size="sm"
+                          disabled={!newServiceName.trim() || createLabourService.isPending}
+                        >
+                          {createLabourService.isPending && (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          )}
+                          {t('Add')}
+                        </Button>
+                      </form>
+                    ) : canCreateService ||
+                      labourServicesList.some(
+                        (svc) => !labourServices.some((sv) => sv.serviceId === svc.id),
+                      ) ? (
+                      <select
+                        value=""
+                        onChange={(e) => {
+                          if (e.target.value === '__new__') {
+                            setCreatingService(true);
+                            return;
+                          }
+                          const svc = labourServicesList.find((s) => s.id === e.target.value);
+                          if (svc) addLabourService(svc);
+                        }}
+                        className="flex h-9 w-full rounded-md border border-dashed border-input bg-transparent px-3 text-sm text-muted-foreground"
+                      >
+                        <option value="">{t('+ Add service…')}</option>
+                        {labourServicesList
+                          .filter((svc) => !labourServices.some((sv) => sv.serviceId === svc.id))
+                          .map((svc) => (
+                            <option key={svc.id} value={svc.id}>
+                              {svc.name}
+                            </option>
+                          ))}
+                        {canCreateService && (
+                          <option value="__new__">{t('+ Create new service…')}</option>
+                        )}
+                      </select>
+                    ) : (
+                      labourServicesList.length === 0 && (
+                        <p className="text-xs text-muted-foreground">
+                          {t('No labour services set up for this store yet.')}
+                        </p>
+                      )
+                    )}
+
+                    {labourRentTotal > 0 && (
+                      <div className="flex justify-between border-t pt-2 text-sm font-semibold">
+                        <span>{t('Total')}</span>
+                        <span className="tabular-nums">{formatCurrency(labourRentTotal)}</span>
+                      </div>
+                    )}
                   </div>
-                ) : (
-                  !addingLabour && (
-                    <p className="rounded-lg border border-dashed p-3 text-center text-xs text-muted-foreground">
-                      {t('No labour selected yet — click "Add Labour" above.')}
-                    </p>
-                  )
                 )}
               </div>
             </div>
@@ -1684,129 +1588,24 @@ export function PosPage() {
                   <Truck className="h-4 w-4" /> {t('Transport')}
                 </div>
                 <p className="text-sm text-muted-foreground">
-                  {t('Optionally arrange a driver to deliver the goods.')}
+                  {t('Optionally add a transport fare for delivering the goods.')}
                 </p>
                 <div className="space-y-1">
-                  <Label>{t('Transporter (optional)')}</Label>
-                  <select
-                    value={transporterId ?? ''}
-                    onChange={(e) => {
-                      const id = e.target.value || null;
-                      setTransporterId(id);
-                      const t = transporters.find((tr) => tr.id === id);
-                      if (t) {
-                        setDriver({
-                          name: t.name,
-                          phone: t.phone || '',
-                          vehicleNumber: t.vehicleNumber || '',
-                        });
-                      } else {
-                        setPayTransportNow(false);
-                      }
-                    }}
-                    className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
-                  >
-                    <option value="">{t('One-off driver (no roster entry)')}</option>
-                    {transporters.map((tr) => (
-                      <option key={tr.id} value={tr.id}>
-                        {tr.name}
-                      </option>
-                    ))}
-                  </select>
+                  <Label>{t('Transport fare')}</Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    placeholder="0"
+                    value={transportFare || ''}
+                    onChange={(e) => setTransportFare(Number(e.target.value))}
+                  />
                 </div>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <div className="space-y-1">
-                    <Label>{t('Driver name')}</Label>
-                    <Input
-                      value={driver.name}
-                      onChange={(e) => setDriver({ ...driver, name: e.target.value })}
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <Label>{t('Vehicle number')}</Label>
-                    <Input
-                      value={driver.vehicleNumber}
-                      onChange={(e) => setDriver({ ...driver, vehicleNumber: e.target.value })}
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <Label>{t('Driver phone')}</Label>
-                    <Input
-                      value={driver.phone}
-                      onChange={(e) => setDriver({ ...driver, phone: e.target.value })}
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <Label>{t('Transport fare')}</Label>
-                    <Input
-                      type="number"
-                      min={0}
-                      placeholder="0"
-                      value={transportFare || ''}
-                      onChange={(e) => setTransportFare(Number(e.target.value))}
-                    />
-                  </div>
-                </div>
-                {transporterId && transportFare > 0 && (
-                  <div className="space-y-3 rounded-md border p-3">
-                    <label className="flex items-center gap-2 text-sm font-medium">
-                      <input
-                        type="checkbox"
-                        checked={payTransportNow}
-                        onChange={(e) => setPayTransportNow(e.target.checked)}
-                      />
-                      {t('Pay driver now')}
-                    </label>
-                    {!payTransportNow && (
-                      <p className="text-xs text-muted-foreground">
-                        {t(
-                          'The fare will be owed to this transporter — pay them later from their profile.',
-                        )}
-                      </p>
-                    )}
-                    {payTransportNow && (
-                      <div className="grid gap-3 sm:grid-cols-2">
-                        <div className="space-y-1">
-                          <Label>{t('Method')}</Label>
-                          <select
-                            value={transportFareMethod}
-                            onChange={(e) => setTransportFareMethod(e.target.value)}
-                            className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
-                          >
-                            <option value="CASH">{t('Cash')}</option>
-                            <option value="BANK_TRANSFER">{t('Bank transfer')}</option>
-                            <option value="ONLINE">{t('Online')}</option>
-                            <option value="CARD">{t('Card')}</option>
-                          </select>
-                        </div>
-                        {needsTransportFareBank && (
-                          <div className="space-y-1">
-                            <Label>{t('Bank account')} *</Label>
-                            <select
-                              required
-                              value={transportFareBankAccountId}
-                              onChange={(e) => setTransportFareBankAccountId(e.target.value)}
-                              className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
-                            >
-                              <option value="">{t('Select account…')}</option>
-                              {transportBankAccounts.map((b) => (
-                                <option key={b.id} value={b.id}>
-                                  {b.name}
-                                </option>
-                              ))}
-                            </select>
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                )}
               </div>
 
               <div className="space-y-1 rounded-lg border p-3 text-sm">
                 <p className="font-medium">{t('Items to load')}</p>
-                {cart.map((l) => (
-                  <div key={l.product.id} className="flex justify-between text-muted-foreground">
+                {filledCart.map((l) => (
+                  <div key={l.key} className="flex justify-between text-muted-foreground">
                     <span>{l.product.name}</span>
                     <span className="tabular-nums">
                       {t('Qty')} {l.qty}
@@ -2206,11 +2005,8 @@ export function PosPage() {
           )}
           {step === 2 && (
             <Button
-              disabled={
-                cart.length === 0 ||
-                cart.some((l) => !l.qty || l.qty <= 0) ||
-                checkStockAndContinue.isPending
-              }
+              disabled={!!productsBlocker || checkStockAndContinue.isPending}
+              title={productsBlocker ?? undefined}
               onClick={() => checkStockAndContinue.mutate()}
             >
               {checkStockAndContinue.isPending && <Loader2 className="h-4 w-4 animate-spin" />}

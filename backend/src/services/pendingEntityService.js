@@ -13,7 +13,12 @@ const { resolveStoreScope, storeWhere, assertStoreAccess } = require('../utils/s
  * vendor-sourced sale lines and stock receipt lines — so a super admin can
  * price them later and only then does the party actually go payable. See
  * db/models/pendingEntityModel.js for why this exists.
+ *
+ * Labour used to be queued here too (SALE_LABOUR rows). It no longer is;
+ * any older SALE_LABOUR rows are left in the table but hidden from every
+ * listing below and can't be re-priced.
  */
+const HIDE_LABOUR = { sourceType: { [Op.ne]: 'SALE_LABOUR' } };
 
 // One row per vendor-sourced sale line. Called only from saleService.createSale
 // (not on edit — see the module's plan notes on scope). Must run inside the
@@ -38,33 +43,7 @@ async function recordSaleVendorItems(sale, vendorLineItems, actor, transaction) 
   return PendingEntity.bulkCreate(docs, { transaction });
 }
 
-// One row per labour line on a sale made while the store's labour pricing
-// mode is PENDING (see db/migrations/024-labour-pricing-mode.js). The rent
-// charged to the customer is snapshotted as `chargedAmount`; the labourer's
-// actual payout is entered later via setPurchasePrice. Called from
-// saleService (create, and edit when the sale's labour is replaced). Must run
-// inside the caller's transaction.
-async function recordSaleLabourItems(sale, labourLines, actor, transaction) {
-  if (!Array.isArray(labourLines) || labourLines.length === 0) return [];
-  const { PendingEntity } = initializeModels();
-  const docs = labourLines.map((l) => ({
-    sourceType: 'SALE_LABOUR',
-    sale: sale.id,
-    sourceNo: sale.number,
-    labour: l.labour,
-    labourName: l.name,
-    serviceName: l.serviceName || '',
-    chargedAmount: l.rent || 0,
-    quantity: 1,
-    store: sale.store,
-    warehouse: null,
-    date: sale.date,
-    createdBy: actor ? actor.id : null,
-  }));
-  return PendingEntity.bulkCreate(docs, { transaction });
-}
-
-// Undoes recordSaleLabourItems for a sale whose labour is being replaced:
+// Clears a legacy PENDING-mode sale's labour rows when its labour is replaced:
 // reverses the AP_LABOUR payable of every line that was already priced
 // (journal entries are append-only), then deletes the sale's SALE_LABOUR
 // rows so the edit can record fresh ones. Must run inside the caller's
@@ -135,7 +114,7 @@ async function listPendingEntities({
   const { PendingEntity, Vendor, Supplier, Product, Store, Warehouse } = initializeModels();
   const { page, limit, skip } = parsePagination(query);
   const { storeIds } = await resolveStoreScope({ store, actor });
-  const where = { ...storeWhere(storeIds) };
+  const where = { ...storeWhere(storeIds), [Op.and]: [HIDE_LABOUR] };
   if (status) where.status = status;
   if (vendor) where.vendor = vendor;
   if (supplier) where.supplier = supplier;
@@ -172,13 +151,23 @@ async function listPendingEntities({
   return { entities: rows, total: count, page, limit };
 }
 
-// Same rows as listPendingEntities, folded into one row per source
-// invoice/receipt (sourceType + sourceNo) instead of one row per line item —
-// what the pending-entities table actually shows the user. An invoice stays
-// PENDING while any of its lines still needs a price, and only flips to
-// PRICED once every line does; `status` filters on that folded status, not
-// the per-line one. Grouping/pagination happen in JS since this only ever
-// runs over one actor's (store-scoped) queue, not the whole ledger.
+// One sale or stock receipt's pending lines, keyed by the document they
+// belong to — so every vendor item on a sale folds into one invoice.
+function invoiceKey(row) {
+  return row.sale ? `SALE:${row.sale}` : `STOCK_RECEIPT:${row.stockReceipt}`;
+}
+
+// Same rows as listPendingEntities, folded into one row per source document
+// (a sale, or a stock receipt) instead of one row per line item — what the
+// pending-entities table actually shows the user. An invoice stays PENDING while any
+// of its lines still needs a price, and only flips to PRICED once every line
+// does; `status` filters on that folded status, not the per-line one.
+//
+// The other filters (source type, vendor, search, …) pick which invoices
+// match — an invoice matches when any of its lines does — but a matched
+// invoice is always returned whole, so its counts/totals agree with the
+// modal that opens from it. Grouping/pagination happen in JS since this only
+// ever runs over one actor's (store-scoped) queue, not the whole ledger.
 async function listPendingEntityInvoices({
   status,
   vendor,
@@ -192,7 +181,8 @@ async function listPendingEntityInvoices({
   const { PendingEntity, Store, Warehouse } = initializeModels();
   const { page, limit } = parsePagination(query);
   const { storeIds } = await resolveStoreScope({ store, actor });
-  const where = { ...storeWhere(storeIds) };
+  const scope = storeWhere(storeIds);
+  const where = { ...scope, [Op.and]: [HIDE_LABOUR] };
   if (vendor) where.vendor = vendor;
   if (supplier) where.supplier = supplier;
   if (sourceType) where.sourceType = sourceType;
@@ -208,8 +198,26 @@ async function listPendingEntityInvoices({
     ];
   }
 
-  const rows = await PendingEntity.findAll({
+  const matched = await PendingEntity.findAll({
     where,
+    attributes: ['sale', 'stockReceipt'],
+  });
+  const saleIds = new Set();
+  const receiptIds = new Set();
+  for (const m of matched) {
+    if (m.sale) saleIds.add(m.sale);
+    else if (m.stockReceipt) receiptIds.add(m.stockReceipt);
+  }
+  if (saleIds.size === 0 && receiptIds.size === 0) {
+    return { invoices: [], total: 0, page, limit };
+  }
+
+  const docFilters = [];
+  if (saleIds.size) docFilters.push({ sale: { [Op.in]: Array.from(saleIds) } });
+  if (receiptIds.size) docFilters.push({ stockReceipt: { [Op.in]: Array.from(receiptIds) } });
+
+  const rows = await PendingEntity.findAll({
+    where: { [Op.and]: [scope, HIDE_LABOUR, { [Op.or]: docFilters }] },
     include: [
       { model: Store, as: 'storeInfo', attributes: ['id', 'name', 'code'] },
       { model: Warehouse, as: 'warehouseInfo', attributes: ['id', 'name'] },
@@ -222,26 +230,28 @@ async function listPendingEntityInvoices({
 
   const groups = new Map();
   for (const row of rows) {
-    const key = `${row.sourceType}:${row.sourceNo}`;
+    const key = invoiceKey(row);
     let group = groups.get(key);
     if (!group) {
       group = {
-        sourceType: row.sourceType,
+        id: key,
+        kind: row.sale ? 'SALE' : 'STOCK_RECEIPT',
+        sourceId: row.sale || row.stockReceipt,
         sourceNo: row.sourceNo,
-        vendorName: row.vendorName || row.supplierName,
-        labourNames: new Set(),
+        sourceTypes: new Set(),
+        partyNames: new Set(),
         storeName: row.storeInfo ? row.storeInfo.name : undefined,
         warehouseName: row.warehouseInfo ? row.warehouseInfo.name : undefined,
         date: row.date,
         itemCount: 0,
         pricedCount: 0,
         total: 0,
-        chargedTotal: 0,
       };
       groups.set(key, group);
     }
-    if (row.labourName) group.labourNames.add(row.labourName);
-    group.chargedTotal += row.chargedAmount || 0;
+    group.sourceTypes.add(row.sourceType);
+    const party = row.vendorName || row.supplierName;
+    if (party) group.partyNames.add(party);
     group.itemCount += 1;
     if (row.status === 'PRICED') {
       group.pricedCount += 1;
@@ -250,12 +260,12 @@ async function listPendingEntityInvoices({
   }
 
   let invoices = Array.from(groups.values()).map((g) => ({
-    id: `${g.sourceType}:${g.sourceNo}`,
-    sourceType: g.sourceType,
+    id: g.id,
+    kind: g.kind,
+    sourceId: g.sourceId,
     sourceNo: g.sourceNo,
-    // A labour invoice has no vendor — show who it pays instead.
-    vendorName:
-      g.sourceType === 'SALE_LABOUR' ? Array.from(g.labourNames).join(', ') : g.vendorName,
+    sourceTypes: Array.from(g.sourceTypes),
+    vendorName: Array.from(g.partyNames).join(', '),
     storeName: g.storeName,
     warehouseName: g.warehouseName,
     date: g.date,
@@ -263,7 +273,6 @@ async function listPendingEntityInvoices({
     pricedCount: g.pricedCount,
     status: g.pricedCount === g.itemCount ? 'PRICED' : 'PENDING',
     total: g.pricedCount > 0 ? g.total : undefined,
-    chargedTotal: g.sourceType === 'SALE_LABOUR' ? g.chargedTotal : undefined,
   }));
 
   if (status) invoices = invoices.filter((inv) => inv.status === status);
@@ -274,13 +283,17 @@ async function listPendingEntityInvoices({
   return { invoices: invoices.slice(start, start + limit), total, page, limit };
 }
 
-// All line items belonging to one invoice/receipt — the "open an invoice"
-// detail view backing the price-entry modal. Not paginated: an invoice's own
-// line count is always small.
-async function listInvoiceItems(actor, sourceType, sourceNo) {
-  const { PendingEntity, Vendor, Supplier, Product, Labour, Store, Warehouse } = initializeModels();
+// All line items belonging to one sale or stock receipt — the "open an
+// invoice" detail view backing the price-entry modal. Not paginated: an
+// invoice's own line count is always small.
+async function listInvoiceItems(actor, kind, sourceId) {
+  const { PendingEntity, Vendor, Supplier, Product, Store, Warehouse } = initializeModels();
   const { storeIds } = await resolveStoreScope({ actor });
-  const where = { ...storeWhere(storeIds), sourceType, sourceNo };
+  const where = {
+    ...storeWhere(storeIds),
+    ...(kind === 'SALE' ? { sale: sourceId } : { stockReceipt: sourceId }),
+    [Op.and]: [HIDE_LABOUR],
+  };
 
   return PendingEntity.findAll({
     where,
@@ -288,7 +301,6 @@ async function listInvoiceItems(actor, sourceType, sourceNo) {
       { model: Vendor, as: 'vendorInfo', attributes: ['id', 'name'] },
       { model: Supplier, as: 'supplierInfo', attributes: ['id', 'name'] },
       { model: Product, as: 'productInfo', attributes: ['id', 'name'] },
-      { model: Labour, as: 'labourInfo', attributes: ['id', 'name', 'phoneNumber'] },
       { model: Store, as: 'storeInfo', attributes: ['id', 'name', 'code'] },
       { model: Warehouse, as: 'warehouseInfo', attributes: ['id', 'name'] },
     ],
@@ -404,6 +416,9 @@ async function setPurchasePrice(actor, id, purchasePrice) {
     if (entity.store) assertStoreAccess(actor, entity.store);
 
     const isLabour = entity.sourceType === 'SALE_LABOUR';
+    if (isLabour) {
+      throw ApiError.badRequest('Labour is no longer priced in Pending Entities');
+    }
     const price = toPaisa(purchasePrice);
     if (price < 0 || (!isLabour && price === 0)) {
       throw ApiError.badRequest('Purchase price must be positive');
@@ -463,7 +478,6 @@ async function setPurchasePrice(actor, id, purchasePrice) {
 
 module.exports = {
   recordSaleVendorItems,
-  recordSaleLabourItems,
   removeSaleLabourItems,
   recordStockReceiptItems,
   listPendingEntities,

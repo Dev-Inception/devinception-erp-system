@@ -13,6 +13,7 @@ import { usePrintPreviewStore } from '@/store/printPreview';
 
 interface SaleItemForInvoice {
   name: string;
+  remarks?: string;
   quantity: number | string;
   unitPrice: number | string;
   amount: number | string;
@@ -190,6 +191,7 @@ async function buildInvoiceHtml(sale: SaleForInvoice) {
     partyPhone: sale.customer?.phone || undefined,
     items: sale.items.map((i) => ({
       name: i.name,
+      remarks: i.remarks || undefined,
       qty: Number(i.quantity),
       price: Number(i.unitPrice),
       amount: Number(i.amount),

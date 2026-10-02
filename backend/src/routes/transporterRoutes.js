@@ -4,6 +4,7 @@ const { protect } = require('../middlewares/authMiddleware');
 const { requirePermission } = require('../middlewares/roleMiddleware');
 const { validate } = require('../middlewares/validateMiddleware');
 const { PERMISSIONS } = require('../utils/permissions');
+const expenseController = require('../controllers/expenseController');
 const {
   createTransporterValidator,
   updateTransporterValidator,
@@ -59,6 +60,16 @@ router.post(
   chargeTransportValidator,
   validate,
   transporterController.chargeTransport,
+);
+
+// Jobs + payouts: Labour/Transport expenses paid to this party against a
+// sale invoice (see expenseService.listPayeePayments).
+router.get(
+  '/:id/payments',
+  requirePermission(PERMISSIONS.TRANSPORTERS_READ),
+  idParamValidator,
+  validate,
+  expenseController.listTransporterPayments,
 );
 
 module.exports = router;

@@ -57,9 +57,12 @@ interface LabourLite {
   phoneNumber: string;
 }
 interface SaleLabourDetail {
+  /** '' for a line sold without naming the labourer. */
   id: string;
   name: string;
   phone?: string;
+  serviceId?: string;
+  serviceName?: string;
   rent: number;
 }
 interface SaleDetail {
@@ -234,10 +237,12 @@ export function SaleEditPage() {
     if (!l || selectedLabour.some((s) => s.id === l.id)) return;
     setSelectedLabour((sel) => [...sel, { id: l.id, name: l.name, phone: l.phoneNumber, rent: 0 }]);
   };
-  const setLabourRent = (labourId: string, rent: number) =>
-    setSelectedLabour((sel) => sel.map((l) => (l.id === labourId ? { ...l, rent } : l)));
-  const removeLabour = (labourId: string) =>
-    setSelectedLabour((sel) => sel.filter((l) => l.id !== labourId));
+  // By position, not labour id: a labourer can have one line per service,
+  // and unassigned lines have no id at all.
+  const setLabourRent = (index: number, rent: number) =>
+    setSelectedLabour((sel) => sel.map((l, i) => (i === index ? { ...l, rent } : l)));
+  const removeLabour = (index: number) =>
+    setSelectedLabour((sel) => sel.filter((_, i) => i !== index));
 
   const subtotal = lines.reduce((s, l) => s + l.quantity * l.unitPrice, 0);
   const discountAmount = Math.min(subtotal, Math.max(0, discount));
@@ -262,7 +267,12 @@ export function SaleEditPage() {
           taxPercent: Math.max(0, taxPercent),
           transportFare: Math.max(0, transportFare),
           transport: { driverName, driverPhone, vehicleNumber },
-          labour: selectedLabour.map((l) => ({ labour: l.id, rent: l.rent || 0 })),
+          labour: selectedLabour.map((l) => ({
+            labour: l.id || undefined,
+            service: l.serviceId,
+            phoneNumber: l.id ? undefined : l.phone,
+            rent: l.rent || 0,
+          })),
         })
       ).data,
     onSuccess: () => {
@@ -442,27 +452,29 @@ export function SaleEditPage() {
 
           <Card className="space-y-2 p-4">
             <Label className="text-sm font-semibold">{t('Labour')}</Label>
-            {selectedLabour.map((l) => (
+            {selectedLabour.map((l, i) => (
               <div
-                key={l.id}
+                key={`${l.id}-${l.serviceId ?? ''}-${i}`}
                 className="flex items-center gap-2 rounded-md border bg-card px-2 py-1.5 text-sm"
               >
                 <HardHat className="h-4 w-4 shrink-0 text-muted-foreground" />
-                <span className="min-w-0 flex-1 truncate">{l.name}</span>
+                <span className="min-w-0 flex-1 truncate">
+                  {[l.name || l.phone, l.serviceName].filter(Boolean).join(' · ') || t('Labour')}
+                </span>
                 <Input
                   type="number"
                   min={0}
                   placeholder={t('Fare')}
                   className="h-8 w-24 text-right"
                   value={l.rent || ''}
-                  onChange={(e) => setLabourRent(l.id, Number(e.target.value))}
+                  onChange={(e) => setLabourRent(i, Number(e.target.value))}
                 />
                 <Button
                   type="button"
                   size="icon"
                   variant="ghost"
                   className="h-7 w-7 shrink-0 text-destructive"
-                  onClick={() => removeLabour(l.id)}
+                  onClick={() => removeLabour(i)}
                 >
                   <Trash2 className="h-3.5 w-3.5" />
                 </Button>

@@ -21,11 +21,16 @@ import { useStorefrontFilter } from '@/store/storefront';
 import { grantsPermission } from '@/lib/modules';
 import { useLanguage } from '@/components/language-provider';
 
-type SourceType = 'SALE_ITEM' | 'STOCK_RECEIPT_ITEM' | 'SALE_LABOUR';
+// Labour isn't priced here any more — only vendor items (sales) and
+// supplier lines (stock receipts) land in Pending Entities.
+type SourceType = 'SALE_ITEM' | 'STOCK_RECEIPT_ITEM';
 
+/** One sale (all its vendor items) or one stock receipt. */
 interface PendingInvoice {
   id: string;
-  sourceType: SourceType;
+  kind: 'SALE' | 'STOCK_RECEIPT';
+  sourceId: string;
+  sourceTypes: SourceType[];
   sourceNo: string;
   vendorName: string;
   storeName?: string;
@@ -35,8 +40,6 @@ interface PendingInvoice {
   pricedCount: number;
   status: 'PENDING' | 'PRICED';
   total?: number;
-  /** SALE_LABOUR only: what the customer was charged for labour on the sale. */
-  chargedTotal?: number;
 }
 
 interface InvoiceItem {
@@ -52,83 +55,18 @@ interface InvoiceItem {
   status: 'PENDING' | 'PRICED';
   purchasePrice?: number;
   lineTotal?: number;
-  // SALE_LABOUR only — purchasePrice/lineTotal hold the labourer's payout.
-  labourName?: string;
-  serviceName?: string;
-  chargedAmount?: number;
 }
 
 const PAGE_SIZE = 20;
 
-function sourceLabel(t: (s: string) => string, sourceType: SourceType) {
-  if (sourceType === 'SALE_LABOUR') return t('Sale (labour)');
-  return sourceType === 'SALE_ITEM' ? t('Sale (vendor item)') : t('Stock receipt');
+function invoiceLabel(t: (s: string) => string, invoice: PendingInvoice) {
+  return invoice.kind === 'STOCK_RECEIPT' ? t('Stock receipt') : t('Sale (vendor item)');
 }
 
-// A labour payout may be 0 (nothing owed to the labourer); a vendor/supplier
-// purchase price must be positive.
-function isValidPrice(sourceType: SourceType, value: string | undefined) {
+function isValidPrice(value: string | undefined) {
   if (value === undefined || value.trim() === '') return false;
   const n = Number(value);
-  if (!Number.isFinite(n)) return false;
-  return sourceType === 'SALE_LABOUR' ? n >= 0 : n > 0;
-}
-
-/** One labour line on a sale whose store prices labour in Pending Entities:
- * what the customer was charged, the payout agreed with the labourer, and
- * the difference the store keeps. */
-function LabourItemRow({
-  item,
-  canPrice,
-  price,
-  onPriceChange,
-}: {
-  item: InvoiceItem;
-  canPrice: boolean;
-  price: string;
-  onPriceChange: (id: string, value: string) => void;
-}) {
-  const { t } = useLanguage();
-  const charged = item.chargedAmount ?? 0;
-  const payout = isValidPrice('SALE_LABOUR', price)
-    ? Number(price)
-    : item.status === 'PRICED'
-      ? (item.lineTotal ?? 0)
-      : null;
-  const margin = payout === null ? null : charged - payout;
-
-  return (
-    <tr className="border-b last:border-0">
-      <td className="px-3 py-2">{item.labourName}</td>
-      <td className="px-3 py-2 text-muted-foreground">{item.serviceName || '—'}</td>
-      <td className="px-3 py-2 text-right tabular-nums">{formatCurrency(charged)}</td>
-      <td className="px-3 py-2 text-right">
-        {canPrice ? (
-          <Input
-            type="number"
-            min={0}
-            step="0.01"
-            value={price}
-            onChange={(e) => onPriceChange(item.id, e.target.value)}
-            placeholder="0.00"
-            className="ml-auto h-8 w-28 text-right"
-          />
-        ) : item.status === 'PRICED' ? (
-          formatCurrency(item.lineTotal ?? 0)
-        ) : (
-          <span className="text-muted-foreground">{t('Awaiting payout')}</span>
-        )}
-      </td>
-      <td
-        className={cn(
-          'px-3 py-2 text-right tabular-nums',
-          margin !== null && margin < 0 && 'text-destructive',
-        )}
-      >
-        {margin !== null ? formatCurrency(margin) : '—'}
-      </td>
-    </tr>
-  );
+  return Number.isFinite(n) && n > 0;
 }
 
 /** One row of an invoice's item table: product, quantity and — for those who
@@ -159,7 +97,12 @@ function InvoiceItemRow({
 
   return (
     <tr className="border-b last:border-0">
-      <td className="px-3 py-2">{item.productName}</td>
+      <td className="px-3 py-2">
+        {item.productName}
+        {item.sourceType === 'SALE_ITEM' && item.vendorName && (
+          <div className="text-xs text-muted-foreground">{item.vendorName}</div>
+        )}
+      </td>
       <td className="px-3 py-2 text-right tabular-nums">{item.quantity}</td>
       <td className="px-3 py-2 text-right">
         {canPrice ? (
@@ -195,9 +138,9 @@ function effectiveLineTotal(item: InvoiceItem, price: string | undefined) {
   return item.status === 'PRICED' ? (item.lineTotal ?? 0) : 0;
 }
 
-/** Labour lines of one sale: charged vs payout vs store margin, with a
- * footer totalling all three. */
-function LabourItemsTable({
+/** Vendor-item (sale) or supplier (stock receipt) lines: product, quantity,
+ * purchase price and line total, with a footer total. */
+function ProductItemsTable({
   items,
   isLoading,
   canPrice,
@@ -211,88 +154,67 @@ function LabourItemsTable({
   onPriceChange: (id: string, value: string) => void;
 }) {
   const { t } = useLanguage();
-  const charged = items.reduce((s, it) => s + (it.chargedAmount ?? 0), 0);
-  const payout = items.reduce((s, it) => {
-    const p = prices[it.id];
-    if (isValidPrice('SALE_LABOUR', p)) return s + Number(p);
-    return it.status === 'PRICED' ? s + (it.lineTotal ?? 0) : s;
-  }, 0);
-
   return (
-    <div className="space-y-2">
-      <p className="text-xs text-muted-foreground">
-        {t(
-          'Enter what was agreed with each labourer. Only the payout goes to the labour ledger — the rest of the amount charged to the customer stays with the store.',
-        )}
-      </p>
-      <div className="overflow-x-auto rounded-md border">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b bg-muted/50 text-left text-xs uppercase text-muted-foreground">
-              <th className="px-3 py-2 font-medium">{t('Labourer')}</th>
-              <th className="px-3 py-2 font-medium">{t('Service')}</th>
-              <th className="px-3 py-2 text-right font-medium">{t('Charged')}</th>
-              <th className="px-3 py-2 text-right font-medium">{t('Labour Payout')}</th>
-              <th className="px-3 py-2 text-right font-medium">{t('Store Margin')}</th>
+    <div className="overflow-x-auto rounded-md border">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="border-b bg-muted/50 text-left text-xs uppercase text-muted-foreground">
+            <th className="px-3 py-2 font-medium">{t('Product')}</th>
+            <th className="px-3 py-2 text-right font-medium">{t('Quantity')}</th>
+            <th className="px-3 py-2 text-right font-medium">{t('Purchase Price')}</th>
+            <th className="px-3 py-2 text-right font-medium">{t('Line Total')}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {isLoading && (
+            <tr>
+              <td colSpan={4} className="px-3 py-8 text-center text-muted-foreground">
+                {t('Loading…')}
+              </td>
             </tr>
-          </thead>
-          <tbody>
-            {isLoading && (
-              <tr>
-                <td colSpan={5} className="px-3 py-8 text-center text-muted-foreground">
-                  {t('Loading…')}
-                </td>
-              </tr>
-            )}
-            {!isLoading &&
-              items.map((item) => (
-                <LabourItemRow
-                  key={item.id}
-                  item={item}
-                  canPrice={canPrice}
-                  price={prices[item.id] ?? ''}
-                  onPriceChange={onPriceChange}
-                />
-              ))}
-            {!isLoading && items.length === 0 && (
-              <tr>
-                <td colSpan={5} className="px-3 py-8 text-center text-muted-foreground">
-                  {t('No items found for this invoice.')}
-                </td>
-              </tr>
-            )}
-          </tbody>
-          {!isLoading && items.length > 0 && (
-            <tfoot>
-              <tr className="border-t bg-muted/30 font-medium">
-                <td className="px-3 py-2" colSpan={2}>
-                  {t('Total')}
-                </td>
-                <td className="px-3 py-2 text-right tabular-nums">{formatCurrency(charged)}</td>
-                <td className="px-3 py-2 text-right tabular-nums">{formatCurrency(payout)}</td>
-                <td
-                  className={cn(
-                    'px-3 py-2 text-right tabular-nums',
-                    charged - payout < 0 && 'text-destructive',
-                  )}
-                >
-                  {formatCurrency(charged - payout)}
-                </td>
-              </tr>
-            </tfoot>
           )}
-        </table>
-      </div>
+          {!isLoading &&
+            items.map((item) => (
+              <InvoiceItemRow
+                key={item.id}
+                item={item}
+                canPrice={canPrice}
+                price={prices[item.id] ?? ''}
+                onPriceChange={onPriceChange}
+              />
+            ))}
+          {!isLoading && items.length === 0 && (
+            <tr>
+              <td colSpan={4} className="px-3 py-8 text-center text-muted-foreground">
+                {t('No items found for this invoice.')}
+              </td>
+            </tr>
+          )}
+        </tbody>
+        {!isLoading && items.length > 0 && (
+          <tfoot>
+            <tr className="border-t bg-muted/30 font-medium">
+              <td className="px-3 py-2" colSpan={3}>
+                {t('Total')}
+              </td>
+              <td className="px-3 py-2 text-right tabular-nums">
+                {formatCurrency(
+                  items.reduce((s, it) => s + effectiveLineTotal(it, prices[it.id]), 0),
+                )}
+              </td>
+            </tr>
+          </tfoot>
+        )}
+      </table>
     </div>
   );
 }
 
-/** One invoice/receipt's full line-item breakdown, opened from a row in the
- * pending-entities table. Every item gets its own purchase-price input right
- * next to it, so a multi-item invoice can be priced line-by-line in one
- * place instead of hunting down each item separately. Works the same for
- * the Pending and Completed tabs — the items just start out already priced
- * on the Completed side. */
+/** One sale's or stock receipt's full line-item breakdown, opened from a
+ * row in the pending-entities table. Every line gets its own purchase-price
+ * input right next to it, and one Save/Update button saves them all at
+ * once. Works the same for the Pending and Completed tabs — the lines just
+ * start out already priced on the Completed side. */
 function InvoiceItemsDialog({
   invoice,
   canPrice,
@@ -306,11 +228,11 @@ function InvoiceItemsDialog({
   const { t } = useLanguage();
 
   const { data, isLoading } = useQuery({
-    queryKey: ['pending-invoice-items', invoice.sourceType, invoice.sourceNo],
+    queryKey: ['pending-invoice-items', invoice.kind, invoice.sourceId],
     queryFn: async () =>
       (
         await api.get('/pending-entities/invoice-items', {
-          params: { sourceType: invoice.sourceType, sourceNo: invoice.sourceNo },
+          params: { kind: invoice.kind, sourceId: invoice.sourceId },
         })
       ).data as { items: InvoiceItem[] },
   });
@@ -329,28 +251,24 @@ function InvoiceItemsDialog({
       return next;
     });
   }, [data]);
+  const onPriceChange = (id: string, value: string) =>
+    setPrices((prev) => ({ ...prev, [id]: value }));
 
   const refresh = () => {
     qc.invalidateQueries({
-      queryKey: ['pending-invoice-items', invoice.sourceType, invoice.sourceNo],
+      queryKey: ['pending-invoice-items', invoice.kind, invoice.sourceId],
     });
     qc.invalidateQueries({ queryKey: ['pending-invoices'] });
     qc.invalidateQueries({ queryKey: ['vendors'] });
-    qc.invalidateQueries({ queryKey: ['labour'] });
-    qc.invalidateQueries({ queryKey: ['labour-cash-flow'] });
   };
-
-  const isLabour = invoice.sourceType === 'SALE_LABOUR';
 
   const save = useMutation({
     mutationFn: async () => {
       const updates = items
-        .filter((it) => isValidPrice(it.sourceType, prices[it.id]))
+        .filter((it) => isValidPrice(prices[it.id]))
         .map((it) => ({ id: it.id, purchasePrice: Number(prices[it.id]) }));
       if (updates.length === 0) {
-        throw new Error(
-          isLabour ? t('Enter at least one labour payout') : t('Enter at least one purchase price'),
-        );
+        throw new Error(t('Enter at least one purchase price'));
       }
       await Promise.all(
         updates.map((u) =>
@@ -359,7 +277,7 @@ function InvoiceItemsDialog({
       );
     },
     onSuccess: () => {
-      toast.success(isLabour ? t('Labour payout(s) saved') : t('Purchase price(s) saved'));
+      toast.success(t('Purchase price(s) saved'));
       refresh();
     },
     onError: (e: any) =>
@@ -372,7 +290,7 @@ function InvoiceItemsDialog({
         <DialogHeader>
           <DialogTitle>{invoice.sourceNo}</DialogTitle>
           <DialogDescription>
-            {sourceLabel(t, invoice.sourceType)} · {new Date(invoice.date).toLocaleDateString()} ·{' '}
+            {invoiceLabel(t, invoice)} · {new Date(invoice.date).toLocaleDateString()} ·{' '}
             {invoice.vendorName}
           </DialogDescription>
         </DialogHeader>
@@ -394,70 +312,13 @@ function InvoiceItemsDialog({
           </div>
         )}
 
-        {isLabour && (
-          <LabourItemsTable
-            items={items}
-            isLoading={isLoading}
-            canPrice={canPrice}
-            prices={prices}
-            onPriceChange={(id, value) => setPrices((prev) => ({ ...prev, [id]: value }))}
-          />
-        )}
-
-        {!isLabour && (
-          <div className="overflow-x-auto rounded-md border">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b bg-muted/50 text-left text-xs uppercase text-muted-foreground">
-                  <th className="px-3 py-2 font-medium">{t('Product')}</th>
-                  <th className="px-3 py-2 text-right font-medium">{t('Quantity')}</th>
-                  <th className="px-3 py-2 text-right font-medium">{t('Purchase Price')}</th>
-                  <th className="px-3 py-2 text-right font-medium">{t('Line Total')}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {isLoading && (
-                  <tr>
-                    <td colSpan={4} className="px-3 py-8 text-center text-muted-foreground">
-                      {t('Loading…')}
-                    </td>
-                  </tr>
-                )}
-                {!isLoading &&
-                  items.map((item) => (
-                    <InvoiceItemRow
-                      key={item.id}
-                      item={item}
-                      canPrice={canPrice}
-                      price={prices[item.id] ?? ''}
-                      onPriceChange={(id, value) => setPrices((prev) => ({ ...prev, [id]: value }))}
-                    />
-                  ))}
-                {!isLoading && items.length === 0 && (
-                  <tr>
-                    <td colSpan={4} className="px-3 py-8 text-center text-muted-foreground">
-                      {t('No items found for this invoice.')}
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-              {!isLoading && items.length > 0 && (
-                <tfoot>
-                  <tr className="border-t bg-muted/30 font-medium">
-                    <td className="px-3 py-2" colSpan={3}>
-                      {t('Total')}
-                    </td>
-                    <td className="px-3 py-2 text-right tabular-nums">
-                      {formatCurrency(
-                        items.reduce((s, it) => s + effectiveLineTotal(it, prices[it.id]), 0),
-                      )}
-                    </td>
-                  </tr>
-                </tfoot>
-              )}
-            </table>
-          </div>
-        )}
+        <ProductItemsTable
+          items={items}
+          isLoading={isLoading}
+          canPrice={canPrice}
+          prices={prices}
+          onPriceChange={onPriceChange}
+        />
 
         <div className="flex justify-end gap-2">
           <Button type="button" variant="outline" onClick={onClose}>
@@ -556,7 +417,6 @@ export function PendingEntitiesPage() {
                 <option value="">{t('All sources')}</option>
                 <option value="SALE_ITEM">{t('Sale (vendor item)')}</option>
                 <option value="STOCK_RECEIPT_ITEM">{t('Stock receipt')}</option>
-                <option value="SALE_LABOUR">{t('Sale (labour)')}</option>
               </select>
             </div>
           </div>
@@ -585,7 +445,7 @@ export function PendingEntitiesPage() {
               <tr className="border-b bg-muted/50 text-left text-xs uppercase tracking-wide text-muted-foreground">
                 <th className="px-4 py-3 font-medium">{t('Source')}</th>
                 <th className="px-4 py-3 font-medium">{t('Invoice #')}</th>
-                <th className="px-4 py-3 font-medium">{t('Vendor / Labour')}</th>
+                <th className="px-4 py-3 font-medium">{t('Vendor / Supplier')}</th>
                 <th className="px-4 py-3 font-medium">{t('Date')}</th>
                 <th className="px-4 py-3 text-right font-medium">{t('Items')}</th>
                 <th className="px-4 py-3 text-right font-medium">{t('Amount')}</th>
@@ -606,9 +466,7 @@ export function PendingEntitiesPage() {
                     className="cursor-pointer border-b last:border-0 hover:bg-muted/30"
                     onClick={() => setViewing(inv)}
                   >
-                    <td className="px-4 py-3 text-muted-foreground">
-                      {sourceLabel(t, inv.sourceType)}
-                    </td>
+                    <td className="px-4 py-3 text-muted-foreground">{invoiceLabel(t, inv)}</td>
                     <td className="px-4 py-3 font-medium">{inv.sourceNo}</td>
                     <td className="px-4 py-3">{inv.vendorName}</td>
                     <td className="px-4 py-3 text-muted-foreground">

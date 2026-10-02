@@ -5,10 +5,8 @@ const idParam = param('id').isMongoId().withMessage('Invalid pending entity id')
 const idParamValidator = [idParam];
 
 const invoiceItemsValidator = [
-  query('sourceType')
-    .isIn(['SALE_ITEM', 'STOCK_RECEIPT_ITEM', 'SALE_LABOUR'])
-    .withMessage('Invalid source type'),
-  query('sourceNo').trim().notEmpty().withMessage('sourceNo is required'),
+  query('kind').isIn(['SALE', 'STOCK_RECEIPT']).withMessage('Invalid invoice kind'),
+  query('sourceId').isMongoId().withMessage('Invalid source id'),
 ];
 
 const setPriceValidator = [

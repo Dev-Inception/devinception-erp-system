@@ -1225,6 +1225,7 @@ function mapSale(s: any) {
       source: it.source,
       vendorId: it.vendor ? String(it.vendor?._id ?? it.vendor) : undefined,
       vendorName: it.vendorName || '',
+      remarks: it.remarks || undefined,
       warehouseId: it.warehouse ? String(it.warehouse?._id ?? it.warehouse) : undefined,
     })),
     customer: cname
@@ -1236,7 +1237,9 @@ function mapSale(s: any) {
       : undefined,
     labour: Array.isArray(s.labour)
       ? s.labour.map((l: any) => ({
-          id: String(l.labour?._id ?? l.labour),
+          // '' for a line sold without naming the labourer.
+          id: l.labour ? String(l.labour?._id ?? l.labour) : '',
+          serviceId: l.service ? String(l.service?._id ?? l.service) : undefined,
           name: l.name,
           phone: l.phoneNumber || undefined,
           serviceName: l.serviceName || undefined,
@@ -1319,6 +1322,7 @@ async function realCreateSale(body: any) {
     source: l.source || undefined,
     vendor: l.vendor || undefined,
     warehouse: l.warehouseId || undefined,
+    remarks: l.remarks || undefined,
   }));
   const res = await http.post('/sales', {
     store: body.storeId || undefined,
@@ -1968,7 +1972,10 @@ async function realListPendingEntities(params: any = {}) {
 function mapPendingInvoice(inv: any) {
   return {
     id: String(inv.id),
-    sourceType: inv.sourceType as 'SALE_ITEM' | 'STOCK_RECEIPT_ITEM' | 'SALE_LABOUR',
+    // One sale (all its vendor items) or one stock receipt.
+    kind: inv.kind as 'SALE' | 'STOCK_RECEIPT',
+    sourceId: String(inv.sourceId),
+    sourceTypes: (inv.sourceTypes ?? []) as ('SALE_ITEM' | 'STOCK_RECEIPT_ITEM')[],
     sourceNo: inv.sourceNo || '',
     vendorName: inv.vendorName || '',
     storeName: inv.storeName || undefined,
@@ -1978,7 +1985,6 @@ function mapPendingInvoice(inv: any) {
     pricedCount: inv.pricedCount ?? 0,
     status: inv.status as 'PENDING' | 'PRICED',
     total: inv.total ?? undefined,
-    chargedTotal: inv.chargedTotal ?? undefined,
   };
 }
 async function realListPendingInvoices(params: any = {}) {
@@ -2003,7 +2009,7 @@ async function realListPendingInvoices(params: any = {}) {
 }
 async function realListInvoiceItems(params: any = {}) {
   const res = await http.get('/pending-entities/invoice-items', {
-    params: { sourceType: params.sourceType, sourceNo: params.sourceNo },
+    params: { kind: params.kind, sourceId: params.sourceId },
   });
   return { items: (res.data.items as any[]).map(mapPendingEntity) };
 }
@@ -2057,7 +2063,7 @@ function mapSaleDraft(d: any) {
       name: d.customer?.name ?? '',
       phone: d.customer?.phone || undefined,
     },
-    cart: (d.items ?? []).map((it: any) => {
+    cart: (d.items ?? []).map((it: any, index: number) => {
       const product = {
         id: String(it.productId),
         name: it.name,
@@ -2068,17 +2074,21 @@ function mapSaleDraft(d: any) {
         warehouseId: it.warehouseId ? String(it.warehouseId) : undefined,
       };
       return {
-        key: (it.sku || it.name || it.productId).toLowerCase(),
+        // Unique per row — the same product may sit on more than one row.
+        key: `${(it.sku || it.name || it.productId).toLowerCase()}-${index}`,
         variants: [product],
         product,
+        desiredWarehouseId: product.warehouseId,
+        source: it.source || (it.vendorId ? 'VENDOR' : 'WAREHOUSE'),
         vendorId: it.vendorId ? String(it.vendorId) : null,
         vendorName: it.vendorName || '',
+        remarks: it.remarks || '',
         price: Number(it.salePrice),
         qty: it.qty,
       };
     }),
     selectedLabour: (d.labour ?? []).map((l: any) => ({
-      id: String(l.id),
+      id: l.id ? String(l.id) : '',
       name: l.name,
       phoneNumber: l.phoneNumber || '',
       // Drafts saved before per-service labour (just a flat `rent`, no
@@ -2120,12 +2130,13 @@ function draftPayload(body: any) {
       taxRate: Number(l.product.taxRate) || 0,
       warehouseId: l.product.warehouseId || undefined,
       qty: l.qty,
-      source: l.vendorId ? 'VENDOR' : 'WAREHOUSE',
+      source: l.source || (l.vendorId ? 'VENDOR' : 'WAREHOUSE'),
       vendorId: l.vendorId || undefined,
       vendorName: l.vendorName || undefined,
+      remarks: l.remarks || undefined,
     })),
     labour: (body.selectedLabour ?? []).map((l: any) => ({
-      id: l.id,
+      id: l.id || undefined,
       name: l.name,
       phoneNumber: l.phoneNumber,
       services: (l.services ?? []).map((sv: any) => ({
@@ -2265,7 +2276,13 @@ async function realDeleteEstimate(id: string) {
 /* ── Expenses — day-to-day operating spend (food, utilities, repairs, ...),
    each backed by a balanced journal entry so the books stay in sync ── */
 function mapExpenseCategory(c: any) {
-  return { id: String(c._id ?? c.id), name: c.name, description: c.description || '' };
+  return {
+    id: String(c._id ?? c.id),
+    name: c.name,
+    description: c.description || '',
+    // 'LABOUR' / 'TRANSPORT' for the built-in payout categories.
+    systemKey: (c.systemKey || null) as 'LABOUR' | 'TRANSPORT' | null,
+  };
 }
 function mapExpense(e: any) {
   return {
@@ -2284,6 +2301,12 @@ function mapExpense(e: any) {
     note: e.note || '',
     status: e.status as 'PENDING' | 'APPROVED' | 'REJECTED',
     rejectionReason: e.rejectionReason || '',
+    // Labour/Transport payouts: the invoice paid for and who was paid.
+    saleId: e.sale ? String(e.sale) : undefined,
+    saleNo: e.saleNo || '',
+    labourId: e.labour ? String(e.labour) : undefined,
+    transporterId: e.transporter ? String(e.transporter) : undefined,
+    payeeName: e.payeeName || '',
   };
 }
 async function realExpenseCategories() {
@@ -2329,6 +2352,9 @@ function expensePayload(body: any) {
     warehouse: body.warehouseId || undefined,
     date: body.date || undefined,
     note: body.note || undefined,
+    sale: body.saleId || undefined,
+    labour: body.labourId || undefined,
+    transporter: body.transporterId || undefined,
   };
 }
 async function realCreateExpense(body: any) {
@@ -2879,6 +2905,10 @@ async function tryReal(
     if (url === '/estimates') return wrap(await realEstimates(params));
     if (seg[0] === 'estimates' && seg[1] && !seg[2]) return wrap(await realGetEstimate(seg[1]));
     if (url === '/expenses/categories') return wrap(await realExpenseCategories());
+    if (url === '/expenses/payable-sales')
+      return wrap((await http.get(url, { params })).data.sales);
+    if ((seg[0] === 'labour' || seg[0] === 'transporters') && seg[1] && seg[2] === 'payments')
+      return wrap((await http.get(url)).data.payments);
     if (url === '/expenses') return wrap(await realExpenses(params));
     if (url === '/sale-drafts') return wrap(await realListSaleDrafts(params.store as string));
     if (url === '/cash') return wrap(await realCashLedger(params.store as string));

@@ -17,6 +17,10 @@ const expenseFieldsValidator = [
   body('warehouse').optional({ values: 'falsy' }).isMongoId().withMessage('Invalid warehouse'),
   body('date').optional({ values: 'falsy' }).isISO8601().withMessage('Invalid date'),
   body('note').optional({ values: 'falsy' }).trim().isLength({ max: 500 }),
+  // Labour/Transport payouts only (the service enforces which is required).
+  body('sale').optional({ values: 'falsy' }).isMongoId().withMessage('Invalid invoice'),
+  body('labour').optional({ values: 'falsy' }).isMongoId().withMessage('Invalid labourer'),
+  body('transporter').optional({ values: 'falsy' }).isMongoId().withMessage('Invalid transporter'),
 ];
 
 const createExpenseValidator = [
@@ -40,6 +44,12 @@ const listExpensesValidator = [
 
 const idParamValidator = [idParam];
 
+const payableSalesValidator = [
+  query('kind').isIn(['LABOUR', 'TRANSPORT']).withMessage('Invalid payout kind'),
+  query('store').optional({ values: 'falsy' }).isMongoId().withMessage('Invalid store'),
+  query('search').optional({ values: 'falsy' }).trim().isLength({ max: 40 }),
+];
+
 const rejectExpenseValidator = [
   idParam,
   body('reason').optional({ values: 'falsy' }).trim().isLength({ max: 500 }),
@@ -52,4 +62,5 @@ module.exports = {
   listExpensesValidator,
   idParamValidator,
   rejectExpenseValidator,
+  payableSalesValidator,
 };

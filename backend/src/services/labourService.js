@@ -44,11 +44,15 @@ async function createLabour(actor, { name, phoneNumber, store }) {
   const storeDoc = await Store.findByPk(storeId);
   if (!storeDoc) throw ApiError.badRequest('Store not found');
 
-  // Check for duplicate phone number within this store
-  const existing = await Labour.findOne({ where: { store: storeDoc.id, phoneNumber } });
-  if (existing) throw ApiError.conflict('Labour with this phone number already exists');
+  // Check for duplicate phone number within this store (a blank phone
+  // number — name-only labourer — never clashes).
+  const phone = (phoneNumber || '').trim();
+  if (phone) {
+    const existing = await Labour.findOne({ where: { store: storeDoc.id, phoneNumber: phone } });
+    if (existing) throw ApiError.conflict('Labour with this phone number already exists');
+  }
 
-  return Labour.create({ name, phoneNumber, store: storeDoc.id });
+  return Labour.create({ name, phoneNumber: phone, store: storeDoc.id });
 }
 
 async function updateLabour(actor, id, { name, phoneNumber }) {
@@ -88,14 +92,21 @@ async function deleteLabour(actor, id) {
  * service. Stock receiving doesn't pass `service` at all, so it keeps
  * getting exactly one line per labourer, same as before.
  */
-async function resolveLabourLines(labourInput, storeId, transaction) {
+//
+// With `allowUnassigned` (POS sales), a line may name just a service and no
+// labourer — it's kept with labour null / name '' and the optional
+// `phoneNumber` entered for it; who actually does the job is settled later
+// in Pending Entities.
+async function resolveLabourLines(labourInput, storeId, transaction, { allowUnassigned } = {}) {
   const { Labour, LabourService } = initializeModels();
   const input = Array.isArray(labourInput) ? labourInput : [];
   const entries = input
     .map((l) => (l && typeof l === 'object' ? l : { labour: l }))
-    .filter((l) => l.labour);
+    .filter((l) => l.labour || (allowUnassigned && l.service));
 
-  const labourIds = Array.from(new Set(entries.map((l) => String(l.labour))));
+  const labourIds = Array.from(
+    new Set(entries.filter((l) => l.labour).map((l) => String(l.labour))),
+  );
   const labourDocs = labourIds.length
     ? await Labour.findAll({ where: { id: { [Op.in]: labourIds } }, transaction })
     : [];
@@ -122,12 +133,16 @@ async function resolveLabourLines(labourInput, storeId, transaction) {
   const serviceById = new Map(serviceDocs.map((doc) => [String(doc.id), doc]));
 
   return entries.map((l) => {
-    const doc = labourById.get(String(l.labour));
+    const doc = l.labour ? labourById.get(String(l.labour)) : null;
     const serviceDoc = l.service ? serviceById.get(String(l.service)) : null;
     return {
-      labour: doc.id,
-      name: doc.name,
-      phoneNumber: doc.phoneNumber,
+      labour: doc ? doc.id : null,
+      name: doc ? doc.name : '',
+      phoneNumber: doc
+        ? doc.phoneNumber
+        : String(l.phoneNumber || '')
+            .trim()
+            .slice(0, 20),
       service: serviceDoc ? serviceDoc.id : null,
       serviceName: serviceDoc ? serviceDoc.name : '',
       rent: toPaisa(l.rent || 0),
@@ -146,7 +161,8 @@ async function postLabourPayable(
   labourLines,
   { when, refType, refNo, store, actor, label, transaction },
 ) {
-  const withRent = (labourLines || []).filter((l) => l.rent > 0);
+  // Unassigned lines owe nobody yet — they're priced via Pending Entities.
+  const withRent = (labourLines || []).filter((l) => l.rent > 0 && l.labour);
   if (withRent.length === 0) return;
   const total = withRent.reduce((s, l) => s + l.rent, 0);
   await journalService.post({
@@ -173,7 +189,7 @@ async function reverseLabourPayable(
   labourLines,
   { when, refType, refNo, store, actor, label, transaction },
 ) {
-  const withRent = (labourLines || []).filter((l) => l.rent > 0);
+  const withRent = (labourLines || []).filter((l) => l.rent > 0 && l.labour);
   if (withRent.length === 0) return;
   const total = withRent.reduce((s, l) => s + l.rent, 0);
   await journalService.post({
@@ -246,7 +262,7 @@ async function labourCashFlow({ actor, store, labour, from, to, status, ...query
               sl.rent AS charged, sl.rent AS payout, NULL AS "pendingEntityId"
        FROM sale_labour sl
        JOIN sales s ON s.id = sl.sale_id
-       WHERE s.labour_pricing_mode = 'DIRECT'
+       WHERE s.labour_pricing_mode = 'DIRECT' AND sl.labour_id IS NOT NULL
        UNION ALL
        SELECT pe.status, pe.sale_id, pe.source_no, pe.date, s.customer_name, pe.labour_id,
               pe.labour_name, pe.service_name, COALESCE(pe.charged_amount, 0),

@@ -9,6 +9,8 @@ export type TemplateType = 'INVOICE_A4' | 'RECEIPT_THERMAL' | 'OT_THERMAL';
 
 interface LineItem {
   name: string;
+  /** Optional per-line note (POS remarks), printed under the name. */
+  remarks?: string;
   qty: number;
   price: number;
   amount: number;
@@ -172,7 +174,7 @@ function rows(items: LineItem[]) {
   return items
     .map(
       (i, idx) =>
-        `<tr><td class="c">${idx + 1}</td><td>${i.name}</td><td class="r">${i.qty}</td><td class="r">${formatCurrency(i.price)}</td><td class="r">${formatCurrency(i.amount)}</td></tr>`,
+        `<tr><td class="c">${idx + 1}</td><td>${i.name}${i.remarks ? `<div style="font-size:8px;color:#6b7280">${i.remarks}</div>` : ''}</td><td class="r">${i.qty}</td><td class="r">${formatCurrency(i.price)}</td><td class="r">${formatCurrency(i.amount)}</td></tr>`,
     )
     .join('');
 }
@@ -183,7 +185,7 @@ function labourRows(
   return labour
     .map(
       (l, idx) =>
-        `<tr><td class="c">${idx + 1}</td><td>${l.name}</td><td>${l.serviceName || '—'}</td><td>${l.phone || '—'}</td><td class="r">${formatCurrency(l.rent ?? 0)}</td></tr>`,
+        `<tr><td class="c">${idx + 1}</td><td>${l.name || '—'}</td><td>${l.serviceName || '—'}</td><td>${l.phone || '—'}</td><td class="r">${formatCurrency(l.rent ?? 0)}</td></tr>`,
     )
     .join('');
 }
