@@ -79,21 +79,27 @@ export function Combobox<T>({
   const canCreate = Boolean(onCreate) && q !== '' && !exactMatch;
   const optionCount = filtered.length + (canCreate ? 1 : 0);
 
-  // Keep the floating list glued under the input while the page or the
-  // table scrolls.
+  // Keep the floating list glued under the input while it's open. Tracked
+  // every frame rather than on scroll/resize alone: the input can move
+  // without either firing — e.g. focused as a modal opens, while the modal
+  // is still animating in — which left the list stranded where it started.
   useLayoutEffect(() => {
     if (!open) return;
+    let frame = 0;
     const place = () => {
       const r = inputRef.current?.getBoundingClientRect();
-      if (r) setRect({ left: r.left, top: r.bottom + 4, width: Math.max(r.width, 260) });
+      if (r) {
+        const next = { left: r.left, top: r.bottom + 4, width: Math.max(r.width, 260) };
+        setRect((prev) =>
+          prev && prev.left === next.left && prev.top === next.top && prev.width === next.width
+            ? prev
+            : next,
+        );
+      }
+      frame = requestAnimationFrame(place);
     };
     place();
-    window.addEventListener('scroll', place, true);
-    window.addEventListener('resize', place);
-    return () => {
-      window.removeEventListener('scroll', place, true);
-      window.removeEventListener('resize', place);
-    };
+    return () => cancelAnimationFrame(frame);
   }, [open]);
 
   useEffect(() => {

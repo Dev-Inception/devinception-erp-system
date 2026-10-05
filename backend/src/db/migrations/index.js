@@ -30,4 +30,5 @@ module.exports = [
   require('./029-labour-phone-optional'),
   require('./030-day-end-past-reopen'),
   require('./031-soft-delete-products-warehouses'),
+  require('./032-store-default-roles'),
 ];

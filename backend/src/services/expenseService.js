@@ -494,16 +494,23 @@ async function categoryTotals({ store, from, to, actor } = {}) {
 }
 
 // Invoice # search for a Labour/Transport expense: this store's sales that
-// charged the customer for labour (or transport), newest first, each with
-// what was charged and what has already been paid out against it (any
-// non-rejected expense of that kind). Labour sales also list their services.
+// had labour (or transport) on them, newest first, each with what was
+// charged and what has already been paid out against it (any non-rejected
+// expense of that kind). Labour sales also list their services. A sale
+// counts even when the customer wasn't charged for it (labour/transport
+// included in the price) — the labourer/transporter still has to be paid.
 async function listPayableSales({ actor, store, kind, search }) {
   const { Sale, SaleLabour, Expense, ExpenseCategory } = initializeModels();
   const { storeIds } = await resolveStoreScope({ store, actor });
   const where = { ...storeWhere(storeIds) };
-  if (kind === SYSTEM_KEY.LABOUR) where.labourRent = { [Op.gt]: 0 };
-  else if (kind === SYSTEM_KEY.TRANSPORT) where.transportFare = { [Op.gt]: 0 };
-  else throw ApiError.badRequest('Invalid payout kind');
+  if (kind === SYSTEM_KEY.LABOUR) {
+    where[Op.or] = [
+      { labourRent: { [Op.gt]: 0 } },
+      { id: { [Op.in]: literal('(SELECT sale_id FROM sale_labour)') } },
+    ];
+  } else if (kind === SYSTEM_KEY.TRANSPORT) {
+    where[Op.or] = [{ transportFare: { [Op.gt]: 0 } }, { transporter: { [Op.ne]: null } }];
+  } else throw ApiError.badRequest('Invalid payout kind');
   if (search) where.number = { [Op.iLike]: `%${escapeLike(search)}%` };
 
   const sales = await Sale.findAll({
@@ -608,8 +615,145 @@ async function listPayeePayments({ actor, labour, transporter }) {
   });
 }
 
+// Invoice # suggestions for the Labour page's Track dialog: any of the
+// actor's sales whose number matches, newest first — not just ones that
+// charged for labour, so an invoice nobody worked on can still be looked up.
+async function searchTrackableSales({ actor, store, search }) {
+  const { Sale } = initializeModels();
+  const { storeIds } = await resolveStoreScope({ store, actor });
+  const where = { ...storeWhere(storeIds) };
+  if (search) where.number = { [Op.iLike]: `%${escapeLike(search)}%` };
+  const sales = await Sale.findAll({
+    where,
+    attributes: ['id', 'number', 'date', 'customerName'],
+    order: [['date', 'DESC']],
+    limit: 20,
+  });
+  return sales.map((s) => ({
+    id: s.id,
+    number: s.number,
+    date: s.date,
+    customerName: s.customerName,
+  }));
+}
+
+// Who worked on one sale invoice and what they've been paid for it. A
+// labourer counts as having worked on it if the sale names them on a labour
+// line, or a Labour expense was paid to them against it (an unassigned line's
+// crew is often only named at payout). `charged` is their rent on the sale;
+// `paid` sums their non-rejected Labour expenses against it (pending ones
+// included, and listed with their status). Unassigned lines are returned
+// separately. Amounts in rupees.
+async function trackSaleLabour({ actor, sale: saleId }) {
+  const { Sale, SaleLabour, Expense, ExpenseCategory, Labour } = initializeModels();
+  const sale = isValidId(saleId)
+    ? await Sale.findByPk(saleId, {
+        attributes: ['id', 'number', 'date', 'customerName', 'labourRent', 'store'],
+      })
+    : null;
+  if (!sale) throw ApiError.notFound('Invoice not found');
+  const { storeIds } = await resolveStoreScope({ actor });
+  if (storeIds && !storeIds.includes(String(sale.store))) {
+    throw ApiError.notFound('Invoice not found');
+  }
+
+  const [lines, payouts] = await Promise.all([
+    SaleLabour.findAll({ where: { saleId: sale.id }, order: [['position', 'ASC']] }),
+    Expense.findAll({
+      where: {
+        sale: sale.id,
+        labour: { [Op.ne]: null },
+        status: { [Op.ne]: EXPENSE_STATUS.REJECTED },
+      },
+      include: [
+        {
+          model: ExpenseCategory,
+          as: 'categoryInfo',
+          attributes: [],
+          where: { systemKey: SYSTEM_KEY.LABOUR },
+        },
+      ],
+      order: [['date', 'ASC']],
+    }),
+  ]);
+
+  const workers = new Map();
+  const workerFor = (id, name, phoneNumber) => {
+    const key = String(id);
+    if (!workers.has(key)) {
+      workers.set(key, {
+        labourId: key,
+        name,
+        phoneNumber,
+        services: [],
+        charged: 0,
+        payments: [],
+      });
+    }
+    return workers.get(key);
+  };
+  const unassigned = [];
+  for (const l of lines) {
+    if (!l.labour) {
+      unassigned.push({ serviceName: l.serviceName, phoneNumber: l.phoneNumber, rent: l.rent });
+      continue;
+    }
+    const w = workerFor(l.labour, l.name, l.phoneNumber);
+    if (l.serviceName) w.services.push(l.serviceName);
+    w.charged += Number(l.rent) || 0;
+  }
+  for (const e of payouts) {
+    const w = workerFor(e.labour, e.payeeName, '');
+    w.payments.push({
+      id: e.id,
+      number: e.number,
+      date: e.date,
+      amount: e.amount,
+      method: e.method,
+      status: e.status,
+    });
+  }
+
+  // Payout-only labourers carry no phone on the expense — fill it in.
+  const missingPhone = [...workers.values()].filter((w) => !w.phoneNumber).map((w) => w.labourId);
+  if (missingPhone.length) {
+    const docs = await Labour.findAll({
+      where: { id: { [Op.in]: missingPhone } },
+      attributes: ['id', 'phoneNumber'],
+    });
+    for (const d of docs) workers.get(String(d.id)).phoneNumber = d.phoneNumber || '';
+  }
+
+  return {
+    sale: view(
+      {
+        id: sale.id,
+        number: sale.number,
+        date: sale.date,
+        customerName: sale.customerName,
+        labourRent: sale.labourRent,
+      },
+      ['labourRent'],
+    ),
+    workers: [...workers.values()].map((w) => {
+      const paid = w.payments.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+      return view(
+        {
+          ...w,
+          paid,
+          payments: w.payments.map((p) => view(p, ['amount'])),
+        },
+        ['charged', 'paid'],
+      );
+    }),
+    unassigned: unassigned.map((u) => view(u, ['rent'])),
+  };
+}
+
 module.exports = {
   SYSTEM_KEY,
+  searchTrackableSales,
+  trackSaleLabour,
   listPayableSales,
   listPayeePayments,
   listCategories,

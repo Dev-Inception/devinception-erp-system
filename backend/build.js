@@ -23,7 +23,13 @@ fs.rmSync(OUT, { recursive: true, force: true });
 fs.mkdirSync(OUT, { recursive: true });
 
 fs.cpSync(path.join(ROOT, 'index.js'), path.join(OUT, 'index.js'));
-fs.cpSync(path.join(ROOT, 'src'), path.join(OUT, 'src'), { recursive: true });
+// Dev/test-only scripts never ship: the demo seed fills a store with dummy
+// products and partners, which must never land in a production database.
+const DEV_ONLY = new Set([path.join(ROOT, 'src', 'scripts', 'seedDemoData.js')]);
+fs.cpSync(path.join(ROOT, 'src'), path.join(OUT, 'src'), {
+  recursive: true,
+  filter: (src) => !DEV_ONLY.has(src),
+});
 fs.cpSync(path.join(ROOT, '.env.example'), path.join(OUT, '.env.example'));
 
 // Runtime dirs the app writes into; contents never ship.

@@ -99,6 +99,10 @@ export const ACTION_TRANSLATIONS: Record<string, string> = {
   // Cash / bank
   'Cash entry': 'کیش انٹری',
   'Bank account': 'بینک اکاؤنٹ',
+  'Bank Accounts': 'بینک اکاؤنٹس',
+  'No bank accounts yet.': 'ابھی کوئی بینک اکاؤنٹ نہیں ہے۔',
+  'Printed on this store’s invoices and used for bank/online payments.':
+    'اس اسٹور کی انوائسز پر پرنٹ ہوتا ہے اور بینک/آن لائن ادائیگیوں کے لیے استعمال ہوتا ہے۔',
   Method: 'طریقہ',
   'Note (optional)': 'نوٹ (اختیاری)',
 

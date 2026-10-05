@@ -8,7 +8,7 @@ const ownerIdParam = param('ownerId').isMongoId().withMessage('Invalid owner id'
 
 const provisionValidator = [
   body('ownerName').trim().notEmpty().withMessage('Owner name is required').isLength({ max: 80 }),
-  body('ownerEmail').trim().isEmail().withMessage('A valid owner email is required'),
+  body('ownerEmail').trim().isEmail().withMessage('A valid owner email is required').toLowerCase(),
   body('ownerPassword')
     .optional({ values: 'falsy' })
     .isLength({ min: 8 })

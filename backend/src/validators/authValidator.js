@@ -13,12 +13,12 @@ const strongPassword = (field) =>
     .withMessage('Password must contain a number');
 
 const loginValidator = [
-  body('email').isEmail().withMessage('A valid email is required').normalizeEmail(),
+  body('email').trim().isEmail().withMessage('A valid email is required').toLowerCase(),
   body('password').notEmpty().withMessage('Password is required'),
 ];
 
 const forgotPasswordValidator = [
-  body('email').isEmail().withMessage('A valid email is required').normalizeEmail(),
+  body('email').trim().isEmail().withMessage('A valid email is required').toLowerCase(),
 ];
 
 const resetPasswordValidator = [

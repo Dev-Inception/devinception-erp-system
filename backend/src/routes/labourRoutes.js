@@ -19,6 +19,20 @@ router.use(protect);
 // List all labour
 router.get('/', requirePermission(PERMISSIONS.LABOUR_READ), labourController.listLabour);
 
+// Track: which labourers worked on a sale invoice and whether they've been
+// paid for it (see expenseService.trackSaleLabour). Declared before /:id so
+// "track" isn't taken for a labour id.
+router.get(
+  '/track/sales',
+  requirePermission(PERMISSIONS.LABOUR_READ),
+  expenseController.searchTrackableSales,
+);
+router.get(
+  '/track/sales/:saleId',
+  requirePermission(PERMISSIONS.LABOUR_READ),
+  expenseController.trackSaleLabour,
+);
+
 // Get single labour by ID
 router.get(
   '/:id',

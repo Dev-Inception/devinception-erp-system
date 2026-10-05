@@ -8,7 +8,7 @@ const roleRule = (field) => body(field).trim().notEmpty().withMessage('Role is r
 
 const createUserValidator = [
   body('name').trim().notEmpty().withMessage('Name is required'),
-  body('email').isEmail().withMessage('A valid email is required').normalizeEmail(),
+  body('email').trim().isEmail().withMessage('A valid email is required').toLowerCase(),
   body('password').isLength({ min: 8 }).withMessage('Password must be at least 8 characters'),
   roleRule('role'),
   // Required unless the role is super_admin — the service enforces that
@@ -24,9 +24,10 @@ const updateUserValidator = [
   body('name').optional({ values: 'falsy' }).trim().notEmpty().withMessage('Name cannot be empty'),
   body('email')
     .optional({ values: 'falsy' })
+    .trim()
     .isEmail()
     .withMessage('A valid email is required')
-    .normalizeEmail(),
+    .toLowerCase(),
 ];
 
 const setActiveValidator = [

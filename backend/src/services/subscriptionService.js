@@ -4,6 +4,7 @@ const { initializeModels } = require('../db/models');
 const ApiError = require('../utils/ApiError');
 const { ROLES } = require('../utils/constants');
 const { toPaisa } = require('../utils/money');
+const roleService = require('./roleService');
 
 /**
  * Superadmin-only: sells stores to customers. Provisioning creates the
@@ -15,7 +16,7 @@ const { toPaisa } = require('../utils/money');
 
 const SUBSCRIPTION_INCLUDE = [
   { association: 'storeInfo', attributes: ['id', 'name', 'code'] },
-  { association: 'ownerInfo', attributes: ['id', 'name', 'email'] },
+  { association: 'ownerInfo', attributes: ['id', 'name', 'email', 'isActive'] },
 ];
 
 async function findOrCreateOwner({ ownerName, ownerEmail, ownerPassword }, transaction) {
@@ -43,6 +44,7 @@ async function createStoreWithSubscription(
   const { Store, StoreAdmin, Subscription } = initializeModels();
   const store = await Store.create({ name, isActive: true }, { transaction });
   await StoreAdmin.create({ userId: ownerId, storeId: store.id }, { transaction });
+  await roleService.ensureStoreDefaultRoles(store.id, { transaction });
   const subscription = await Subscription.create(
     {
       store: store.id,

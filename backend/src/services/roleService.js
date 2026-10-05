@@ -168,6 +168,17 @@ const SYSTEM_ROLES = [
   },
 ];
 
+// The roles every store starts with, as its own store-scoped (custom) roles
+// — so they show in that store's Permissions matrix and its admin can tune
+// them, which they can't do to the shared built-ins. Each starts with the
+// matching built-in's permissions.
+const STORE_DEFAULT_ROLES = [
+  { label: 'Admin', base: ROLES.ADMIN },
+  { label: 'Manager', base: ROLES.MANAGER },
+  { label: 'Cashier', base: ROLES.CASHIER },
+  { label: 'Accountant', base: ROLES.ACCOUNTANT },
+];
+
 let cache = null; // Map<roleName, { permissions: Set<permission>, label: string }>
 
 async function getCache() {
@@ -212,6 +223,34 @@ async function ensureSystemRoles() {
     });
   }
   invalidateCache();
+}
+
+// Idempotently give a store its default roles (STORE_DEFAULT_ROLES). A role
+// the store already has under the same name is left untouched, so an
+// admin's permission changes survive. Called whenever a store is created,
+// and by the 032 migration / seedStoreRoles.js for existing stores.
+async function ensureStoreDefaultRoles(storeId, { transaction } = {}) {
+  const { Role } = initializeModels();
+  let created = 0;
+  for (const { label, base } of STORE_DEFAULT_ROLES) {
+    const def = SYSTEM_ROLES.find((r) => r.name === base);
+    const [, wasCreated] = await Role.findOrCreate({
+      where: { name: `${storeId}__${slugify(label)}` },
+      defaults: {
+        label,
+        description: def.description,
+        permissions: def.permissions,
+        isSystem: false,
+        store: storeId,
+      },
+      transaction,
+    });
+    if (wasCreated) created += 1;
+  }
+  // Inside a transaction, drop the cache only once the rows are visible.
+  if (transaction) transaction.afterCommit(invalidateCache);
+  else invalidateCache();
+  return created;
 }
 
 // `<storeId>__<slug>` — a technical key that's globally unique by
@@ -344,7 +383,9 @@ async function deleteRole(actor, id) {
 
 module.exports = {
   SYSTEM_ROLES,
+  STORE_DEFAULT_ROLES,
   ensureSystemRoles,
+  ensureStoreDefaultRoles,
   getPermissions,
   getRoleLabel,
   invalidateCache,

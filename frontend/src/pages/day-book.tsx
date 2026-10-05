@@ -1,16 +1,17 @@
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { BookText, ChevronLeft, ChevronRight, Download, Printer } from 'lucide-react';
+import { BookText, Download, Printer } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { api } from '@/lib/api';
+import { grantsPermission } from '@/lib/modules';
 import { cn, formatCurrency } from '@/lib/utils';
 import { useStorefrontFilter, useStorefrontStore } from '@/store/storefront';
-import { useHeaderDate, useWorkingDateStore } from '@/store/workingDate';
+import { useAuthStore } from '@/store/auth';
+import { useHeaderDate, localDateStr } from '@/store/workingDate';
 import { useLanguage } from '@/components/language-provider';
 import { DayBookEntryDialog } from '@/components/day-book-entry-dialog';
+import { CashEntryDialog } from '@/components/cash-entry-dialog';
 
 interface DayEndStatus {
   isOpen: boolean;
@@ -95,25 +96,6 @@ interface DayBookResult {
   bankReconciliationRows: BankReconciliationRow[];
 }
 
-// Formats a Date using its local calendar fields, not toISOString() (which is
-// always UTC and rolls the date back/forward a day in timezones offset from UTC).
-function formatLocalDate(d: Date) {
-  const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-}
-
-function todayStr() {
-  return formatLocalDate(new Date());
-}
-
-function shiftDate(date: string, days: number) {
-  const d = new Date(`${date}T00:00:00`);
-  d.setDate(d.getDate() + days);
-  return formatLocalDate(d);
-}
-
 function formatDisplayDate(date: string) {
   return new Date(`${date}T00:00:00`).toLocaleDateString(undefined, {
     day: '2-digit',
@@ -129,16 +111,13 @@ function csvEscape(v: unknown) {
 
 export function DayBookPage() {
   const { t } = useLanguage();
-  const [date, setDate] = useState(todayStr);
   const [tab, setTab] = useState<'cash-flow' | 'bank-reconciliation'>('cash-flow');
   const [viewingEntryId, setViewingEntryId] = useState<string | null>(null);
-  const today = todayStr();
   const storefront = useStorefrontFilter();
   const currentStoreId = useStorefrontStore((s) => s.currentStoreId);
   const hasSpecificStore = !!currentStoreId && currentStoreId !== 'ALL';
-  // Opening/closing the day lives in the header (DayControl); the Day Book
-  // just follows whichever date is picked there.
-  const workingDate = useWorkingDateStore((s) => s.workingDate);
+  const authUser = useAuthStore((s) => s.user);
+  const canRecordCash = grantsPermission(authUser?.permissions, 'finance:manage');
 
   // The store's live day state (no date): which business day is open right
   // now, even past midnight. Shared cache key with StaleDayGuard.
@@ -148,27 +127,14 @@ export function DayBookPage() {
     enabled: hasSpecificStore,
   });
 
-  // The Date field is only a filter. It starts on the header's working date,
-  // else the open business day — so after midnight, a day opened yesterday
-  // still shows yesterday — and otherwise only changes when the user (or the
-  // header's date picker) changes it.
-  const dateInitialized = useRef(false);
-  const liveBusinessDate = live?.businessDate;
-  useEffect(() => {
-    const initial = workingDate ?? liveBusinessDate;
-    if (dateInitialized.current || !initial) return;
-    dateInitialized.current = true;
-    setDate(initial);
-  }, [workingDate, liveBusinessDate]);
-  // Picking a date in the header (or going back to the live day) moves the
-  // Day Book with it.
-  const headerDate = useHeaderDate();
-  useEffect(() => {
-    if (dateInitialized.current) setDate(headerDate);
-  }, [headerDate]);
+  // No date filter of its own: opening/closing the day and picking a past
+  // date both live in the header (DayControl), and the Day Book shows that
+  // date — the open business day by default, so after midnight a day opened
+  // yesterday still shows yesterday.
+  const date = useHeaderDate();
 
   // The day currently being traded (open or not).
-  const businessDate = live?.businessDate ?? today;
+  const businessDate = live?.businessDate ?? localDateStr();
   const isBusinessDay = date === businessDate;
   const liveOpen = !!live?.isOpen && live.state !== 'NONE';
 
@@ -300,44 +266,10 @@ export function DayBookPage() {
   return (
     <div className="space-y-4">
       <Card className="no-print">
-        <CardContent className="flex flex-wrap items-end gap-3 p-4">
-          <div className="space-y-1.5">
-            <Label>Date</Label>
-            <div className="flex items-center gap-1">
-              <Button
-                type="button"
-                variant="outline"
-                size="icon"
-                className="h-9 w-9"
-                onClick={() => setDate((d) => shiftDate(d, -1))}
-              >
-                <ChevronLeft className="h-4 w-4" />
-              </Button>
-              <Input
-                type="date"
-                value={date}
-                max={today}
-                onChange={(e) => setDate(e.target.value)}
-                className="w-40"
-              />
-              <Button
-                type="button"
-                variant="outline"
-                size="icon"
-                className="h-9 w-9"
-                disabled={date >= today}
-                onClick={() => setDate((d) => shiftDate(d, 1))}
-              >
-                <ChevronRight className="h-4 w-4" />
-              </Button>
-            </div>
-          </div>
-          {date !== businessDate && (
-            <Button type="button" variant="outline" onClick={() => setDate(businessDate)}>
-              {businessDate === today ? t('Today') : t('Open day')}
-            </Button>
-          )}
+        <CardContent className="flex flex-wrap items-center gap-3 p-4">
+          <p className="text-sm font-medium">{formatDisplayDate(date)}</p>
           <div className="ml-auto flex gap-2">
+            {canRecordCash && <CashEntryDialog />}
             <Button variant="outline" onClick={() => window.print()} disabled={!data}>
               <Printer className="h-4 w-4" /> {t('Print / PDF')}
             </Button>

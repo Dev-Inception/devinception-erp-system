@@ -11,6 +11,7 @@ import { cn, resizeImageToDataUrl } from '@/lib/utils';
 import { useStorefrontFilter } from '@/store/storefront';
 import { useAuthStore } from '@/store/auth';
 import { useLanguage } from '@/components/language-provider';
+import { BankAccountsCard } from '@/components/bank-accounts-card';
 
 interface Settings {
   companyName: string;
@@ -245,6 +246,8 @@ export function SettingsPage() {
           </form>
         </CardContent>
       </Card>
+
+      <BankAccountsCard />
 
       <Card>
         <CardHeader>

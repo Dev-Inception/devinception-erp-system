@@ -76,7 +76,7 @@ export function DayControl() {
     qc.invalidateQueries({ queryKey: ['day-end-live'] });
   };
 
-  // Cash in hand is recorded from Cash & Bank (a Cash In entry), so opening
+  // Cash in hand is recorded from the Day Book (a Cash In entry), so opening
   // a day just carries forward what the last close left.
   const openDay = useMutation({
     mutationFn: async () =>
@@ -121,7 +121,7 @@ export function DayControl() {
   const backdated = !!workingDate && workingDate < today;
 
   // Select a date, then one click: no cash-in-hand form (that's a Cash In
-  // entry under Cash & Bank).
+  // entry in the Day Book).
   const handleReopen = () => reopenDay.mutate(past ? date : undefined);
 
   return (

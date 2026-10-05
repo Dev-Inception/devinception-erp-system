@@ -33,7 +33,6 @@ const TITLES: Record<string, string> = {
   '/ledgers': 'Ledgers',
   '/reports': 'Reports',
   '/day-book': 'Day Book',
-  '/cash': 'Cash & Bank',
   '/settings': 'Settings',
   '/permissions': 'Permissions',
 };

@@ -90,6 +90,20 @@ const listLabourPayments = asyncHandler(async (req, res) => {
   });
   return sendSuccess(res, 200, 'Labour payments fetched', { payments });
 });
+// Labour page → Track: invoice # suggestions, then who worked on the picked
+// invoice and what they've been paid for it.
+const searchTrackableSales = asyncHandler(async (req, res) => {
+  const { store, search } = req.query;
+  const sales = await expenseService.searchTrackableSales({ actor: req.user, store, search });
+  return sendSuccess(res, 200, 'Invoices fetched', { sales });
+});
+const trackSaleLabour = asyncHandler(async (req, res) => {
+  const result = await expenseService.trackSaleLabour({
+    actor: req.user,
+    sale: req.params.saleId,
+  });
+  return sendSuccess(res, 200, 'Invoice labour fetched', result);
+});
 const listTransporterPayments = asyncHandler(async (req, res) => {
   const payments = await expenseService.listPayeePayments({
     actor: req.user,
@@ -102,6 +116,8 @@ module.exports = {
   listPayableSales,
   listLabourPayments,
   listTransporterPayments,
+  searchTrackableSales,
+  trackSaleLabour,
   listCategories,
   createCategory,
   createExpense,

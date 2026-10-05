@@ -9,7 +9,6 @@ import {
   BookOpenCheck,
   BarChart3,
   Settings,
-  Wallet,
   Warehouse,
   ShieldCheck,
   Tags,
@@ -207,14 +206,8 @@ export const MODULES: ModuleDef[] = [
     section: 'Finance',
     icon: BookText,
   },
-  {
-    key: 'cash',
-    to: '/cash',
-    label: 'Cash & Bank',
-    section: 'Finance',
-    icon: Wallet,
-    defaultRoles: ['ACCOUNTANT', 'MANAGER', 'ADMIN'],
-  },
+  // Cash & Bank no longer has its own page: cash entries are recorded from
+  // the Day Book and bank accounts are managed in Settings.
   { key: 'roles', to: '/roles', label: 'Roles', section: 'System', icon: Users },
   {
     key: 'users',
@@ -317,7 +310,6 @@ export const MODULE_PERMISSION: Record<string, string> = {
   // Same governing permission as Reports — the Day Book is another report
   // view (see reportRoutes.js), not a distinct backend permission.
   'day-book': 'reports:read',
-  cash: 'finance:manage',
   settings: 'settings:manage',
   // User management + this very module-access matrix. roles:update isn't
   // held by anyone but super admin today, so this stays opt-in — a super

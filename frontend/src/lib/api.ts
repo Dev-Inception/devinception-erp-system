@@ -645,6 +645,7 @@ function mapSubscription(s: any) {
     ownerId: String(s.ownerInfo?._id ?? s.ownerInfo?.id ?? s.owner ?? ''),
     ownerName: s.ownerInfo?.name ?? '',
     ownerEmail: s.ownerInfo?.email ?? '',
+    ownerActive: s.ownerInfo?.isActive !== false,
     amount: s.amount, // backend serializes money to rupees
     billingCycle: s.billingCycle,
     status: s.status,
@@ -2605,12 +2606,7 @@ function mapDayEndStatus(s: any) {
     // CURRENT | LATE_NIGHT | STALE | CLOSED | NONE — see dayEndService.sessionState.
     // EDITING = a past day an admin reopened (see dayEndService.isEditSession).
     state: (s.state || 'NONE') as
-      | 'CURRENT'
-      | 'LATE_NIGHT'
-      | 'STALE'
-      | 'CLOSED'
-      | 'NONE'
-      | 'EDITING',
+      'CURRENT' | 'LATE_NIGHT' | 'STALE' | 'CLOSED' | 'NONE' | 'EDITING',
     editing: !!s.editing,
     businessDate: s.businessDate || undefined,
     rolloverHour: typeof s.rolloverHour === 'number' ? s.rolloverHour : undefined,
@@ -2930,6 +2926,9 @@ async function tryReal(
     if (url === '/expenses/categories') return wrap(await realExpenseCategories());
     if (url === '/expenses/payable-sales')
       return wrap((await http.get(url, { params })).data.sales);
+    if (url === '/labour/track/sales') return wrap((await http.get(url, { params })).data.sales);
+    if (seg[0] === 'labour' && seg[1] === 'track' && seg[2] === 'sales' && seg[3])
+      return wrap((await http.get(url)).data);
     if ((seg[0] === 'labour' || seg[0] === 'transporters') && seg[1] && seg[2] === 'payments')
       return wrap((await http.get(url)).data.payments);
     if (url === '/expenses') return wrap(await realExpenses(params));

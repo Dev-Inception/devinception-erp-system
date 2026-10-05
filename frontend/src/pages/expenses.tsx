@@ -39,8 +39,8 @@ interface ExpenseCategory {
   systemKey: PayoutKind | null;
 }
 
-/** A sale that charged the customer for labour/transport — what can be paid
- * out against (GET /expenses/payable-sales). */
+/** A sale that had labour/transport on it, charged to the customer or not —
+ * what can be paid out against (GET /expenses/payable-sales). */
 interface PayableSale {
   id: string;
   number: string;
@@ -399,8 +399,8 @@ function ExpenseDialog({
                   placeholder={t('Type invoice # to search…')}
                   emptyText={
                     payoutKind === 'LABOUR'
-                      ? t('No invoices with labour charges found')
-                      : t('No invoices with transport charges found')
+                      ? t('No invoices with labour found')
+                      : t('No invoices with transport found')
                   }
                 />
                 {selectedSale && (

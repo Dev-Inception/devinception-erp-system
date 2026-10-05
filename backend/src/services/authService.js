@@ -3,6 +3,7 @@ const { Op } = require('sequelize');
 const { initializeModels } = require('../db/models');
 const ApiError = require('../utils/ApiError');
 const env = require('../config/env');
+const { cleanEmail, emailCandidates } = require('../utils/email');
 const tokenService = require('./tokenService');
 const { sendPasswordResetEmail } = require('./emailService');
 
@@ -11,13 +12,22 @@ const { sendPasswordResetEmail } = require('./emailService');
  * adapt HTTP <-> these functions.
  */
 
+// The account for a typed email: an exact match, else one saved under the
+// old dot-stripped Gmail form (see utils/email.js).
+function pickByEmail(users, email) {
+  return users.find((u) => u.email === cleanEmail(email)) || users[0] || null;
+}
+
 async function login({ email, password }) {
   // password/tokenVersion are excluded by the default scope, so opt back in.
   const { User } = initializeModels();
-  const user = await User.scope('withSecrets').findOne({
-    where: { email },
-    include: [{ association: 'adminStores', attributes: ['id'] }],
-  });
+  const user = pickByEmail(
+    await User.scope('withSecrets').findAll({
+      where: { email: { [Op.in]: emailCandidates(email) } },
+      include: [{ association: 'adminStores', attributes: ['id'] }],
+    }),
+    email,
+  );
   if (!user || !(await user.comparePassword(password))) {
     throw ApiError.unauthorized('Invalid email or password');
   }
@@ -78,7 +88,10 @@ async function logout({ accessToken, refreshToken }) {
 
 async function forgotPassword(email) {
   const { User } = initializeModels();
-  const user = await User.findOne({ where: { email } });
+  const user = pickByEmail(
+    await User.findAll({ where: { email: { [Op.in]: emailCandidates(email) } } }),
+    email,
+  );
 
   // Always behave the same way whether or not the email exists, so we
   // don't leak which addresses are registered.

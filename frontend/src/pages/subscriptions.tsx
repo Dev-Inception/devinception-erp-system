@@ -1,6 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Plus, Loader2, Pencil, CreditCard, Search, Store as StoreIcon } from 'lucide-react';
+import {
+  Plus,
+  Loader2,
+  Pencil,
+  CreditCard,
+  Search,
+  Store as StoreIcon,
+  UserCog,
+} from 'lucide-react';
 import { toast } from 'sonner';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -33,6 +41,7 @@ interface Subscription {
   ownerId: string;
   ownerName: string;
   ownerEmail: string;
+  ownerActive: boolean;
   amount: number;
   billingCycle: 'monthly' | 'yearly' | 'one_time';
   status: 'active' | 'inactive' | 'expired' | 'cancelled';
@@ -408,6 +417,7 @@ interface CustomerGroup {
   ownerId: string;
   ownerName: string;
   ownerEmail: string;
+  ownerActive: boolean;
   subscriptions: Subscription[];
 }
 
@@ -422,11 +432,134 @@ function groupByCustomer(subscriptions: Subscription[]): CustomerGroup[] {
         ownerId: s.ownerId,
         ownerName: s.ownerName,
         ownerEmail: s.ownerEmail,
+        ownerActive: s.ownerActive,
         subscriptions: [s],
       });
     }
   }
   return Array.from(groups.values());
+}
+
+/** Edit a customer's admin account: name, email, active status, and
+ * optionally a new password. Uses the regular user endpoints, which a super
+ * admin can call for any user. */
+function EditAdminDialog({
+  group,
+  open,
+  onOpenChange,
+}: {
+  group: CustomerGroup;
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+}) {
+  const qc = useQueryClient();
+  const { t } = useLanguage();
+  const [form, setForm] = useState({
+    name: group.ownerName,
+    email: group.ownerEmail,
+    active: group.ownerActive,
+    password: '',
+  });
+  const passwordTooShort = form.password !== '' && form.password.length < 8;
+
+  const save = useMutation({
+    mutationFn: async () => {
+      const id = group.ownerId;
+      if (form.name.trim() !== group.ownerName || form.email.trim() !== group.ownerEmail) {
+        await api.patch(`/users/${id}`, { fullName: form.name.trim(), email: form.email.trim() });
+      }
+      if (form.active !== group.ownerActive) {
+        await api.patch(`/users/${id}/active`, { active: form.active });
+      }
+      if (form.password) {
+        await api.patch(`/users/${id}/password`, { password: form.password });
+      }
+    },
+    onSuccess: () => {
+      toast.success('Admin updated');
+      qc.invalidateQueries({ queryKey: ['subscriptions'] });
+      qc.invalidateQueries({ queryKey: ['subscription-owners'] });
+      qc.invalidateQueries({ queryKey: ['users'] });
+      onOpenChange(false);
+    },
+    onError: (e: any) =>
+      toast.error(e?.response?.data?.message ?? e?.message ?? 'Could not update admin'),
+  });
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>{t('Edit Admin')}</DialogTitle>
+          <DialogDescription>
+            {t('The account that owns and runs this customer’s store(s).')}
+          </DialogDescription>
+        </DialogHeader>
+        <form
+          className="space-y-3"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (!passwordTooShort) save.mutate();
+          }}
+        >
+          <div className="space-y-1.5">
+            <Label>{t('Name')}</Label>
+            <Input
+              required
+              value={form.name}
+              onChange={(e) => setForm({ ...form, name: e.target.value })}
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label>{t('Email')}</Label>
+            <Input
+              type="email"
+              required
+              value={form.email}
+              onChange={(e) => setForm({ ...form, email: e.target.value })}
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label>{t('New password')}</Label>
+            <Input
+              type="password"
+              autoComplete="new-password"
+              value={form.password}
+              placeholder={t('Leave blank to keep the current password')}
+              onChange={(e) => setForm({ ...form, password: e.target.value })}
+            />
+            {passwordTooShort && (
+              <p className="text-xs text-destructive">
+                {t('Password must be at least 8 characters')}
+              </p>
+            )}
+          </div>
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={form.active}
+              onChange={(e) => setForm({ ...form, active: e.target.checked })}
+            />
+            {t('Active')}
+            <span className="text-xs text-muted-foreground">
+              — {t('an inactive admin cannot log in')}
+            </span>
+          </label>
+          <div className="flex justify-end gap-2 pt-1">
+            <DialogClose asChild>
+              <Button type="button" variant="outline">
+                {t('Cancel')}
+              </Button>
+            </DialogClose>
+            <Button type="submit" disabled={save.isPending || passwordTooShort}>
+              {save.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+              {t('Save')}
+            </Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
 }
 
 /** One customer's stores — each still edited individually, since a
@@ -442,16 +575,29 @@ function CustomerDetailDialog({
 }) {
   const { t } = useLanguage();
   const [editing, setEditing] = useState<Subscription | null>(null);
+  const [editingAdmin, setEditingAdmin] = useState(false);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl">
         <DialogHeader>
-          <DialogTitle>{group.ownerName}</DialogTitle>
+          <DialogTitle className="flex items-center gap-2">
+            {group.ownerName}
+            {!group.ownerActive && (
+              <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+                {t('Inactive')}
+              </span>
+            )}
+          </DialogTitle>
           <DialogDescription>
             {group.ownerEmail} — {group.subscriptions.length} store(s)
           </DialogDescription>
         </DialogHeader>
+        <div>
+          <Button size="sm" variant="outline" onClick={() => setEditingAdmin(true)}>
+            <UserCog className="h-4 w-4" /> {t('Edit Admin')}
+          </Button>
+        </div>
         <div className="overflow-hidden rounded-md border">
           <table className="w-full text-sm">
             <thead>
@@ -500,6 +646,18 @@ function CustomerDetailDialog({
           </DialogClose>
         </div>
       </DialogContent>
+      {editingAdmin && (
+        <EditAdminDialog
+          group={group}
+          open={editingAdmin}
+          onOpenChange={(v) => {
+            setEditingAdmin(v);
+            // The group was snapshotted when opened — close so the list's
+            // fresh name/email/status shows on reopen.
+            if (!v) onOpenChange(false);
+          }}
+        />
+      )}
       {editing && (
         <EditSubscriptionDialog
           key={editing.id}
@@ -526,6 +684,7 @@ export function SubscriptionsPage() {
   // lives in CustomerDetailDialog instead.
   const groups = useMemo(() => groupByCustomer(data?.subscriptions ?? []), [data]);
   const [viewing, setViewing] = useState<CustomerGroup | null>(null);
+  const [editingAdmin, setEditingAdmin] = useState<CustomerGroup | null>(null);
 
   if (role !== 'SUPER_ADMIN') {
     return <p className="text-sm text-muted-foreground">You don't have access to this page.</p>;
@@ -588,6 +747,11 @@ export function SubscriptionsPage() {
                         <div className="flex items-center gap-2 font-medium">
                           <CreditCard className="h-4 w-4 text-muted-foreground" />
                           {g.ownerName}
+                          {!g.ownerActive && (
+                            <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+                              {t('Inactive')}
+                            </span>
+                          )}
                         </div>
                         <p className="text-xs text-muted-foreground">{g.ownerEmail}</p>
                       </td>
@@ -624,17 +788,31 @@ export function SubscriptionsPage() {
                         )}
                       </td>
                       <td className="px-4 py-3 text-right">
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="h-8"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setViewing(g);
-                          }}
-                        >
-                          {t('View')}
-                        </Button>
+                        <div className="flex justify-end gap-1">
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-8 w-8"
+                            title={t('Edit Admin')}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setEditingAdmin(g);
+                            }}
+                          >
+                            <UserCog className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-8"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setViewing(g);
+                            }}
+                          >
+                            {t('View')}
+                          </Button>
+                        </div>
                       </td>
                     </tr>
                   );
@@ -651,6 +829,14 @@ export function SubscriptionsPage() {
         </div>
       </Card>
 
+      {editingAdmin && (
+        <EditAdminDialog
+          key={editingAdmin.ownerId}
+          group={editingAdmin}
+          open={!!editingAdmin}
+          onOpenChange={(v) => !v && setEditingAdmin(null)}
+        />
+      )}
       {viewing && (
         <CustomerDetailDialog
           key={viewing.ownerId}

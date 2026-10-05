@@ -10,7 +10,7 @@ const optionalFields = [
     .trim()
     .isEmail()
     .withMessage('A valid email is required')
-    .normalizeEmail(),
+    .toLowerCase(),
   body('address').optional({ values: 'falsy' }).trim().isLength({ max: 300 }),
   body('creditLimit')
     .optional({ values: 'falsy' })

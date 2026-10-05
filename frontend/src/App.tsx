@@ -35,7 +35,6 @@ import { ExpensesPage } from '@/pages/expenses';
 import { StockReceiptsPage } from '@/pages/stock-receipts';
 import { DamagedStockPage } from '@/pages/damaged-stock';
 import { SettingsPage } from '@/pages/settings';
-import { CashPage } from '@/pages/cash';
 import { LedgersPage } from '@/pages/ledgers';
 import { PendingEntitiesPage } from '@/pages/pending-entities';
 import { ReportsPage } from '@/pages/reports';
@@ -48,8 +47,8 @@ import { GatePassesPage } from '@/pages/gate-passes';
 import { RolePage } from '@/pages/roles';
 import { SubscriptionsPage } from '@/pages/subscriptions';
 
-// Day-level figures — the header's day status, the Day Book and the cash
-// ledger — are derived from every sale, payment, expense and cash entry, so
+// Day-level figures — the header's day status, the Day Book and the bank
+// balances — are derived from every sale, payment, expense and cash entry, so
 // whatever page a change is saved on, they're refreshed after it. Without
 // this they'd keep showing figures from before the change until reloaded.
 const DAY_FIGURES = ['day-end', 'day-end-live', 'day-book', 'cash', 'bank-accounts'];
@@ -115,7 +114,6 @@ const MODULE_ROUTES: { path: string; element: React.ReactElement }[] = [
   { path: 'reports', element: <ReportsPage /> },
   { path: 'expenses', element: <ExpensesPage /> },
   { path: 'day-book', element: <DayBookPage /> },
-  { path: 'cash', element: <CashPage /> },
   { path: 'settings', element: <SettingsPage /> },
   { path: 'permissions', element: <PermissionsPage /> },
   { path: 'users', element: <UsersPage /> },

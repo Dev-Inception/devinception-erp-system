@@ -10,7 +10,7 @@ const optionalFields = [
     .trim()
     .isEmail()
     .withMessage('A valid email is required')
-    .normalizeEmail(),
+    .toLowerCase(),
   body('ntn').optional({ values: 'falsy' }).trim().isLength({ max: 40 }),
   body('address').optional({ values: 'falsy' }).trim().isLength({ max: 300 }),
 ];

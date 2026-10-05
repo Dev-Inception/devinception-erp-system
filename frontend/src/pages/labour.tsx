@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Plus, Loader2, Pencil, Trash2, HardHat, Search } from 'lucide-react';
+import { Plus, Loader2, Pencil, Trash2, HardHat, Search, ScanSearch } from 'lucide-react';
 import { toast } from 'sonner';
 import { useConfirmDelete } from '@/components/confirm-provider';
 import { Card } from '@/components/ui/card';
@@ -23,6 +23,7 @@ import { useAuthStore } from '@/store/auth';
 import { grantsPermission } from '@/lib/modules';
 import { useStorefrontFilter, useStorefrontStore } from '@/store/storefront';
 import { useLanguage } from '@/components/language-provider';
+import { LabourTrackDialog } from '@/components/labour-track-dialog';
 
 interface Labour {
   id: string;
@@ -166,6 +167,7 @@ export function LabourPage() {
   );
 
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [trackOpen, setTrackOpen] = useState(false);
   const [editing, setEditing] = useState<Labour | null>(null);
   const colSpan = showActions ? 3 : 2;
   const total = filtered.length;
@@ -206,16 +208,21 @@ export function LabourPage() {
           </div>
           <p className="pb-2 text-sm text-muted-foreground">{total} labour(s)</p>
         </div>
-        {canCreate && (
-          <Button
-            onClick={() => {
-              setEditing(null);
-              setDialogOpen(true);
-            }}
-          >
-            <Plus className="h-4 w-4" /> {t('Add Labour')}
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={() => setTrackOpen(true)}>
+            <ScanSearch className="h-4 w-4" /> {t('Track')}
           </Button>
-        )}
+          {canCreate && (
+            <Button
+              onClick={() => {
+                setEditing(null);
+                setDialogOpen(true);
+              }}
+            >
+              <Plus className="h-4 w-4" /> {t('Add Labour')}
+            </Button>
+          )}
+        </div>
       </div>
 
       <Card className="overflow-hidden">
@@ -307,6 +314,8 @@ export function LabourPage() {
           />
         )}
       </Card>
+
+      <LabourTrackDialog open={trackOpen} onOpenChange={setTrackOpen} />
 
       {dialogOpen && (
         <LabourDialog

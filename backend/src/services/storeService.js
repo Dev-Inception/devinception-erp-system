@@ -5,6 +5,7 @@ const ApiError = require('../utils/ApiError');
 const { ROLES } = require('../utils/constants');
 const { resolveStoreScope, assertStoreAccess } = require('../utils/storeScope');
 const { assertWarehouseAccess } = require('./warehouseService');
+const roleService = require('./roleService');
 
 /**
  * Store CRUD. Exactly one store carries isDefault=true (also enforced by a
@@ -72,6 +73,7 @@ async function createStore({ name, code, address, warehouses, isDefault, isActiv
       { transaction },
     );
     if (warehouseIds.length) await store.setWarehouses(warehouseIds, { transaction });
+    await roleService.ensureStoreDefaultRoles(store.id, { transaction });
     if (!store.isDefault) {
       // First store is always the default.
       const count = await Store.count({ transaction });
