@@ -265,28 +265,21 @@ export function DayBookPage() {
 
   return (
     <div className="space-y-4">
-      <Card className="no-print">
-        <CardContent className="flex flex-wrap items-center gap-3 p-4">
-          <p className="text-sm font-medium">{formatDisplayDate(date)}</p>
-          <div className="ml-auto flex gap-2">
-            {canRecordCash && <CashEntryDialog />}
-            <Button variant="outline" onClick={() => window.print()} disabled={!data}>
-              <Printer className="h-4 w-4" /> {t('Print / PDF')}
-            </Button>
-            <Button
-              onClick={downloadCsv}
-              disabled={
-                !data ||
-                (tab === 'cash-flow'
-                  ? cashFlowRows.length === 0
-                  : bankReconciliationRows.length === 0)
-              }
-            >
-              <Download className="h-4 w-4" /> {t('CSV')}
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
+      <div className="flex flex-wrap justify-end gap-2">
+        {canRecordCash && <CashEntryDialog />}
+        <Button variant="outline" onClick={() => window.print()} disabled={!data}>
+          <Printer className="h-4 w-4" /> {t('Print / PDF')}
+        </Button>
+        <Button
+          onClick={downloadCsv}
+          disabled={
+            !data ||
+            (tab === 'cash-flow' ? cashFlowRows.length === 0 : bankReconciliationRows.length === 0)
+          }
+        >
+          <Download className="h-4 w-4" /> {t('CSV')}
+        </Button>
+      </div>
 
       {summary && (
         <div className="space-y-3">
