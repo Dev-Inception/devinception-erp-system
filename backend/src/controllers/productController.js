@@ -7,6 +7,11 @@ function warehouseFromRequest(req) {
   return req.body?.warehouse || req.body?.warehouseId;
 }
 
+// Only meaningful on create — a product never changes inventory afterwards.
+function isVendorProductFromRequest(req) {
+  return req.body?.isVendorProduct === true || req.body?.isVendorProduct === 'true';
+}
+
 // paisa -> rupees for the wire.
 const out = (p) => (p && p.toJSON ? p.toJSON() : p);
 
@@ -44,6 +49,7 @@ function serialize(product) {
   p.category = c.obj;
   p.brand = b.obj;
   p.unit = u.obj;
+  p.isVendorProduct = !!p.isVendorProduct;
   return p;
 }
 
@@ -58,6 +64,7 @@ const listProducts = asyncHandler(async (req, res) => {
     category,
     includeInactive,
     perWarehouse,
+    kind,
   } = req.query;
   const selectedWarehouse = warehouse || warehouseId;
   const result = await productService.listProducts({
@@ -69,6 +76,7 @@ const listProducts = asyncHandler(async (req, res) => {
     warehouse: selectedWarehouse,
     store,
     category,
+    kind: kind || undefined,
     includeInactive: includeInactive === 'true',
     // Opt-in: one row per warehouse the product actually has stock in,
     // instead of one row with the total summed across every warehouse. The
@@ -101,6 +109,7 @@ const createProduct = asyncHandler(async (req, res) => {
     pricesToPaisa({
       ...req.body,
       warehouse: warehouseFromRequest(req),
+      isVendorProduct: isVendorProductFromRequest(req),
     }),
   );
   return sendSuccess(res, 201, 'Product created', { product: serialize(product) });
@@ -110,7 +119,10 @@ const updateProduct = asyncHandler(async (req, res) => {
   const product = await productService.updateProduct(
     req.user,
     req.params.id,
-    pricesToPaisa({ ...req.body, warehouse: warehouseFromRequest(req) }),
+    pricesToPaisa({
+      ...req.body,
+      warehouse: warehouseFromRequest(req),
+    }),
   );
   return sendSuccess(res, 200, 'Product updated', { product: serialize(product) });
 });

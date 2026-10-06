@@ -210,13 +210,18 @@ function ProductDialog({
             </div>
           </div>
           <div className="col-span-2 space-y-1.5">
-            <Label>Warehouse</Label>
+            <Label>Warehouse *</Label>
+            {/* Every warehouse product is held in a warehouse; items with no
+                stock location belong in Vendor Products instead. */}
             <select
+              required
               value={form.warehouseId}
               onChange={(e) => field('warehouseId', e.target.value)}
               className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
             >
-              <option value="">No warehouse</option>
+              <option value="" disabled>
+                {warehouses.length ? t('Select warehouse…') : t('Add a warehouse first')}
+              </option>
               {warehouses.map((w) => (
                 <option key={w.id} value={w.id}>
                   {w.name}

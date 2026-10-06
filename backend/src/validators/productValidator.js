@@ -16,6 +16,8 @@ const optionalFields = [
   // Only needed when a free-text category/brand/unit name has to be created
   // under a specific store (a multi-store admin) — see catalogService.
   body('store').optional({ values: 'falsy' }).isMongoId().withMessage('Invalid store'),
+  // True only when creating a vendor product (see migration 033).
+  body('isVendorProduct').optional().isBoolean().withMessage('isVendorProduct must be a boolean'),
   body('purchasePrice')
     .optional({ values: 'falsy' })
     .isFloat({ min: 0 })
@@ -47,7 +49,8 @@ const optionalFields = [
 const createProductValidator = [
   body('name').trim().notEmpty().withMessage('Name is required').isLength({ max: 160 }),
   body('sku').trim().notEmpty().withMessage('SKU is required').isLength({ max: 60 }),
-  // Optional: a product can be added without a warehouse.
+  // Required for a warehouse product; productService.createProduct enforces
+  // it, since a vendor product (isVendorProduct) has none.
   body('warehouse').custom((value, { req }) => {
     const warehouse = value || req.body.warehouseId;
     if (warehouse && !isValidId(warehouse)) {

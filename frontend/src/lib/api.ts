@@ -719,6 +719,8 @@ function mapProduct(p: any) {
     // adjustments must target this exact warehouse, not whatever is globally
     // "current", or the backend rejects with "belongs to another warehouse".
     warehouseId: p.warehouseId || undefined,
+    // A vendor product: bought from a vendor per sale, no stock.
+    isVendorProduct: !!p.isVendorProduct,
     category: p.category ? { id: p.category.id, name: p.category.name } : null,
     unit: p.unit
       ? { id: p.unit.id, name: p.unit.name, abbreviation: p.unit.abbreviation || p.unit.name }
@@ -731,6 +733,7 @@ async function realFetchProducts(params: {
   store?: unknown;
   category?: unknown;
   perWarehouse?: unknown;
+  kind?: unknown;
 }) {
   const res = await http.get('/products', {
     params: {
@@ -739,6 +742,8 @@ async function realFetchProducts(params: {
       store: params.store || undefined,
       category: params.category || undefined,
       perWarehouse: params.perWarehouse || undefined,
+      // 'warehouse' (default) | 'vendor' | 'all' — which inventory.
+      kind: params.kind || undefined,
       limit: 1000,
     },
   });
@@ -754,6 +759,7 @@ async function realProductsList(params: any) {
     // stocking the product, instead of one row totalled across all of them,
     // so it can offer a per-line warehouse picker with real availability.
     perWarehouse: params.perWarehouse,
+    kind: params.kind,
   });
   return products.map(mapProduct);
 }
@@ -780,6 +786,9 @@ async function realCreateProduct(body: any) {
   const res = await http.post('/products', {
     ...productPayload(body),
     warehouseId: body.warehouseId || undefined,
+    // A vendor product is created in the store it's added from.
+    isVendorProduct: body.isVendorProduct || undefined,
+    store: body.store || undefined,
   });
   return mapProduct(res.data.product);
 }

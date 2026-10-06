@@ -9,7 +9,14 @@ const catalogService = require('./catalogService');
 const { ACCOUNT, REF } = require('../utils/finance');
 const { parsePagination } = require('../utils/query');
 const { normalizeQuantity } = require('../utils/quantity');
-const { resolveWarehouseScope, warehouseWhere } = require('../utils/storeScope');
+const {
+  resolveWarehouseScope,
+  warehouseWhere,
+  resolveStoreScope,
+  storeWhere,
+  assertStoreAccess,
+  requireWriteStore,
+} = require('../utils/storeScope');
 const { ROLES } = require('../utils/constants');
 
 /**
@@ -150,16 +157,23 @@ async function attachStockByWarehouse(products, warehouseIds) {
   return rows;
 }
 
+// The two inventories (see migration 033): `kind` 'warehouse' (default) is
+// stocked products, 'vendor' is items bought from vendors, 'all' is both — only for
+// screens that show documents mixing the two (e.g. editing a past sale).
+const PRODUCT_KINDS = ['warehouse', 'vendor', 'all'];
+
 async function listProducts({
   search,
   warehouse,
   store,
   category,
+  kind = 'warehouse',
   includeInactive = false,
   perWarehouse = false,
   actor,
   ...query
 } = {}) {
+  if (!PRODUCT_KINDS.includes(kind)) throw ApiError.badRequest('Invalid product kind');
   const { Product } = initializeModels();
   // The inventory list and product pickers have no pagination UI, so this
   // endpoint allows a far larger page size than the default 100-row cap.
@@ -188,9 +202,20 @@ async function listProducts({
   // Products without a warehouse aren't tied to any location, so they show
   // under every warehouse/store filter too.
   const { warehouseIds } = await resolveWarehouseScope({ warehouse, store, actor });
-  if (warehouseIds) {
-    where[Op.and] = [{ [Op.or]: [warehouseWhere(warehouseIds), { warehouse: null }] }];
+  const scopes = [];
+  if (kind !== 'vendor') {
+    const warehouseScope = { isVendorProduct: false };
+    if (warehouseIds) {
+      warehouseScope[Op.or] = [warehouseWhere(warehouseIds), { warehouse: null }];
+    }
+    scopes.push(warehouseScope);
   }
+  if (kind !== 'warehouse') {
+    // A vendor product belongs to the store it was added in.
+    const { storeIds } = await resolveStoreScope({ store, actor });
+    scopes.push({ isVendorProduct: true, ...storeWhere(storeIds) });
+  }
+  where[Op.and] = [scopes.length === 1 ? scopes[0] : { [Op.or]: scopes }];
 
   const [docs, total] = await Promise.all([
     Product.findAll({
@@ -229,6 +254,7 @@ async function getProductForActor(actor, id) {
   if (raw.warehouse) {
     await require('./warehouseService').assertWarehouseAccess(actor, raw.warehouse);
   }
+  if (raw.isVendorProduct) assertStoreAccess(actor, raw.store);
   return getProductById(id);
 }
 
@@ -248,10 +274,14 @@ const WRITABLE = [
 
 async function createProduct(actor, data) {
   const { Product } = initializeModels();
-  // The warehouse is optional — a product without one isn't tied to any
-  // location (or store) and shows in every store's inventory.
+  // A vendor product (see migration 033) belongs to a store and never has a
+  // warehouse.
+  const vendorStore = data.isVendorProduct ? requireWriteStore(actor, data.store) : null;
+  // A warehouse product is always held in a warehouse. (Older products
+  // created before this rule may have none — they show in every store.)
   let warehouse = null;
-  if (data.warehouse) {
+  if (!vendorStore && !data.warehouse) throw ApiError.badRequest('A warehouse is required');
+  if (data.warehouse && !vendorStore) {
     if (!isValidId(data.warehouse)) throw ApiError.badRequest('Invalid warehouse');
     const warehouseService = require('./warehouseService');
     warehouse = await warehouseService.getWarehouseById(data.warehouse);
@@ -267,6 +297,8 @@ async function createProduct(actor, data) {
   const fields = {};
   for (const k of WRITABLE) if (data[k] !== undefined) fields[k] = data[k];
   fields.warehouse = warehouse ? warehouse.id : null;
+  fields.isVendorProduct = !!vendorStore;
+  fields.store = vendorStore;
   // Resolve category/brand/unit to catalog ids (from an id or a free-text name).
   Object.assign(fields, await catalogService.resolveProductRefs(data, actor));
   const product = await Product.create(fields);
@@ -279,6 +311,12 @@ async function updateProduct(actor, id, data) {
   if (product.warehouse) {
     await warehouseService.assertWarehouseAccess(actor, product.warehouse);
   }
+  // A product stays in the inventory it was created in: a vendor product
+  // never gains a warehouse.
+  if (product.isVendorProduct) {
+    assertStoreAccess(actor, product.store);
+    delete data.warehouse;
+  }
   if (data.sku !== undefined && data.sku && data.sku.toUpperCase() !== product.sku) {
     const { Product } = initializeModels();
     const existing = await Product.findOne({
@@ -287,14 +325,19 @@ async function updateProduct(actor, id, data) {
     if (existing) throw ApiError.conflict('A product with that SKU already exists');
   }
   for (const k of WRITABLE) if (data[k] !== undefined) product[k] = data[k];
-  const refs = await catalogService.resolveProductRefs(data, actor);
+  const refs = await catalogService.resolveProductRefs(
+    product.isVendorProduct && !data.store ? { ...data, store: product.store } : data,
+    actor,
+  );
   for (const [k, v] of Object.entries(refs)) product[k] = v;
   // Re-homing a product to a different warehouse only changes which location
   // it's labeled/defaulted to — existing StockLevel rows (wherever they are)
   // are untouched, same as a legacy product that already had stock in more
   // than one warehouse.
-  // null clears it (the product no longer belongs to a warehouse).
-  if (data.warehouse === null) product.warehouse = null;
+  // It can't be cleared — a warehouse product always has one.
+  if (data.warehouse === null && !product.isVendorProduct) {
+    throw ApiError.badRequest('A warehouse is required');
+  }
   if (data.warehouse) {
     const warehouse = await warehouseService.getWarehouseById(data.warehouse);
     if (warehouse.deletedAt) throw ApiError.notFound('Warehouse not found');
@@ -400,6 +443,7 @@ async function deleteProduct(actor, id) {
   if (product.warehouse) {
     await require('./warehouseService').assertWarehouseAccess(actor, product.warehouse);
   }
+  if (product.isVendorProduct) assertStoreAccess(actor, product.store);
   if (!isAdminActor(actor)) {
     const hasStock = await StockLevel.count({
       where: { product: id, quantity: { [Op.ne]: 0 } },
@@ -457,6 +501,9 @@ async function adjustStock(
 
   const { newQty } = await getPostgres().transaction(async (transaction) => {
     const product = await findProductOrThrow(id, transaction);
+    if (product.isVendorProduct) {
+      throw ApiError.badRequest('Vendor products have no stock to adjust');
+    }
 
     // The id is shape-validated by the route, but a well-formed id that points at
     // no warehouse would still create stock + a journal entry against a ghost
@@ -536,6 +583,7 @@ async function adjustStock(
 }
 
 module.exports = {
+  PRODUCT_KINDS,
   listProducts,
   getProductById,
   getProductForActor,

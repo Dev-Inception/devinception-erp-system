@@ -27,6 +27,7 @@ import {
   CreditCard,
   HandCoins,
   Wrench,
+  PackageSearch,
 } from 'lucide-react';
 import type { Role } from '@/store/auth';
 
@@ -120,7 +121,21 @@ export const MODULES: ModuleDef[] = [
     icon: PackageX,
     defaultRoles: ['MANAGER', 'ADMIN'],
   },
-  { key: 'products', to: '/products', label: 'Inventory', section: 'Catalog', icon: Package },
+  {
+    key: 'products',
+    to: '/products',
+    label: 'Warehouse Inventory',
+    section: 'Catalog',
+    icon: Package,
+  },
+  // Vendors' own items, bought from that vendor per sale — no stock.
+  {
+    key: 'vendor-products',
+    to: '/vendor-products',
+    label: 'Vendor Products',
+    section: 'Catalog',
+    icon: PackageSearch,
+  },
   {
     key: 'categories',
     to: '/categories',
@@ -279,6 +294,7 @@ export const MODULE_PERMISSION: Record<string, string> = {
   'gate-passes': 'gate-passes:read',
   'damaged-stock': 'damaged-stock:read',
   products: 'inventory:read',
+  'vendor-products': 'inventory:read',
   categories: 'inventory:manage',
   units: 'inventory:manage',
   'labour-services': 'inventory:manage',
@@ -352,6 +368,7 @@ export const MODULE_PERMISSION_BUNDLE: Record<string, string[]> = {
   // introduced here.
   'stock-receipts': ['inventory:read', 'inventory:manage'],
   products: ['inventory:read', 'inventory:manage'],
+  'vendor-products': ['inventory:read', 'inventory:manage'],
   // Damaged stock has its own read/manage split (see permissions.js), same
   // shape as inventory:read/manage above.
   'damaged-stock': ['damaged-stock:read', 'damaged-stock:manage'],

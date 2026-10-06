@@ -31,4 +31,5 @@ module.exports = [
   require('./030-day-end-past-reopen'),
   require('./031-soft-delete-products-warehouses'),
   require('./032-store-default-roles'),
+  require('./033-vendor-products'),
 ];

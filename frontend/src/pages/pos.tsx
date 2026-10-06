@@ -25,7 +25,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { api } from '@/lib/api';
-import { autoSku, formatCurrency, cn } from '@/lib/utils';
+import { formatCurrency, cn } from '@/lib/utils';
 import { useWarehouseStore } from '@/store/warehouse';
 import { useStorefrontStore } from '@/store/storefront';
 import { useAuthStore } from '@/store/auth';
@@ -34,16 +34,20 @@ import { openSaleInvoicePopup, type SaleForInvoice } from '@/lib/invoicePopup';
 import { GatePassDialog } from '@/components/gate-pass-dialog';
 import { Combobox, ProductCombobox } from '@/components/product-combobox';
 import { useBankAccounts } from '@/lib/bankAccounts';
+import { AddProductDialog, type CreatedProduct } from '@/components/add-product-dialog';
 import { useLanguage } from '@/components/language-provider';
 
 interface Product {
   id: string;
   name: string;
   sku: string;
+  barcode?: string;
   salePrice: string;
   currentStock: number;
   taxRate: string;
   warehouseId?: string;
+  /** A vendor product — bought from the row's vendor, no stock. */
+  isVendorProduct?: boolean;
   image?: string;
 }
 type CartSource = 'WAREHOUSE' | 'VENDOR';
@@ -85,6 +89,9 @@ const groupKey = (p: Product) => (p.sku || p.name).trim().toLowerCase();
 const lineSource = (l: CartLine): CartSource => l.source;
 type FilledLine = CartLine & { product: Product };
 const isFilled = (l: CartLine): l is FilledLine => l.product !== null;
+// Resets a row's product (variants/product/price) when its source or vendor
+// changes and the old pick no longer belongs to that inventory.
+const clearedProduct = { variants: [] as Product[], product: null, price: 0 };
 const newRowKey = () => `row-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 
 interface CustomerLite {
@@ -333,6 +340,19 @@ export function PosPage() {
       ).data,
     enabled: step === 2,
   });
+  // Vendor Products — what a Vendor-sourced row searches (the vendor itself
+  // is picked on the row). Warehouse rows search the stocked catalog above.
+  const { data: vendorProducts = [] } = useQuery<Product[]>({
+    queryKey: ['pos-vendor-products', hasSpecificStore ? currentStoreId : null],
+    queryFn: async () =>
+      (
+        await api.get('/products', {
+          params: { kind: 'vendor', store: hasSpecificStore ? currentStoreId : undefined },
+        })
+      ).data,
+    enabled: step === 2,
+  });
+  const vendorProductGroups = vendorProducts.map((p) => [p]);
   const needsAdvanceBank = advanceMethod === 'BANK_TRANSFER';
   const { data: advanceBankAccountsRaw = [] } = useBankAccounts(
     hasSpecificStore ? currentStoreId : undefined,
@@ -452,39 +472,27 @@ export function PosPage() {
       }),
     );
 
-  // A name typed in a row's dropdown that isn't in the catalog becomes a new
-  // product (auto SKU, homed at the default warehouse, price 0 — the cashier
-  // enters the amount on the row). Same permission the backend checks.
+  // A name typed in a row's dropdown that isn't in its list opens the Add
+  // Product form (prefilled with that name) for the row's inventory —
+  // Warehouse Inventory or Vendor Products — and the new product is put on
+  // the row once saved. Same permission the backend checks.
   const canCreateProduct = grantsPermission(authUser?.permissions, 'inventory:manage');
-  const [creatingProductKey, setCreatingProductKey] = useState<string | null>(null);
-  const createProduct = useMutation({
-    mutationFn: async ({ name }: { key: string; name: string }) => {
-      const warehouseId = defaultWarehouseId || warehouses[0]?.id;
-      if (!warehouseId) throw new Error(t('Select a warehouse before adding a product'));
-      return (await api.post('/products', { name, sku: autoSku(name), warehouseId, salePrice: 0 }))
-        .data as Product;
-    },
-    onMutate: ({ key }) => setCreatingProductKey(key),
-    onSuccess: (p, { key }) => {
-      toast.success(`${t('Product added')} — ${p.name}`);
-      qc.invalidateQueries({ queryKey: ['pos-products'] });
-      setLineProduct(key, [
-        {
-          id: p.id,
-          name: p.name,
-          sku: p.sku,
-          salePrice: String(p.salePrice ?? 0),
-          currentStock: 0,
-          taxRate: String(p.taxRate ?? 0),
-          warehouseId: p.warehouseId,
-          image: p.image,
-        },
-      ]);
-    },
-    onError: (e: any) =>
-      toast.error(e?.response?.data?.message ?? e?.message ?? t('Could not add the product')),
-    onSettled: () => setCreatingProductKey(null),
-  });
+  const [addingProduct, setAddingProduct] = useState<{ key: string; name: string } | null>(null);
+  const addingLine = addingProduct ? cart.find((l) => l.key === addingProduct.key) : undefined;
+  const putCreatedProductOnRow = (key: string, p: CreatedProduct) =>
+    setLineProduct(key, [
+      {
+        id: p.id,
+        name: p.name,
+        sku: p.sku,
+        salePrice: String(p.salePrice ?? 0),
+        currentStock: 0,
+        taxRate: String(p.taxRate ?? 0),
+        warehouseId: p.warehouseId,
+        isVendorProduct: p.isVendorProduct,
+        image: p.image,
+      },
+    ]);
 
   // Only updates the quantity — never removes the row, so clearing the input
   // to retype a value (e.g. backspacing "100") doesn't drop the line. Rows
@@ -544,16 +552,27 @@ export function PosPage() {
       toast.error(e?.response?.data?.message ?? e?.message ?? t('Could not add the vendor')),
     onSettled: () => setCreatingVendorKey(null),
   });
-  // Source selector: switching to Warehouse clears any vendor; switching to
+  // Source selector — the row's first column, since it decides which
+  // inventory the product search shows (warehouse stock, or the vendor's
+  // Vendor Products). Switching it clears the product, which came from the
+  // other inventory. Switching to Warehouse clears any vendor; switching to
   // Vendor leaves it for the cashier to pick (auto-picked when the store has
   // only one).
   const setLineSource = (key: string, source: CartSource) =>
     setCart((c) =>
       c.map((l) => {
-        if (l.key !== key) return l;
-        if (source === 'WAREHOUSE') return { ...l, source, vendorId: null, vendorName: '' };
+        if (l.key !== key || l.source === source) return l;
+        if (source === 'WAREHOUSE') {
+          return { ...l, ...clearedProduct, source, vendorId: null, vendorName: '' };
+        }
         const only = vendors.length === 1 ? vendors[0] : null;
-        return { ...l, source, vendorId: only?.id ?? null, vendorName: only?.name ?? '' };
+        return {
+          ...l,
+          ...clearedProduct,
+          source,
+          vendorId: only?.id ?? null,
+          vendorName: only?.name ?? '',
+        };
       }),
     );
   const removeLine = (key: string) => setCart((c) => c.filter((l) => l.key !== key));
@@ -1222,8 +1241,8 @@ export function PosPage() {
                   <thead>
                     <tr className="border-b bg-muted/50 text-left text-xs uppercase tracking-wide text-muted-foreground">
                       <th className="w-10 px-3 py-2 text-center font-medium">#</th>
-                      <th className="px-3 py-2 font-medium">{t('Product')}</th>
                       <th className="px-3 py-2 font-medium">{t('Source')}</th>
+                      <th className="px-3 py-2 font-medium">{t('Product')}</th>
                       <th className="px-3 py-2 font-medium">{t('Warehouse / Vendor')}</th>
                       <th className="px-3 py-2 font-medium">{t('Remarks')}</th>
                       <th className="px-3 py-2 text-right font-medium">{t('Qty')}</th>
@@ -1253,17 +1272,26 @@ export function PosPage() {
                             {index + 1}
                           </td>
                           <td className="px-3 py-2">
+                            <select
+                              className="h-9 w-full min-w-[120px] rounded-md border bg-transparent px-2 text-sm"
+                              value={lineSource(l)}
+                              onChange={(e) => setLineSource(l.key, e.target.value as CartSource)}
+                            >
+                              <option value="VENDOR">{t('Vendor')}</option>
+                              <option value="WAREHOUSE">{t('Warehouse')}</option>
+                            </select>
+                          </td>
+                          <td className="px-3 py-2">
                             <ProductCombobox
-                              groups={groupedMatches}
+                              groups={isWarehouse ? groupedMatches : vendorProductGroups}
                               selected={l.product}
                               autoFocus={!l.product && index === cart.length - 1 && index > 0}
                               onSelect={(variants) => setLineProduct(l.key, variants)}
                               onCreate={
                                 canCreateProduct
-                                  ? (name) => createProduct.mutate({ key: l.key, name })
+                                  ? (name) => setAddingProduct({ key: l.key, name })
                                   : undefined
                               }
-                              creating={creatingProductKey === l.key}
                             />
                             {l.product?.sku && (
                               <p className="mt-1 text-xs text-muted-foreground">{l.product.sku}</p>
@@ -1286,16 +1314,6 @@ export function PosPage() {
                                   </p>
                                 )
                               ))}
-                          </td>
-                          <td className="px-3 py-2">
-                            <select
-                              className="h-9 w-full min-w-[120px] rounded-md border bg-transparent px-2 text-sm"
-                              value={lineSource(l)}
-                              onChange={(e) => setLineSource(l.key, e.target.value as CartSource)}
-                            >
-                              <option value="VENDOR">{t('Vendor')}</option>
-                              <option value="WAREHOUSE">{t('Warehouse')}</option>
-                            </select>
                           </td>
                           <td className="px-3 py-2">
                             {isWarehouse ? (
@@ -1403,6 +1421,20 @@ export function PosPage() {
                   )}
                 </table>
               </div>
+
+              {addingProduct && addingLine && (
+                <AddProductDialog
+                  kind={addingLine.source === 'VENDOR' ? 'vendor' : 'warehouse'}
+                  initialName={addingProduct.name}
+                  storeId={hasSpecificStore ? currentStoreId : undefined}
+                  warehouses={warehouses}
+                  defaultWarehouseId={
+                    addingLine.desiredWarehouseId ?? defaultWarehouseId ?? undefined
+                  }
+                  onCreated={(p) => putCreatedProductOnRow(addingProduct.key, p)}
+                  onClose={() => setAddingProduct(null)}
+                />
+              )}
 
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <Button type="button" variant="outline" onClick={addRow}>

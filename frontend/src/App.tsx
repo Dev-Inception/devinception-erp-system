@@ -13,6 +13,7 @@ import { GatePassScanPage } from '@/pages/gate-pass-scan';
 import { DashboardPage } from '@/pages/dashboard';
 import { PosPage } from '@/pages/pos';
 import { ProductsPage } from '@/pages/products';
+import { VendorProductsPage } from '@/pages/vendor-products';
 import { CategoriesPage } from '@/pages/categories';
 import { UnitsPage } from '@/pages/units';
 import { LabourServicesPage } from '@/pages/labour-services';
@@ -93,6 +94,7 @@ function ModuleGuard({ moduleKey, children }: { moduleKey: string; children: Rea
 const MODULE_ROUTES: { path: string; element: React.ReactElement }[] = [
   { path: 'pos', element: <PosPage /> },
   { path: 'products', element: <ProductsPage /> },
+  { path: 'vendor-products', element: <VendorProductsPage /> },
   { path: 'categories', element: <CategoriesPage /> },
   { path: 'units', element: <UnitsPage /> },
   { path: 'labour-services', element: <LabourServicesPage /> },

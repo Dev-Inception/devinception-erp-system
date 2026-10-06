@@ -258,6 +258,7 @@ export interface ComboProduct {
   id: string;
   name: string;
   sku: string;
+  barcode?: string;
   salePrice: string;
   image?: string;
 }
@@ -290,9 +291,13 @@ export function ProductCombobox<P extends ComboProduct>({
       options={groups}
       getKey={(vs) => vs[0].id}
       getLabel={(vs) => vs[0].name}
-      matches={(vs, q) => vs[0].sku.toLowerCase().includes(q)}
+      matches={(vs, q) =>
+        vs[0].sku.toLowerCase().includes(q) || !!vs[0].barcode?.toLowerCase().includes(q)
+      }
       // A scanned barcode/SKU lands here as typed text + Enter.
-      onEnterExact={(vs, q) => vs.findIndex((v) => v[0].sku.toLowerCase() === q)}
+      onEnterExact={(vs, q) =>
+        vs.findIndex((v) => v[0].sku.toLowerCase() === q || v[0].barcode?.toLowerCase() === q)
+      }
       renderOption={(vs) => {
         const p = vs[0];
         return (

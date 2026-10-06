@@ -70,6 +70,11 @@ async function resolveSaleLineItems(
       }
     }
     const source = vendorDoc ? 'VENDOR' : 'WAREHOUSE';
+    // A vendor product (migration 033) has no stock — it's only ever bought
+    // from a vendor.
+    if (product.isVendorProduct && !vendorDoc) {
+      throw ApiError.badRequest(`${product.name} is a vendor product — pick a vendor for it`);
+    }
 
     let lineWarehouse = null;
     if (source === 'WAREHOUSE') {

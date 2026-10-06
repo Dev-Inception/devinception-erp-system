@@ -23,6 +23,16 @@ module.exports = function defineProduct(db) {
       },
       barcode: { type: DataTypes.STRING(60), allowNull: false, defaultValue: '' },
       warehouse: { type: DataTypes.STRING(24), field: 'warehouse_id' },
+      // A vendor product: bought from a vendor per sale (the vendor is
+      // picked on the sale line), with no stock or warehouse, belonging to
+      // `store` (migration 033). False for a warehouse product.
+      isVendorProduct: {
+        type: DataTypes.BOOLEAN,
+        allowNull: false,
+        defaultValue: false,
+        field: 'is_vendor_product',
+      },
+      store: { type: DataTypes.STRING(24), field: 'store_id' },
       category: { type: DataTypes.STRING(24), field: 'category_id' },
       brand: { type: DataTypes.STRING(24), field: 'brand_id' },
       unit: { type: DataTypes.STRING(24), field: 'unit_id' },
